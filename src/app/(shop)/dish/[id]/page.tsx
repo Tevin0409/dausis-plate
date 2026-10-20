@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { BackIcon } from "@/components/icons";
 import { DishForm } from "@/components/shop/dish-form";
 import { hhmm, weekdayName, nairobiToday } from "@/lib/format";
+import type { TodaysMenuRow } from "@/lib/database.types";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +18,7 @@ export default async function DishPage({ params, searchParams }: Props) {
   const [{ data: dish }, { data: options }, { data: todays }] = await Promise.all([
     supabase.from("dishes").select("id, name, description, price_kes, photo_url, is_regular, regular_available").eq("id", id).maybeSingle(),
     supabase.from("dish_options").select("id, label, price_delta_kes, is_default").eq("dish_id", id).order("sort_order"),
-    entry ? supabase.from("todays_menu").select("*").eq("entry_id", entry).maybeSingle() : Promise.resolve({ data: null }),
+    entry ? supabase.from("todays_menu").select("*").eq("entry_id", entry).returns<TodaysMenuRow[]>().maybeSingle() : Promise.resolve({ data: null }),
   ]);
   if (!dish) notFound();
 

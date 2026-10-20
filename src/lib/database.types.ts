@@ -1,236 +1,350 @@
-// Hand-written to match supabase/migrations. Regenerate with `bun run db:types`
-// once the local Supabase stack is running; the shape below matches its output.
+// Generated from the live Supabase project (supabase gen types). Regenerate after schema
+// changes with `bun run db:types`; keep the two helpers at the bottom.
 
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
-type DishCategory = "mains" | "sides" | "breakfast" | "drinks";
-type EntryKind = "day" | "week";
-type OrderMode = "dine_in" | "pickup" | "delivery";
-type PaymentMethod = "mpesa" | "card" | "on_handover";
-type PaymentStatus = "pending" | "paid" | "failed" | "unpaid";
-type OrderStatus = "new" | "preparing" | "ready" | "completed" | "cancelled";
-type StaffRole = "owner" | "staff";
-
 export type Database = {
+  __InternalSupabase: {
+    PostgrestVersion: "14.18";
+  };
   public: {
     Tables: {
-      staff: {
-        Row: { user_id: string; role: StaffRole; display_name: string | null; created_at: string };
-        Insert: { user_id: string; role?: StaffRole; display_name?: string | null; created_at?: string };
-        Update: { user_id?: string; role?: StaffRole; display_name?: string | null; created_at?: string };
+      delivery_zones: {
+        Row: { active: boolean; fee_kes: number; id: string; name: string; sort_order: number };
+        Insert: { active?: boolean; fee_kes: number; id?: string; name: string; sort_order?: number };
+        Update: { active?: boolean; fee_kes?: number; id?: string; name?: string; sort_order?: number };
         Relationships: [];
       };
-      dishes: {
-        Row: {
-          id: string;
-          name: string;
-          description: string;
-          price_kes: number;
-          photo_key: string | null;
-          photo_url: string | null;
-          photo_thumb_url: string | null;
-          category: DishCategory;
-          is_regular: boolean;
-          regular_available: boolean;
-          sort_order: number;
-          archived: boolean;
-          last_served_on: string | null;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          name: string;
-          description?: string;
-          price_kes: number;
-          photo_key?: string | null;
-          photo_url?: string | null;
-          photo_thumb_url?: string | null;
-          category?: DishCategory;
-          is_regular?: boolean;
-          regular_available?: boolean;
-          sort_order?: number;
-          archived?: boolean;
-          last_served_on?: string | null;
-        };
-        Update: Partial<Database["public"]["Tables"]["dishes"]["Insert"]>;
+      dining_tables: {
+        Row: { active: boolean; id: string; label: string; qr_token: string };
+        Insert: { active?: boolean; id?: string; label: string; qr_token?: string };
+        Update: { active?: boolean; id?: string; label?: string; qr_token?: string };
         Relationships: [];
       };
       dish_options: {
-        Row: { id: string; dish_id: string; label: string; price_delta_kes: number; is_default: boolean; sort_order: number };
-        Insert: { id?: string; dish_id: string; label: string; price_delta_kes?: number; is_default?: boolean; sort_order?: number };
-        Update: Partial<Database["public"]["Tables"]["dish_options"]["Insert"]>;
+        Row: { dish_id: string; id: string; is_default: boolean; label: string; price_delta_kes: number; sort_order: number };
+        Insert: { dish_id: string; id?: string; is_default?: boolean; label: string; price_delta_kes?: number; sort_order?: number };
+        Update: { dish_id?: string; id?: string; is_default?: boolean; label?: string; price_delta_kes?: number; sort_order?: number };
         Relationships: [
           { foreignKeyName: "dish_options_dish_id_fkey"; columns: ["dish_id"]; isOneToOne: false; referencedRelation: "dishes"; referencedColumns: ["id"] },
+          { foreignKeyName: "dish_options_dish_id_fkey"; columns: ["dish_id"]; isOneToOne: false; referencedRelation: "todays_menu"; referencedColumns: ["dish_id"] },
         ];
+      };
+      dishes: {
+        Row: {
+          archived: boolean;
+          category: Database["public"]["Enums"]["dish_category"];
+          created_at: string;
+          description: string;
+          id: string;
+          is_regular: boolean;
+          last_served_on: string | null;
+          name: string;
+          photo_key: string | null;
+          photo_thumb_url: string | null;
+          photo_url: string | null;
+          price_kes: number;
+          regular_available: boolean;
+          sort_order: number;
+          updated_at: string;
+        };
+        Insert: {
+          archived?: boolean;
+          category?: Database["public"]["Enums"]["dish_category"];
+          created_at?: string;
+          description?: string;
+          id?: string;
+          is_regular?: boolean;
+          last_served_on?: string | null;
+          name: string;
+          photo_key?: string | null;
+          photo_thumb_url?: string | null;
+          photo_url?: string | null;
+          price_kes: number;
+          regular_available?: boolean;
+          sort_order?: number;
+          updated_at?: string;
+        };
+        Update: {
+          archived?: boolean;
+          category?: Database["public"]["Enums"]["dish_category"];
+          created_at?: string;
+          description?: string;
+          id?: string;
+          is_regular?: boolean;
+          last_served_on?: string | null;
+          name?: string;
+          photo_key?: string | null;
+          photo_thumb_url?: string | null;
+          photo_url?: string | null;
+          price_kes?: number;
+          regular_available?: boolean;
+          sort_order?: number;
+          updated_at?: string;
+        };
+        Relationships: [];
       };
       menu_entries: {
         Row: {
-          id: string;
+          auto_hide_sold_out: boolean;
+          created_at: string;
           dish_id: string;
-          kind: EntryKind;
-          starts_on: string;
+          ended_early_at: string | null;
           ends_on: string;
-          price_kes: number | null;
+          id: string;
+          kind: Database["public"]["Enums"]["entry_kind"];
           plates_per_day: number | null;
+          price_kes: number | null;
+          published: boolean;
           show_from: string;
           show_until: string;
-          auto_hide_sold_out: boolean;
-          published: boolean;
-          ended_early_at: string | null;
           sort_order: number;
-          created_at: string;
+          starts_on: string;
         };
         Insert: {
-          id?: string;
+          auto_hide_sold_out?: boolean;
+          created_at?: string;
           dish_id: string;
-          kind?: EntryKind;
-          starts_on: string;
+          ended_early_at?: string | null;
           ends_on: string;
-          price_kes?: number | null;
+          id?: string;
+          kind?: Database["public"]["Enums"]["entry_kind"];
           plates_per_day?: number | null;
+          price_kes?: number | null;
+          published?: boolean;
           show_from?: string;
           show_until?: string;
-          auto_hide_sold_out?: boolean;
-          published?: boolean;
-          ended_early_at?: string | null;
           sort_order?: number;
+          starts_on: string;
         };
-        Update: Partial<Database["public"]["Tables"]["menu_entries"]["Insert"]>;
+        Update: {
+          auto_hide_sold_out?: boolean;
+          created_at?: string;
+          dish_id?: string;
+          ended_early_at?: string | null;
+          ends_on?: string;
+          id?: string;
+          kind?: Database["public"]["Enums"]["entry_kind"];
+          plates_per_day?: number | null;
+          price_kes?: number | null;
+          published?: boolean;
+          show_from?: string;
+          show_until?: string;
+          sort_order?: number;
+          starts_on?: string;
+        };
         Relationships: [
           { foreignKeyName: "menu_entries_dish_id_fkey"; columns: ["dish_id"]; isOneToOne: false; referencedRelation: "dishes"; referencedColumns: ["id"] },
+          { foreignKeyName: "menu_entries_dish_id_fkey"; columns: ["dish_id"]; isOneToOne: false; referencedRelation: "todays_menu"; referencedColumns: ["dish_id"] },
         ];
       };
       menu_entry_days: {
-        Row: { entry_id: string; day: string; plates_sold: number; sold_out_manual: boolean };
-        Insert: { entry_id: string; day: string; plates_sold?: number; sold_out_manual?: boolean };
-        Update: Partial<Database["public"]["Tables"]["menu_entry_days"]["Insert"]>;
+        Row: { day: string; entry_id: string; plates_sold: number; sold_out_manual: boolean };
+        Insert: { day: string; entry_id: string; plates_sold?: number; sold_out_manual?: boolean };
+        Update: { day?: string; entry_id?: string; plates_sold?: number; sold_out_manual?: boolean };
         Relationships: [
           { foreignKeyName: "menu_entry_days_entry_id_fkey"; columns: ["entry_id"]; isOneToOne: false; referencedRelation: "menu_entries"; referencedColumns: ["id"] },
-        ];
-      };
-      dining_tables: {
-        Row: { id: string; label: string; qr_token: string; active: boolean };
-        Insert: { id?: string; label: string; qr_token?: string; active?: boolean };
-        Update: Partial<Database["public"]["Tables"]["dining_tables"]["Insert"]>;
-        Relationships: [];
-      };
-      delivery_zones: {
-        Row: { id: string; name: string; fee_kes: number; active: boolean; sort_order: number };
-        Insert: { id?: string; name: string; fee_kes: number; active?: boolean; sort_order?: number };
-        Update: Partial<Database["public"]["Tables"]["delivery_zones"]["Insert"]>;
-        Relationships: [];
-      };
-      orders: {
-        Row: {
-          id: string;
-          number: number;
-          code: string;
-          public_token: string;
-          mode: OrderMode;
-          table_id: string | null;
-          pickup_at: string | null;
-          delivery_zone_id: string | null;
-          delivery_address: string | null;
-          delivery_notes: string | null;
-          customer_name: string;
-          customer_phone: string;
-          payment_method: PaymentMethod;
-          payment_status: PaymentStatus;
-          status: OrderStatus;
-          subtotal_kes: number;
-          delivery_fee_kes: number;
-          total_kes: number;
-          mpesa_checkout_request_id: string | null;
-          mpesa_receipt: string | null;
-          created_at: string;
-          updated_at: string;
-          status_changed_at: string;
-        };
-        Insert: never;
-        Update: {
-          status?: OrderStatus;
-          payment_status?: PaymentStatus;
-          mpesa_checkout_request_id?: string | null;
-          mpesa_receipt?: string | null;
-        };
-        Relationships: [
-          { foreignKeyName: "orders_table_id_fkey"; columns: ["table_id"]; isOneToOne: false; referencedRelation: "dining_tables"; referencedColumns: ["id"] },
-          { foreignKeyName: "orders_delivery_zone_id_fkey"; columns: ["delivery_zone_id"]; isOneToOne: false; referencedRelation: "delivery_zones"; referencedColumns: ["id"] },
+          { foreignKeyName: "menu_entry_days_entry_id_fkey"; columns: ["entry_id"]; isOneToOne: false; referencedRelation: "todays_menu"; referencedColumns: ["entry_id"] },
         ];
       };
       order_items: {
         Row: {
-          id: string;
-          order_id: string;
           dish_id: string;
+          id: string;
           menu_entry_id: string | null;
-          option_id: string | null;
           name: string;
-          option_label: string | null;
-          unit_price_kes: number;
-          quantity: number;
           note: string | null;
+          option_id: string | null;
+          option_label: string | null;
+          order_id: string;
+          quantity: number;
+          unit_price_kes: number;
         };
-        Insert: never;
-        Update: never;
+        Insert: {
+          dish_id: string;
+          id?: string;
+          menu_entry_id?: string | null;
+          name: string;
+          note?: string | null;
+          option_id?: string | null;
+          option_label?: string | null;
+          order_id: string;
+          quantity: number;
+          unit_price_kes: number;
+        };
+        Update: {
+          dish_id?: string;
+          id?: string;
+          menu_entry_id?: string | null;
+          name?: string;
+          note?: string | null;
+          option_id?: string | null;
+          option_label?: string | null;
+          order_id?: string;
+          quantity?: number;
+          unit_price_kes?: number;
+        };
         Relationships: [
+          { foreignKeyName: "order_items_dish_id_fkey"; columns: ["dish_id"]; isOneToOne: false; referencedRelation: "dishes"; referencedColumns: ["id"] },
+          { foreignKeyName: "order_items_dish_id_fkey"; columns: ["dish_id"]; isOneToOne: false; referencedRelation: "todays_menu"; referencedColumns: ["dish_id"] },
+          { foreignKeyName: "order_items_menu_entry_id_fkey"; columns: ["menu_entry_id"]; isOneToOne: false; referencedRelation: "menu_entries"; referencedColumns: ["id"] },
+          { foreignKeyName: "order_items_menu_entry_id_fkey"; columns: ["menu_entry_id"]; isOneToOne: false; referencedRelation: "todays_menu"; referencedColumns: ["entry_id"] },
+          { foreignKeyName: "order_items_option_id_fkey"; columns: ["option_id"]; isOneToOne: false; referencedRelation: "dish_options"; referencedColumns: ["id"] },
           { foreignKeyName: "order_items_order_id_fkey"; columns: ["order_id"]; isOneToOne: false; referencedRelation: "orders"; referencedColumns: ["id"] },
         ];
+      };
+      orders: {
+        Row: {
+          code: string | null;
+          created_at: string;
+          customer_name: string;
+          customer_phone: string;
+          delivery_address: string | null;
+          delivery_fee_kes: number;
+          delivery_notes: string | null;
+          delivery_zone_id: string | null;
+          id: string;
+          mode: Database["public"]["Enums"]["order_mode"];
+          mpesa_checkout_request_id: string | null;
+          mpesa_receipt: string | null;
+          number: number;
+          payment_method: Database["public"]["Enums"]["payment_method"];
+          payment_status: Database["public"]["Enums"]["payment_status"];
+          pickup_at: string | null;
+          public_token: string;
+          status: Database["public"]["Enums"]["order_status"];
+          status_changed_at: string;
+          subtotal_kes: number;
+          table_id: string | null;
+          total_kes: number;
+          updated_at: string;
+        };
+        Insert: {
+          code?: string | null;
+          created_at?: string;
+          customer_name: string;
+          customer_phone: string;
+          delivery_address?: string | null;
+          delivery_fee_kes?: number;
+          delivery_notes?: string | null;
+          delivery_zone_id?: string | null;
+          id?: string;
+          mode: Database["public"]["Enums"]["order_mode"];
+          mpesa_checkout_request_id?: string | null;
+          mpesa_receipt?: string | null;
+          number?: never;
+          payment_method: Database["public"]["Enums"]["payment_method"];
+          payment_status?: Database["public"]["Enums"]["payment_status"];
+          pickup_at?: string | null;
+          public_token?: string;
+          status?: Database["public"]["Enums"]["order_status"];
+          status_changed_at?: string;
+          subtotal_kes: number;
+          table_id?: string | null;
+          total_kes: number;
+          updated_at?: string;
+        };
+        Update: {
+          code?: string | null;
+          created_at?: string;
+          customer_name?: string;
+          customer_phone?: string;
+          delivery_address?: string | null;
+          delivery_fee_kes?: number;
+          delivery_notes?: string | null;
+          delivery_zone_id?: string | null;
+          id?: string;
+          mode?: Database["public"]["Enums"]["order_mode"];
+          mpesa_checkout_request_id?: string | null;
+          mpesa_receipt?: string | null;
+          number?: never;
+          payment_method?: Database["public"]["Enums"]["payment_method"];
+          payment_status?: Database["public"]["Enums"]["payment_status"];
+          pickup_at?: string | null;
+          public_token?: string;
+          status?: Database["public"]["Enums"]["order_status"];
+          status_changed_at?: string;
+          subtotal_kes?: number;
+          table_id?: string | null;
+          total_kes?: number;
+          updated_at?: string;
+        };
+        Relationships: [
+          { foreignKeyName: "orders_delivery_zone_id_fkey"; columns: ["delivery_zone_id"]; isOneToOne: false; referencedRelation: "delivery_zones"; referencedColumns: ["id"] },
+          { foreignKeyName: "orders_table_id_fkey"; columns: ["table_id"]; isOneToOne: false; referencedRelation: "dining_tables"; referencedColumns: ["id"] },
+        ];
+      };
+      staff: {
+        Row: { created_at: string; display_name: string | null; role: Database["public"]["Enums"]["staff_role"]; user_id: string };
+        Insert: { created_at?: string; display_name?: string | null; role?: Database["public"]["Enums"]["staff_role"]; user_id: string };
+        Update: { created_at?: string; display_name?: string | null; role?: Database["public"]["Enums"]["staff_role"]; user_id?: string };
+        Relationships: [];
       };
     };
     Views: {
       todays_menu: {
         Row: {
-          entry_id: string;
-          kind: EntryKind;
-          starts_on: string;
-          ends_on: string;
-          show_from: string;
-          show_until: string;
-          sort_order: number;
-          dish_id: string;
-          name: string;
-          description: string;
+          auto_hide_sold_out: boolean | null;
+          category: Database["public"]["Enums"]["dish_category"] | null;
+          description: string | null;
+          dish_id: string | null;
+          ends_on: string | null;
+          entry_id: string | null;
+          kind: Database["public"]["Enums"]["entry_kind"] | null;
+          name: string | null;
+          open_now: boolean | null;
           photo_key: string | null;
-          category: DishCategory;
-          price_kes: number;
-          plates_per_day: number | null;
-          plates_sold: number;
-          plates_left: number | null;
-          sold_out: boolean;
-          open_now: boolean;
-          auto_hide_sold_out: boolean;
-          photo_url: string | null;
           photo_thumb_url: string | null;
+          photo_url: string | null;
+          plates_left: number | null;
+          plates_per_day: number | null;
+          plates_sold: number | null;
+          price_kes: number | null;
+          show_from: string | null;
+          show_until: string | null;
+          sold_out: boolean | null;
+          sort_order: number | null;
+          starts_on: string | null;
         };
         Relationships: [];
       };
     };
     Functions: {
-      place_order: { Args: { p: Json }; Returns: { public_token: string; code: string; total_kes: number }[] };
-      get_order_status: { Args: { p_token: string }; Returns: Json };
-      resolve_table: { Args: { p_token: string }; Returns: { id: string; label: string }[] };
       copy_menu_day: { Args: { p_from: string; p_to: string }; Returns: number };
-      set_entry_sold_out: { Args: { p_entry: string; p_sold_out: boolean }; Returns: undefined };
       dashboard_stats: { Args: { p_day: string }; Returns: Json };
-      is_staff: { Args: Record<PropertyKey, never>; Returns: boolean };
-      nairobi_today: { Args: Record<PropertyKey, never>; Returns: string };
+      get_order_status: { Args: { p_token: string }; Returns: Json };
+      is_owner: { Args: never; Returns: boolean };
+      is_staff: { Args: never; Returns: boolean };
+      nairobi_time: { Args: never; Returns: string };
+      nairobi_today: { Args: never; Returns: string };
+      place_order: { Args: { p: Json }; Returns: { code: string; public_token: string; total_kes: number }[] };
+      resolve_table: { Args: { p_token: string }; Returns: { id: string; label: string }[] };
+      set_entry_sold_out: { Args: { p_entry: string; p_sold_out: boolean }; Returns: undefined };
     };
     Enums: {
-      dish_category: DishCategory;
-      entry_kind: EntryKind;
-      order_mode: OrderMode;
-      payment_method: PaymentMethod;
-      payment_status: PaymentStatus;
-      order_status: OrderStatus;
-      staff_role: StaffRole;
+      dish_category: "mains" | "sides" | "breakfast" | "drinks";
+      entry_kind: "day" | "week";
+      order_mode: "dine_in" | "pickup" | "delivery";
+      order_status: "new" | "preparing" | "ready" | "completed" | "cancelled";
+      payment_method: "mpesa" | "card" | "on_handover";
+      payment_status: "pending" | "paid" | "failed" | "unpaid";
+      staff_role: "owner" | "staff";
     };
-    CompositeTypes: Record<string, never>;
+    CompositeTypes: {
+      [_ in never]: never;
+    };
   };
 };
 
+// ───────── app helpers (keep when regenerating) ─────────
+
 type PublicSchema = Database["public"];
-export type Tables<T extends keyof PublicSchema["Tables"]> = PublicSchema["Tables"][T]["Row"];
 export type Enums<T extends keyof PublicSchema["Enums"]> = PublicSchema["Enums"][T];
-export type TodaysMenuRow = PublicSchema["Views"]["todays_menu"]["Row"];
+
+type ViewRow = PublicSchema["Views"]["todays_menu"]["Row"];
+/** Postgres reports every view column as nullable; these ones never are (inner join + not-null columns). */
+type NeverNull = Exclude<keyof ViewRow, "plates_left" | "plates_per_day" | "photo_key" | "photo_url" | "photo_thumb_url">;
+export type TodaysMenuRow = { [K in NeverNull]: NonNullable<ViewRow[K]> } & Pick<
+  ViewRow,
+  "plates_left" | "plates_per_day" | "photo_key" | "photo_url" | "photo_thumb_url"
+>;

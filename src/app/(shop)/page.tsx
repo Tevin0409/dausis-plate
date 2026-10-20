@@ -21,7 +21,7 @@ const CATEGORY_LABEL: Record<Enums<"dish_category">, string> = {
 export default async function MenuPage() {
   const supabase = await createClient();
   const [{ data: today }, { data: regulars }, { data: optionRows }] = await Promise.all([
-    supabase.from("todays_menu").select("*").order("sort_order"),
+    supabase.from("todays_menu").select("*").order("sort_order").returns<TodaysMenuRow[]>(),
     supabase
       .from("dishes")
       .select("id, name, description, price_kes, photo_thumb_url, category, regular_available")
