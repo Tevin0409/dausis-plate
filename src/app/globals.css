@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+/* Dausis Plate tokens. Roles, not just colours:
+   deep teal = actions with white text, brand teal = graphics,
+   coral/blush = rotating (today / this week) dishes only. */
+@theme {
+  --color-teal-deep: #006b66;
+  --color-teal-deeper: #004e4a;
+  --color-teal: #009e96;
+  --color-teal-tint: #e6f6f5;
+  --color-coral: #e56b6f;
+  --color-coral-ink: #8a3a3d;
+  --color-coral-text: #b4474b;
+  --color-blush: #fbe8e6;
+  --color-blush-deep: #f3d3cf;
+  --color-pink: #e99d99;
+  --color-cream: #fbf7f1;
+  --color-sand: #ece5da;
+  --color-sand-deep: #d9d2c7;
+  --color-mist: #f4f6f8;
+  --color-line: #e2e8f0;
+  --color-line-deep: #cbd5e1;
+  --color-ink: #1a202c;
+  --color-ink-soft: #4a5568;
+  --color-amber-tint: #fef3c7;
+  --color-amber-ink: #78350f;
+  --color-amber: #b45309;
+
+  --font-sans: var(--font-dm-sans), system-ui, sans-serif;
+  --font-display: var(--font-dm-serif), Georgia, serif;
+  --font-script: var(--font-parisienne), cursive;
+}
+
+body {
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+.photo-placeholder {
+  background-color: var(--color-blush-deep);
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgb(229 107 111 / 0.1) 0 12px,
+    transparent 12px 24px
+  );
+}
