@@ -6,7 +6,6 @@ import { CartBar } from "@/components/shop/ui";
 import { PlusIcon } from "@/components/icons";
 import type { Enums, TodaysMenuRow } from "@/lib/database.types";
 import { formatKes, hhmm, nairobiToday, weekdayName } from "@/lib/format";
-import { photoUrl } from "@/lib/photos";
 import { createClient } from "@/lib/supabase/server";
 import { parseTableCookie, TABLE_COOKIE } from "@/lib/table-cookie";
 
@@ -25,7 +24,7 @@ export default async function MenuPage() {
     supabase.from("todays_menu").select("*").order("sort_order"),
     supabase
       .from("dishes")
-      .select("id, name, description, price_kes, photo_key, category, regular_available")
+      .select("id, name, description, price_kes, photo_thumb_url, category, regular_available")
       .eq("is_regular", true)
       .eq("archived", false)
       .order("category")
@@ -94,7 +93,7 @@ export default async function MenuPage() {
           <section key={category} id={category} aria-label={CATEGORY_LABEL[category]} className="scroll-mt-4">
             <h3 className="mt-3 text-xs font-bold uppercase tracking-wider text-ink-soft">{CATEGORY_LABEL[category]}</h3>
             {dishes.map((d) => {
-              const src = photoUrl(d.photo_key, 160);
+              const src = d.photo_thumb_url;
               return (
                 <div key={d.id} className={`flex items-center gap-3.5 border-b border-sand py-3 ${d.regular_available ? "" : "opacity-60"}`}>
                   <div className="relative size-[68px] flex-none overflow-hidden rounded-2xl bg-teal-tint">
@@ -126,7 +125,7 @@ export default async function MenuPage() {
 }
 
 function RotatingCard({ dish, hasOptions }: { dish: TodaysMenuRow; hasOptions: boolean }) {
-  const src = photoUrl(dish.photo_key, 520);
+  const src = dish.photo_thumb_url;
   const orderable = dish.open_now && !dish.sold_out;
   const status = dish.sold_out
     ? "Sold out"

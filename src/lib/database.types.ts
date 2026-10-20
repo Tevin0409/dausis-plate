@@ -27,6 +27,8 @@ export type Database = {
           description: string;
           price_kes: number;
           photo_key: string | null;
+          photo_url: string | null;
+          photo_thumb_url: string | null;
           category: DishCategory;
           is_regular: boolean;
           regular_available: boolean;
@@ -42,6 +44,8 @@ export type Database = {
           description?: string;
           price_kes: number;
           photo_key?: string | null;
+          photo_url?: string | null;
+          photo_thumb_url?: string | null;
           category?: DishCategory;
           is_regular?: boolean;
           regular_available?: boolean;
@@ -197,6 +201,8 @@ export type Database = {
           sold_out: boolean;
           open_now: boolean;
           auto_hide_sold_out: boolean;
+          photo_url: string | null;
+          photo_thumb_url: string | null;
         };
         Relationships: [];
       };

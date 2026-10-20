@@ -1,12 +1,10 @@
 import type { NextConfig } from "next";
 
-const photoHost = process.env.NEXT_PUBLIC_PHOTO_BASE_URL
-  ? new URL(process.env.NEXT_PUBLIC_PHOTO_BASE_URL).hostname
-  : undefined;
-
 const config: NextConfig = {
   images: {
-    remotePatterns: photoHost ? [{ protocol: "https", hostname: photoHost }] : [],
+    // Dish photos are resized and converted to WebP before they reach R2 and are served
+    // from Cloudflare's CDN, so Vercel's image optimiser would only add cost and latency.
+    unoptimized: true,
   },
   experimental: {
     serverActions: { bodySizeLimit: "1mb" },

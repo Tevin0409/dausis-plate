@@ -37,11 +37,15 @@ Online menu, ordering (dine-in by table QR, pickup, delivery) and the owner dash
    select id, 'owner', 'Mama Dausi' from auth.users where email = 'her@email.com';
    ```
    After that she can add other staff the same way (role `staff`).
-4. **Cloudflare R2:** create a bucket, give it a public custom domain (e.g. `photos.dausisplate.co.ke`), and create an API token with Object Read & Write on that bucket. Add a CORS rule so the browser can upload directly:
-   ```json
-   [{ "AllowedOrigins": ["https://<site>", "http://localhost:3000"], "AllowedMethods": ["PUT"], "AllowedHeaders": ["content-type"], "MaxAgeSeconds": 3600 }]
-   ```
-   Optional: enable Image Transformations on the zone and set `NEXT_PUBLIC_CF_IMAGE_RESIZING=true` for resized photos.
+4. **Cloudflare R2** (bucket `dausis-plate-photos`):
+   - Settings → Public access: connect a custom domain (e.g. `photos.dausisplate.co.ke`) or turn on the r2.dev URL for testing. Put that URL in `NEXT_PUBLIC_PHOTO_BASE_URL`.
+   - Settings → CORS policy, so the browser can upload directly:
+     ```json
+     [{ "AllowedOrigins": ["https://<site>", "http://localhost:3000"], "AllowedMethods": ["PUT"], "AllowedHeaders": ["content-type"], "MaxAgeSeconds": 3600 }]
+     ```
+   - R2 → Manage API tokens: Object Read & Write, scoped to this bucket. Copy the account ID, access key ID and secret into `R2_*`.
+
+   **How photos flow:** the dashboard resizes each photo in the browser to WebP (1600px and 480px, EXIF stripped), asks `/api/uploads` for two presigned PUT URLs, and uploads straight to R2. On save, the server checks both files exist, then stores `photo_url` and `photo_thumb_url` on the dish. Replacing a photo deletes the old files.
 5. **Env:** copy `.env.example` to `.env.local` and fill it in. Add the same values in Vercel.
 6. **Table QR codes:** each row in `dining_tables` has a `qr_token`. Print a QR for `https://<site>/t/<qr_token>` on each table.
 

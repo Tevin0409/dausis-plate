@@ -18,7 +18,7 @@ export default async function DishEditorPage({ params, searchParams }: Props) {
   const supabase = await createClient();
   const dish = isNew
     ? null
-    : (await supabase.from("dishes").select("id, name, description, price_kes, category, photo_key, is_regular").eq("id", id).maybeSingle()).data;
+    : (await supabase.from("dishes").select("id, name, description, price_kes, category, photo_url, is_regular").eq("id", id).maybeSingle()).data;
   if (!isNew && !dish) notFound();
 
   const planDay = isNew && day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
@@ -34,7 +34,7 @@ export default async function DishEditorPage({ params, searchParams }: Props) {
 
       <form action={saveDish} className="flex flex-col gap-[18px] rounded-[20px] border border-line bg-white p-6">
         <input type="hidden" name="id" value={dish?.id ?? ""} />
-        <PhotoUpload name="photo_key" initialKey={dish?.photo_key ?? null} />
+        <PhotoUpload initialUrl={dish?.photo_url ?? null} />
 
         <label className={label}>
           Dish name

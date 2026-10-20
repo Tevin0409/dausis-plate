@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import type { Enums } from "@/lib/database.types";
 import { addDays, weekStart } from "@/lib/format";
+import { deletePhotoSet, PHOTO_KEY, photoExists, publicPhotoUrl } from "@/lib/r2";
 import { createClient, getStaff } from "@/lib/supabase/server";
 
 async function staffClient() {
@@ -29,7 +30,8 @@ const dishForm = z.object({
   description: z.string().trim().max(300),
   price_kes: z.coerce.number().int().min(0).max(100000),
   category: z.enum(["mains", "sides", "breakfast", "drinks"]),
-  photo_key: z.string().max(200),
+  photo_key: z.string().regex(PHOTO_KEY).optional().or(z.literal("")),
+  photo_thumb_key: z.string().regex(PHOTO_KEY).optional().or(z.literal("")),
   is_regular: z.literal("on").optional(),
   add_day: isoDay.optional().or(z.literal("")),
   add_kind: z.enum(["day", "week"]).optional(),
@@ -41,19 +43,39 @@ const dishForm = z.object({
 export async function saveDish(formData: FormData) {
   const supabase = await staffClient();
   const v = dishForm.parse(Object.fromEntries(formData));
-  const row = {
+  const row: {
+    name: string;
+    description: string;
+    price_kes: number;
+    category: Enums<"dish_category">;
+    is_regular: boolean;
+    photo_key?: string;
+    photo_url?: string;
+    photo_thumb_url?: string;
+  } = {
     name: v.name,
     description: v.description,
     price_kes: v.price_kes,
     category: v.category,
-    photo_key: v.photo_key || null,
     is_regular: v.is_regular === "on",
   };
 
+  // A new photo was uploaded: make sure both files really are in R2 before pointing the dish at them.
+  if (v.photo_key && v.photo_thumb_key) {
+    const sameSet = v.photo_key.split("/")[1] === v.photo_thumb_key.split("/")[1];
+    const [full, thumb] = await Promise.all([photoExists(v.photo_key), photoExists(v.photo_thumb_key)]);
+    if (!sameSet || !full || !thumb) throw new Error("The photo didn’t finish uploading. Try again.");
+    row.photo_key = v.photo_key;
+    row.photo_url = publicPhotoUrl(v.photo_key);
+    row.photo_thumb_url = publicPhotoUrl(v.photo_thumb_key);
+  }
+
   let dishId = v.id || null;
   if (dishId) {
+    const { data: before } = await supabase.from("dishes").select("photo_key").eq("id", dishId).maybeSingle();
     const { error } = await supabase.from("dishes").update(row).eq("id", dishId);
     if (error) throw error;
+    if (row.photo_key && before?.photo_key && before.photo_key !== row.photo_key) await deletePhotoSet(before.photo_key);
   } else {
     const { data, error } = await supabase.from("dishes").insert(row).select("id").single();
     if (error) throw error;
