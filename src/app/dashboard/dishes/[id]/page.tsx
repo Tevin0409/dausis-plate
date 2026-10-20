@@ -4,7 +4,7 @@ import { PhotoUpload } from "@/components/dashboard/photo-upload";
 import { SubmitButton } from "@/components/dashboard/submit-button";
 import { dayLabel } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
-import { saveDish } from "../../actions";
+import { deleteDish, saveDish } from "../../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -100,6 +100,21 @@ export default async function DishEditorPage({ params, searchParams }: Props) {
           {planDay ? "Save and add to menu" : "Save dish"}
         </SubmitButton>
       </form>
+
+      {dish && (
+        <form action={deleteDish} className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-line bg-white px-6 py-4">
+          <input type="hidden" name="dishId" value={dish.id} />
+          <input type="hidden" name="after" value={dish.is_regular ? "/dashboard/manage" : "/dashboard/menu"} />
+          <p className="text-sm text-ink-soft">Remove this dish from the menu and the dish library. Past orders keep their record.</p>
+          <SubmitButton
+            confirm={`Delete ${dish.name}? It will disappear from the menu and the dish library.`}
+            pendingLabel="Deleting…"
+            className="min-h-11 rounded-xl border-[1.5px] border-coral-ink bg-white px-4 text-sm font-bold text-coral-ink"
+          >
+            Delete dish
+          </SubmitButton>
+        </form>
+      )}
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { PlusIcon } from "@/components/icons";
 import { formatKes, nairobiToday, weekdayName } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
-import { setRegularAvailable } from "../actions";
+import { deleteDish, removeFromRegulars, setRegularAvailable } from "../actions";
 import { SubmitButton } from "@/components/dashboard/submit-button";
 
 export const dynamic = "force-dynamic";
@@ -111,7 +111,7 @@ export default async function ManagePage() {
           </Link>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[620px] border-collapse text-[15px]">
+          <table className="w-full min-w-[760px] border-collapse text-[15px]">
             <thead>
               <tr className="bg-[#f8fafc] text-left text-[13px] text-ink-soft">
                 <th scope="col" className="px-5 py-2.5 font-semibold">Item</th>
@@ -142,7 +142,25 @@ export default async function ManagePage() {
                     </form>
                   </td>
                   <td className="px-5 py-1.5 text-right">
+                    <div className="flex justify-end gap-1.5">
                     <Link href={`/dashboard/dishes/${d.id}`} className="inline-flex min-h-10 items-center rounded-[10px] border border-line-deep px-3.5 text-sm font-semibold text-teal-deep">Edit</Link>
+                    <form action={removeFromRegulars}>
+                      <input type="hidden" name="dishId" value={d.id} />
+                      <SubmitButton aria-label={`Take ${d.name} off the everyday menu`} className="min-h-10 whitespace-nowrap rounded-[10px] border border-line-deep bg-white px-3 text-sm font-semibold text-ink-soft">
+                        Take off menu
+                      </SubmitButton>
+                    </form>
+                    <form action={deleteDish}>
+                      <input type="hidden" name="dishId" value={d.id} />
+                      <SubmitButton
+                        confirm={`Delete ${d.name}? It will disappear from the menu and the dish library.`}
+                        aria-label={`Delete ${d.name}`}
+                        className="min-h-10 rounded-[10px] border border-line-deep bg-white px-3 text-sm font-semibold text-coral-ink"
+                      >
+                        Delete
+                      </SubmitButton>
+                    </form>
+                    </div>
                   </td>
                 </tr>
               ))}

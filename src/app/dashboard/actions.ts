@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import type { Enums } from "@/lib/database.types";
-import { addDays, weekStart } from "@/lib/format";
+import { addDays, nairobiToday, weekStart } from "@/lib/format";
 import { deletePhotoSet, PHOTO_KEY, photoExists, publicPhotoUrl } from "@/lib/r2";
 import { createClient, getStaff } from "@/lib/supabase/server";
 
@@ -219,4 +219,47 @@ export async function cancelOrder(formData: FormData) {
   const { error } = await supabase.from("orders").update({ status: "cancelled" }).eq("id", orderId);
   if (error) throw error;
   revalidatePath("/dashboard/orders");
+}
+
+// ───────── removing dishes ─────────
+
+/** Takes a regular dish off the everyday menu; it stays in the dish library for rotating days. */
+export async function removeFromRegulars(formData: FormData) {
+  const { dishId } = z.object({ dishId: uuid }).parse(Object.fromEntries(formData));
+  const supabase = await staffClient();
+  const { error } = await supabase.from("dishes").update({ is_regular: false }).eq("id", dishId);
+  if (error) throw error;
+  revalidatePath("/dashboard/manage");
+  revalidatePath("/dashboard/menu");
+  revalidatePath("/");
+}
+
+/**
+ * Deletes a dish everywhere. A dish that was never ordered is removed for good (with its photo);
+ * one with past orders is archived instead so receipts and sales history stay intact.
+ * Either way it disappears from the menu, the planner and the library, today included.
+ */
+export async function deleteDish(formData: FormData) {
+  const { dishId, after } = z
+    .object({ dishId: uuid, after: z.enum(["/dashboard/menu", "/dashboard/manage"]).optional() })
+    .parse(Object.fromEntries(formData));
+  const supabase = await staffClient();
+  const { data: dish } = await supabase.from("dishes").select("photo_key").eq("id", dishId).maybeSingle();
+  if (!dish) return;
+
+  const { count } = await supabase.from("order_items").select("id", { count: "exact", head: true }).eq("dish_id", dishId);
+  if (!count) {
+    await supabase.from("menu_entries").delete().eq("dish_id", dishId);
+    const { error } = await supabase.from("dishes").delete().eq("id", dishId);
+    if (error) throw error;
+    await deletePhotoSet(dish.photo_key);
+  } else {
+    const { error } = await supabase.from("dishes").update({ archived: true, is_regular: false }).eq("id", dishId);
+    if (error) throw error;
+    await supabase.from("menu_entries").update({ published: false }).eq("dish_id", dishId).gte("ends_on", nairobiToday());
+  }
+  revalidatePath("/dashboard/manage");
+  revalidatePath("/dashboard/menu");
+  revalidatePath("/");
+  if (after) redirect(after);
 }
