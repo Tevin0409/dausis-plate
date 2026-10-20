@@ -1,7 +1,7 @@
 -- Dausis Plate: menu, rotating daily/weekly dishes, ordering.
 -- All "today" logic runs on Nairobi time.
 
-create extension if not exists pgcrypto;
+create extension if not exists pgcrypto with schema extensions;
 
 -- ───────────────────────── enums ─────────────────────────
 create type public.staff_role as enum ('owner', 'staff');
@@ -14,10 +14,10 @@ create type public.order_status as enum ('new', 'preparing', 'ready', 'completed
 
 -- ───────────────────────── time helpers ─────────────────────────
 create or replace function public.nairobi_today() returns date
-language sql stable as $$ select (now() at time zone 'Africa/Nairobi')::date $$;
+language sql stable set search_path = '' as $$ select (now() at time zone 'Africa/Nairobi')::date $$;
 
 create or replace function public.nairobi_time() returns time
-language sql stable as $$ select (now() at time zone 'Africa/Nairobi')::time $$;
+language sql stable set search_path = '' as $$ select (now() at time zone 'Africa/Nairobi')::time $$;
 
 -- ───────────────────────── staff ─────────────────────────
 create table public.staff (
@@ -105,7 +105,7 @@ create table public.menu_entry_days (
 create table public.dining_tables (
   id uuid primary key default gen_random_uuid(),
   label text not null unique,
-  qr_token text not null unique default encode(gen_random_bytes(8), 'hex'),
+  qr_token text not null unique default encode(extensions.gen_random_bytes(8), 'hex'),
   active boolean not null default true
 );
 
@@ -164,7 +164,7 @@ create index order_items_order_idx on public.order_items (order_id);
 
 -- ───────────────────────── triggers ─────────────────────────
 create or replace function public.touch_updated_at() returns trigger
-language plpgsql as $$
+language plpgsql set search_path = '' as $$
 begin
   new.updated_at := now();
   if tg_table_name = 'orders' and new.status is distinct from old.status then
