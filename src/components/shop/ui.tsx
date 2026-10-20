@@ -29,18 +29,25 @@ export function Stepper({ value, onChange, label }: { value: number; onChange: (
   );
 }
 
-export function BottomBar({ children }: { children: React.ReactNode }) {
+/** Sticky action bar on phones; with `inlineOnDesktop` it sits in the page flow from md up. */
+export function BottomBar({ children, inlineOnDesktop = false }: { children: React.ReactNode; inlineOnDesktop?: boolean | "padded" }) {
   return (
-    <div className="fixed inset-x-0 bottom-0 z-10 border-t border-sand bg-cream">
-      <div className="mx-auto flex max-w-md gap-3 px-5 pb-6 pt-3.5">{children}</div>
+    <div className={`fixed inset-x-0 bottom-0 z-10 border-t border-sand bg-cream ${inlineOnDesktop ? "md:static md:border-0 md:bg-transparent" : ""}`}>
+      <div className={`mx-auto flex max-w-md gap-3 px-5 pb-6 pt-3.5 ${inlineOnDesktop ? `md:max-w-none md:pb-0 md:pt-6 ${inlineOnDesktop === "padded" ? "" : "md:px-0"}` : ""}`}>{children}</div>
     </div>
   );
+}
+
+/** Centred column for the ordering steps (cart, checkout, status). */
+export function Narrow({ children }: { children: React.ReactNode }) {
+  return <div className="mx-auto max-w-md pb-28 md:max-w-xl md:pt-6">{children}</div>;
 }
 
 export function CartBar() {
   const { count, subtotalKes } = useCart();
   if (count === 0) return null;
   return (
+    <div className="lg:hidden">
     <BottomBar>
       <Link href="/cart" className="flex min-h-14 flex-1 items-center justify-between rounded-[18px] bg-teal-deep px-5 font-semibold text-white">
         <span className="flex items-center gap-2.5">
@@ -50,6 +57,7 @@ export function CartBar() {
         <span>{formatKes(subtotalKes)}</span>
       </Link>
     </BottomBar>
+    </div>
   );
 }
 

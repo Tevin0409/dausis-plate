@@ -195,7 +195,7 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
         <p role="alert" className="mx-5 mt-4 rounded-xl bg-blush px-4 py-3 text-[15px] text-coral-ink">{error}</p>
       )}
 
-      <BottomBar>
+      <BottomBar inlineOnDesktop="padded">
         <button type="submit" disabled={pending} className="flex min-h-14 flex-1 items-center justify-between rounded-[18px] bg-teal-deep px-5 font-semibold text-white disabled:opacity-60">
           <span>{pending ? "Placing order…" : cta}</span>
           <span>{formatKes(total)}</span>

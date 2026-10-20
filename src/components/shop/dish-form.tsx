@@ -29,7 +29,7 @@ export function DishForm({ dishId, menuEntryId, name, basePriceKes, options, una
 
   return (
     <form
-      className="flex flex-col gap-[18px] pb-32"
+      className="flex flex-col gap-[18px] pb-32 md:pb-0"
       onSubmit={(e) => {
         e.preventDefault();
         if (unavailable) return;
@@ -72,7 +72,7 @@ export function DishForm({ dishId, menuEntryId, name, basePriceKes, options, una
         />
       </div>
 
-      <BottomBar>
+      <BottomBar inlineOnDesktop>
         {unavailable ? (
           <p className="flex min-h-14 flex-1 items-center justify-center rounded-2xl bg-sand font-semibold text-ink-soft">{unavailable}</p>
         ) : (

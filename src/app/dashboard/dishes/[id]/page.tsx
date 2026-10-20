@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PhotoUpload } from "@/components/dashboard/photo-upload";
+import { SubmitButton } from "@/components/dashboard/submit-button";
 import { dayLabel } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
 import { saveDish } from "../../actions";
@@ -34,6 +35,8 @@ export default async function DishEditorPage({ params, searchParams }: Props) {
 
       <form action={saveDish} className="flex flex-col gap-[18px] rounded-[20px] border border-line bg-white p-6">
         <input type="hidden" name="id" value={dish?.id ?? ""} />
+        {/* New dishes get their id up front, so a repeated submit of this form can't create a second copy. */}
+        {isNew && <input type="hidden" name="new_id" value={crypto.randomUUID()} />}
         <PhotoUpload initialUrl={dish?.photo_url ?? null} />
 
         <label className={label}>
@@ -93,9 +96,9 @@ export default async function DishEditorPage({ params, searchParams }: Props) {
           </fieldset>
         )}
 
-        <button className="min-h-[52px] self-start rounded-[14px] bg-teal-deep px-7 font-bold text-white">
+        <SubmitButton pendingLabel="Saving…" className="min-h-[52px] self-start rounded-[14px] bg-teal-deep px-7 font-bold text-white">
           {planDay ? "Save and add to menu" : "Save dish"}
-        </button>
+        </SubmitButton>
       </form>
     </div>
   );

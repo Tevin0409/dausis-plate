@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 import { CheckIcon, PhoneIcon } from "@/components/icons";
 import { AutoRefresh } from "@/components/shop/auto-refresh";
+import { Narrow } from "@/components/shop/ui";
 import { formatKes, timeLabel } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
 
@@ -59,9 +60,9 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
           : "Pay on handover";
 
   return (
-    <>
+    <Narrow>
       <AutoRefresh active={o.status !== "completed" && o.status !== "cancelled"} />
-      <section className="flex flex-col gap-1.5 rounded-b-[28px] bg-teal-deep px-5 pb-[26px] pt-[22px] text-white">
+      <section className="flex flex-col gap-1.5 rounded-b-[28px] bg-teal-deep md:rounded-[28px] px-5 pb-[26px] pt-[22px] text-white">
         <div className="flex items-center justify-between">
           <Image src="/brand/dausis-plate-icon.svg" alt="Dausis Plate" width={40} height={40} />
           <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[13px] font-semibold">
@@ -121,6 +122,6 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
         </a>
         <Link href="/" className="flex min-h-[52px] flex-1 items-center justify-center rounded-2xl bg-teal-deep font-semibold text-white">Back to menu</Link>
       </div>
-    </>
+    </Narrow>
   );
 }

@@ -4,6 +4,7 @@ import { PlusIcon } from "@/components/icons";
 import { formatKes, nairobiToday, weekdayName } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
 import { setRegularAvailable } from "../actions";
+import { SubmitButton } from "@/components/dashboard/submit-button";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Menu & sales" };
@@ -130,14 +131,14 @@ export default async function ManagePage() {
                     <form action={setRegularAvailable}>
                       <input type="hidden" name="dishId" value={d.id} />
                       <input type="hidden" name="available" value={d.regular_available ? "false" : "true"} />
-                      <button
+                      <SubmitButton
                         aria-label={`${d.name}: ${d.regular_available ? "on sale, tap to mark sold out" : "sold out, tap to put back on sale"}`}
                         className={`min-h-11 rounded-full px-3.5 text-sm font-semibold ${
                           d.regular_available ? "bg-teal-tint text-teal-deeper" : "bg-blush text-coral-ink"
                         }`}
                       >
                         {d.regular_available ? "On sale" : "Sold out"}
-                      </button>
+                      </SubmitButton>
                     </form>
                   </td>
                   <td className="px-5 py-1.5 text-right">

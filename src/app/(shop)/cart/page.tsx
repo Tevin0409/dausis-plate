@@ -2,14 +2,14 @@
 import Link from "next/link";
 import { ArrowIcon } from "@/components/icons";
 import { useCart } from "@/components/shop/cart-provider";
-import { BottomBar, ScreenHeader, Stepper } from "@/components/shop/ui";
+import { BottomBar, Narrow, ScreenHeader, Stepper } from "@/components/shop/ui";
 import { formatKes } from "@/lib/format";
 
 export default function CartPage() {
   const { lines, subtotalKes, setQuantity } = useCart();
 
   return (
-    <>
+    <Narrow>
       <ScreenHeader title="Your order" back="/" />
 
       {lines.length === 0 ? (
@@ -40,13 +40,13 @@ export default function CartPage() {
             <div className="flex justify-between"><span className="text-ink-soft">Delivery</span><span className="text-ink-soft">Set at checkout</span></div>
           </section>
 
-          <BottomBar>
+          <BottomBar inlineOnDesktop="padded">
             <Link href="/checkout" className="flex min-h-14 flex-1 items-center justify-center gap-2 rounded-[18px] bg-teal-deep font-semibold text-white">
               Go to checkout <ArrowIcon />
             </Link>
           </BottomBar>
         </>
       )}
-    </>
+    </Narrow>
   );
 }

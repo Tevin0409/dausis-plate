@@ -4,6 +4,7 @@ import type { Enums } from "@/lib/database.types";
 import { formatKes, minutesAgo, nairobiToday, timeLabel } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
 import { advanceOrder, cancelOrder, markPaid } from "../actions";
+import { SubmitButton } from "@/components/dashboard/submit-button";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Live orders" };
@@ -115,13 +116,13 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
                       <form action={advanceOrder}>
                         <input type="hidden" name="orderId" value={o.id} />
                         <input type="hidden" name="from" value={o.status} />
-                        <button
+                        <SubmitButton
                           className={`min-h-11 w-full rounded-xl text-[15px] font-bold ${
                             col.status === "new" ? "bg-teal-deep text-white" : "border-[1.5px] border-teal-deep bg-white text-teal-deep"
                           }`}
                         >
                           {col.status === "ready" && o.mode === "delivery" ? "Out for delivery" : col.action}
-                        </button>
+                        </SubmitButton>
                       </form>
                     )}
                     {col.status !== "completed" && (
@@ -129,13 +130,13 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
                         {!paid && (
                           <form action={markPaid}>
                             <input type="hidden" name="orderId" value={o.id} />
-                            <button className="text-teal-deep">Mark paid</button>
+                            <SubmitButton className="text-teal-deep">Mark paid</SubmitButton>
                           </form>
                         )}
                         {col.status === "new" && (
                           <form action={cancelOrder}>
                             <input type="hidden" name="orderId" value={o.id} />
-                            <button className="text-coral-ink">Decline</button>
+                            <SubmitButton className="text-coral-ink">Decline</SubmitButton>
                           </form>
                         )}
                       </div>

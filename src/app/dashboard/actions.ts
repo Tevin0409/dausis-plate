@@ -26,6 +26,7 @@ export async function signOut() {
 
 const dishForm = z.object({
   id: uuid.optional().or(z.literal("")),
+  new_id: uuid.optional(),
   name: z.string().trim().min(1).max(80),
   description: z.string().trim().max(300),
   price_kes: z.coerce.number().int().min(0).max(100000),
@@ -70,19 +71,24 @@ export async function saveDish(formData: FormData) {
     row.photo_thumb_url = publicPhotoUrl(v.photo_thumb_key);
   }
 
-  let dishId = v.id || null;
-  if (dishId) {
+  let dishId: string;
+  let created = false;
+  if (v.id) {
+    dishId = v.id;
     const { data: before } = await supabase.from("dishes").select("photo_key").eq("id", dishId).maybeSingle();
     const { error } = await supabase.from("dishes").update(row).eq("id", dishId);
     if (error) throw error;
     if (row.photo_key && before?.photo_key && before.photo_key !== row.photo_key) await deletePhotoSet(before.photo_key);
   } else {
-    const { data, error } = await supabase.from("dishes").insert(row).select("id").single();
-    if (error) throw error;
-    dishId = data.id;
+    if (!v.new_id) throw new Error("Reload the page and try again.");
+    dishId = v.new_id;
+    const { error } = await supabase.from("dishes").insert({ ...row, id: dishId });
+    // 23505 = this form was already submitted once and the dish exists: don't create anything twice.
+    if (error && error.code !== "23505") throw error;
+    created = !error;
   }
 
-  if (v.add_day && v.add_kind) {
+  if (v.add_day && v.add_kind && (created || v.id)) {
     await insertEntry(dishId, v.add_day, v.add_kind, {
       plates_per_day: v.plates_per_day ? v.plates_per_day : null,
       show_from: v.show_from ?? "11:00",
@@ -93,6 +99,7 @@ export async function saveDish(formData: FormData) {
   }
   revalidatePath("/dashboard/manage");
   revalidatePath("/");
+  if (v.add_day) redirect(`/dashboard/menu?day=${v.add_day}`);
   redirect(row.is_regular ? "/dashboard/manage" : "/dashboard/menu");
 }
 

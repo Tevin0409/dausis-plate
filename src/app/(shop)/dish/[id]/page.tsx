@@ -39,15 +39,15 @@ export default async function DishPage({ params, searchParams }: Props) {
   const badge = rotating ? (rotating.kind === "week" ? "This week" : "Today only") : null;
 
   return (
-    <>
-      <div className="photo-placeholder relative h-[290px]">
-        {src && <Image src={src} alt={dish.name} fill sizes="(max-width: 448px) 100vw, 448px" className="object-cover" priority />}
+    <div className="mx-auto max-w-md pb-28 md:grid md:max-w-5xl md:grid-cols-2 md:items-start md:gap-10 md:px-8 md:pb-16 md:pt-10">
+      <div className="photo-placeholder relative h-[290px] md:sticky md:top-10 md:h-auto md:aspect-[4/3] md:overflow-hidden md:rounded-[28px]">
+        {src && <Image src={src} alt={dish.name} fill sizes="(min-width: 768px) 520px, 100vw" className="object-cover" priority />}
         <Link href="/" aria-label="Back to menu" className="absolute left-4 top-4 flex size-11 items-center justify-center rounded-full bg-white">
           <BackIcon />
         </Link>
       </div>
 
-      <div className="relative -mt-7 flex flex-col gap-[18px] rounded-t-[28px] bg-cream px-5 pt-[22px]">
+      <div className="relative -mt-7 flex flex-col gap-[18px] rounded-t-[28px] bg-cream px-5 pt-[22px] md:mt-0 md:px-0 md:pt-0">
         <div className="flex flex-col gap-2">
           {badge && (
             <div className="flex items-center gap-2">
@@ -57,7 +57,7 @@ export default async function DishPage({ params, searchParams }: Props) {
               )}
             </div>
           )}
-          <h1 className="font-display text-[30px] leading-[1.08]">{dish.name}</h1>
+          <h1 className="font-display text-[30px] leading-[1.08] md:text-[40px]">{dish.name}</h1>
           {dish.description && <p className="text-[15px] leading-normal text-ink-soft">{dish.description}</p>}
           {rotating && (
             <span className="font-script text-xl text-coral-text">
@@ -76,6 +76,6 @@ export default async function DishPage({ params, searchParams }: Props) {
           rotating={Boolean(rotating)}
         />
       </div>
-    </>
+    </div>
   );
 }

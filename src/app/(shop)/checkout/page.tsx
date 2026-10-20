@@ -1,5 +1,5 @@
 import { CheckoutForm } from "@/components/shop/checkout-form";
-import { ScreenHeader } from "@/components/shop/ui";
+import { Narrow, ScreenHeader } from "@/components/shop/ui";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -13,9 +13,9 @@ export default async function CheckoutPage() {
     .order("sort_order");
 
   return (
-    <>
+    <Narrow>
       <ScreenHeader title="Checkout" back="/cart" />
       <CheckoutForm zones={zones ?? []} />
-    </>
+    </Narrow>
   );
 }

@@ -3,6 +3,7 @@ import { PlusIcon } from "@/components/icons";
 import { addDays, dayLabel, formatKes, hhmm, nairobiToday, weekdayName, weekStart } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
 import { addFromLibrary, copyDay, endEntryEarly, removeEntry, setSoldOut } from "../actions";
+import { SubmitButton } from "@/components/dashboard/submit-button";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Daily menu" };
@@ -66,12 +67,12 @@ export default async function MenuPlannerPage({ searchParams }: Props) {
             <form action={copyDay}>
               <input type="hidden" name="from" value={addDays(day, -7)} />
               <input type="hidden" name="to" value={day} />
-              <button className="min-h-11 rounded-xl border-[1.5px] border-line-deep bg-white px-4 text-sm font-semibold">Copy last {dayName}</button>
+              <SubmitButton className="min-h-11 rounded-xl border-[1.5px] border-line-deep bg-white px-4 text-sm font-semibold">Copy last {dayName}</SubmitButton>
             </form>
             <form action={copyDay}>
               <input type="hidden" name="from" value={addDays(day, -1)} />
               <input type="hidden" name="to" value={day} />
-              <button className="min-h-11 rounded-xl border-[1.5px] border-line-deep bg-white px-4 text-sm font-semibold">Copy {weekdayName(addDays(day, -1))}</button>
+              <SubmitButton className="min-h-11 rounded-xl border-[1.5px] border-line-deep bg-white px-4 text-sm font-semibold">Copy {weekdayName(addDays(day, -1))}</SubmitButton>
             </form>
             <Link href={`/dashboard/dishes/new?day=${day}`} className="flex min-h-11 items-center gap-2 rounded-xl bg-teal-deep px-[18px] text-sm font-bold text-white">
               <PlusIcon size={16} /> New dish
@@ -147,12 +148,12 @@ export default async function MenuPlannerPage({ searchParams }: Props) {
                             <form action={setSoldOut}>
                               <input type="hidden" name="entryId" value={e.id} />
                               <input type="hidden" name="soldOut" value={soldOut ? "false" : "true"} />
-                              <button className={`${btn} text-coral-ink`}>{soldOut ? "Back on" : "Sold out"}</button>
+                              <SubmitButton className={`${btn} text-coral-ink`}>{soldOut ? "Back on" : "Sold out"}</SubmitButton>
                             </form>
                           )}
                           <form action={kind === "week" && day === today ? endEntryEarly : removeEntry}>
                             <input type="hidden" name="entryId" value={e.id} />
-                            <button className={`${btn} text-ink-soft`}>{kind === "week" && day === today ? "End early" : "Remove"}</button>
+                            <SubmitButton className={`${btn} text-ink-soft`}>{kind === "week" && day === today ? "End early" : "Remove"}</SubmitButton>
                           </form>
                         </div>
                       )}
@@ -203,9 +204,9 @@ export default async function MenuPlannerPage({ searchParams }: Props) {
                     <input type="hidden" name="dishId" value={l.id} />
                     <input type="hidden" name="day" value={day} />
                     <input type="hidden" name="kind" value={kind} />
-                    <button aria-label={`Add ${l.name} ${kind === "day" ? `to ${dayName}` : "for the rest of the week"}`} className="min-h-10 rounded-[10px] border-[1.5px] border-teal-deep bg-white px-2.5 text-[13px] font-bold text-teal-deep">
+                    <SubmitButton aria-label={`Add ${l.name} ${kind === "day" ? `to ${dayName}` : "for the rest of the week"}`} className="min-h-10 rounded-[10px] border-[1.5px] border-teal-deep bg-white px-2.5 text-[13px] font-bold text-teal-deep">
                       + {kind === "day" ? dayLabel(day).split(" ")[0] : "Week"}
-                    </button>
+                    </SubmitButton>
                   </form>
                 ))}
               </div>
