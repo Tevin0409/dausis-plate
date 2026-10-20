@@ -1,3 +1,4 @@
+import Link from "next/link";
 import Image from "next/image";
 import { redirect } from "next/navigation";
 import { DashboardNav } from "@/components/dashboard/nav";
@@ -42,6 +43,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <DashboardNav newOrders={count ?? 0} />
         <form action={signOut} className="mt-auto px-3 pt-6">
           <p className="truncate text-[13px] text-ink-soft">{staff.name ?? staff.email}</p>
+          <Link href="/dashboard/account" className="mt-1 block text-sm font-semibold text-teal-deep">Account &amp; password</Link>
           <button className="mt-1 text-sm font-semibold text-teal-deep">Sign out</button>
         </form>
       </aside>

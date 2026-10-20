@@ -15,9 +15,13 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         </div>
         <div>
           <h1 className="font-display text-[28px] leading-tight">Kitchen dashboard</h1>
-          <p className="mt-1 text-[15px] text-ink-soft">We’ll email you a sign-in link. No password needed.</p>
+          <p className="mt-1 text-[15px] text-ink-soft">Staff sign-in.</p>
         </div>
-        {error && <p role="alert" className="rounded-xl bg-blush px-4 py-3 text-sm text-coral-ink">That link expired. Request a new one.</p>}
+        {error && (
+          <p role="alert" className="rounded-xl bg-blush px-4 py-3 text-sm text-coral-ink">
+            That sign-in link didn’t work. Links only work in the browser that asked for them and expire after an hour. Sign in with your password, or request a new link from this browser.
+          </p>
+        )}
         <LoginForm next={safeNext} />
       </div>
     </main>
