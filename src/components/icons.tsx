@@ -39,6 +39,9 @@ export const ListIcon = ({ size = 18, className }: IconProps) => (
 export const ExternalIcon = ({ size = 18, className }: IconProps) => (
   <svg {...base(size)} strokeWidth={2} className={className}><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6" /></svg>
 );
+export const QrIcon = ({ size = 18, className }: IconProps) => (
+  <svg {...base(size)} strokeWidth={2} className={className}><rect x="4" y="4" width="6" height="6" rx="1" /><rect x="14" y="4" width="6" height="6" rx="1" /><rect x="4" y="14" width="6" height="6" rx="1" /><path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2" /></svg>
+);
 export const PhoneIcon = ({ size = 18, className }: IconProps) => (
   <svg {...base(size)} strokeWidth={2} className={className}><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2" /></svg>
 );

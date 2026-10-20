@@ -1,12 +1,13 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarIcon, ExternalIcon, ListIcon, ReceiptIcon } from "@/components/icons";
+import { CalendarIcon, ExternalIcon, ListIcon, QrIcon, ReceiptIcon } from "@/components/icons";
 
 const items = [
   { href: "/dashboard/menu", label: "Daily menu", Icon: CalendarIcon },
   { href: "/dashboard/orders", label: "Orders", Icon: ReceiptIcon },
   { href: "/dashboard/manage", label: "Menu & sales", Icon: ListIcon },
+  { href: "/dashboard/tables", label: "Tables & delivery", Icon: QrIcon },
 ] as const;
 
 export function DashboardNav({ newOrders }: { newOrders: number }) {

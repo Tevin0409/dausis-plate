@@ -33,8 +33,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
     .eq("status", "new");
 
   return (
-    <div className="flex min-h-dvh flex-wrap items-stretch bg-mist">
-      <aside className="flex max-w-full flex-[1_1_220px] flex-col gap-1 border-r border-line bg-white px-4 py-6">
+    <div className="flex min-h-dvh flex-wrap items-stretch bg-mist print:block print:bg-white">
+      <aside className="print:hidden flex max-w-full flex-[1_1_220px] flex-col gap-1 border-r border-line bg-white px-4 py-6">
         <div className="flex items-center gap-2.5 px-2 pb-5">
           <Image src="/brand/dausis-plate-icon.svg" alt="" width={36} height={36} />
           <span className="font-display text-xl">Dausis Plate</span>
@@ -45,7 +45,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <button className="mt-1 text-sm font-semibold text-teal-deep">Sign out</button>
         </form>
       </aside>
-      <main className="min-w-0 flex-[999_1_560px] px-4 py-7 sm:px-8">{children}</main>
+      <main className="min-w-0 flex-[999_1_560px] px-4 py-7 sm:px-8 print:p-0">{children}</main>
     </div>
   );
 }
