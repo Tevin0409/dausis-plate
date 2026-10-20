@@ -35,16 +35,28 @@ export function PhotoUpload({ initialUrl }: Props) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ variants: variants.map((v) => ({ name: v.name, contentType: v.blob.type, size: v.blob.size })) }),
       });
-      const data: { uploads?: Upload[]; error?: string } = await res.json();
-      if (!res.ok || !data.uploads) throw new Error(data.error ?? "Upload failed");
+      const data: { uploads?: Upload[]; error?: string } = await res.json().catch(() => ({}));
+      if (!res.ok || !data.uploads) {
+        throw new Error(data.error ?? (res.status === 401 ? "Your session expired. Sign in again." : `Upload couldn’t start (server error ${res.status}).`));
+      }
 
       setMessage("Uploading…");
       await Promise.all(
         data.uploads.map(async (u) => {
           const blob = variants.find((v) => v.name === u.name)?.blob;
           if (!blob) throw new Error("Upload failed");
-          const put = await fetch(u.url, { method: "PUT", headers: { "content-type": blob.type }, body: blob });
-          if (!put.ok) throw new Error("Upload failed, check your connection and try again");
+          let put: Response;
+          try {
+            put = await fetch(u.url, { method: "PUT", headers: { "content-type": blob.type }, body: blob });
+          } catch {
+            // The browser blocks the response when the bucket's CORS policy doesn't allow this site.
+            throw new Error(`Photo storage refused the upload from ${window.location.origin}. Add it to the R2 bucket’s CORS policy.`);
+          }
+          if (!put.ok) {
+            const body = await put.text().catch(() => "");
+            const code = /<Code>([^<]+)<\/Code>/.exec(body)?.[1];
+            throw new Error(`Photo storage rejected the upload (${put.status}${code ? ` ${code}` : ""}). Check the R2 API token and bucket name.`);
+          }
         }),
       );
 

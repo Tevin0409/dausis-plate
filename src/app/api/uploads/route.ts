@@ -28,8 +28,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unsupported photo format" }, { status: 400 });
   }
 
-  const uploads = await presignPhotoUpload(
-    variants.map((v) => ({ name: v.name, contentType: v.contentType as PhotoType, size: v.size })),
-  );
-  return NextResponse.json({ uploads });
+  try {
+    const uploads = await presignPhotoUpload(
+      variants.map((v) => ({ name: v.name, contentType: v.contentType as PhotoType, size: v.size })),
+    );
+    return NextResponse.json({ uploads });
+  } catch (e) {
+    console.error("[uploads] presign failed", e);
+    const missingEnv = e instanceof Error && e.message.startsWith("Missing environment variable");
+    return NextResponse.json(
+      { error: missingEnv ? "Photo storage isn’t configured on the server (R2 settings missing)." : "Couldn’t prepare the upload. Try again." },
+      { status: 500 },
+    );
+  }
 }

@@ -11,6 +11,10 @@ function client() {
     region: "auto",
     endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
     credentials: { accessKeyId, secretAccessKey },
+    // AWS SDK ≥3.729 signs a CRC32 of the (empty) body into presigned PUT URLs by default,
+    // so R2 rejects the real upload. Only add checksums when an operation requires one.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
   });
   return s3;
 }
