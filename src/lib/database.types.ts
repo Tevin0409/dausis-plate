@@ -1,5 +1,6 @@
-// Generated from the live Supabase project (supabase gen types). Regenerate after schema
-// changes with `bun run db:types`; keep the two helpers at the bottom.
+// Generated from the live Supabase project, then hand-edited to match supabase/migrations:
+// `bun run db:types` needs the Docker-based Supabase CLI stack, which this project's dev stack
+// does not use. Keep it in step with every migration; keep the two helpers at the bottom.
 
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
@@ -191,6 +192,9 @@ export type Database = {
           { foreignKeyName: "order_items_menu_entry_id_fkey"; columns: ["menu_entry_id"]; isOneToOne: false; referencedRelation: "todays_menu"; referencedColumns: ["entry_id"] },
           { foreignKeyName: "order_items_option_id_fkey"; columns: ["option_id"]; isOneToOne: false; referencedRelation: "dish_options"; referencedColumns: ["id"] },
           { foreignKeyName: "order_items_order_id_fkey"; columns: ["order_id"]; isOneToOne: false; referencedRelation: "orders"; referencedColumns: ["id"] },
+          { foreignKeyName: "order_items_dish_id_fkey"; columns: ["dish_id"]; isOneToOne: false; referencedRelation: "dishes"; referencedColumns: ["id"] },
+          { foreignKeyName: "order_items_menu_entry_id_fkey"; columns: ["menu_entry_id"]; isOneToOne: false; referencedRelation: "menu_entries"; referencedColumns: ["id"] },
+          { foreignKeyName: "order_items_option_id_fkey"; columns: ["option_id"]; isOneToOne: false; referencedRelation: "dish_options"; referencedColumns: ["id"] },
         ];
       };
       orders: {

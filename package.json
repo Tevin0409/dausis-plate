@@ -9,6 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "test": "bun run test:db && bun test tests",
+    "test:db": "bun scripts/test-db-setup.ts",
     "db:types": "supabase gen types typescript --local > src/lib/database.types.ts",
     "db:reset": "supabase db reset"
   },
@@ -27,6 +29,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
     "@tailwindcss/postcss": "^4.0.0",
+    "@types/bun": "1.4.2",
     "@types/node": "^22.10.0",
     "@types/qrcode": "1.5.5",
     "@types/react": "^19.0.0",
