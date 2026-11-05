@@ -19,7 +19,7 @@ export function SubmitButton({ children, pendingLabel, className, confirm: quest
       disabled={pending}
       aria-disabled={pending}
       onClick={question ? (e) => { if (!window.confirm(question)) e.preventDefault(); } : undefined}
-      className={`${className ?? ""} disabled:cursor-wait disabled:opacity-60`}
+      className={`touch-manipulation select-none ${className ?? ""} disabled:cursor-wait disabled:opacity-60`}
       {...rest}
     >
       {pending && pendingLabel ? pendingLabel : children}

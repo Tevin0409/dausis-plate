@@ -3,7 +3,9 @@ import { notFound } from "next/navigation";
 import { PhotoUpload } from "@/components/dashboard/photo-upload";
 import { SubmitButton } from "@/components/dashboard/submit-button";
 import { dayLabel } from "@/lib/format";
+import { ActionForm } from "@/components/dashboard/action-form";
 import { createClient } from "@/lib/supabase/server";
+import { isUuid, must } from "@/lib/supabase/result";
 import { deleteDish, saveDish } from "../../actions";
 
 export const dynamic = "force-dynamic";
@@ -16,10 +18,10 @@ const label = "flex flex-col gap-1.5 text-sm font-semibold";
 export default async function DishEditorPage({ params, searchParams }: Props) {
   const [{ id }, { day, regular }] = await Promise.all([params, searchParams]);
   const isNew = id === "new";
+  if (!isNew && !isUuid(id)) notFound();
   const supabase = await createClient();
-  const dish = isNew
-    ? null
-    : (await supabase.from("dishes").select("id, name, description, price_kes, category, photo_url, is_regular").eq("id", id).maybeSingle()).data;
+  const query = supabase.from("dishes").select("id, name, description, price_kes, category, photo_url, is_regular").eq("id", id).maybeSingle();
+  const dish = isNew ? null : must(await query, "the dish");
   if (!isNew && !dish) notFound();
 
   const planDay = isNew && day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
@@ -33,7 +35,11 @@ export default async function DishEditorPage({ params, searchParams }: Props) {
         {planDay && <p className="text-[15px] text-ink-soft">It’ll be added to {dayLabel(planDay, "long")} and saved to the dish library.</p>}
       </div>
 
-      <form action={saveDish} className="flex flex-col gap-[18px] rounded-[20px] border border-line bg-white p-6">
+      <ActionForm
+        action={saveDish}
+        className="flex flex-col gap-[18px] rounded-[20px] border border-line bg-white p-6"
+        errorClassName="rounded-xl bg-blush px-4 py-3 text-[15px] text-coral-ink"
+      >
         <input type="hidden" name="id" value={dish?.id ?? ""} />
         {/* New dishes get their id up front, so a repeated submit of this form can't create a second copy. */}
         {isNew && <input type="hidden" name="new_id" value={crypto.randomUUID()} />}
@@ -99,7 +105,7 @@ export default async function DishEditorPage({ params, searchParams }: Props) {
         <SubmitButton pendingLabel="Saving…" className="min-h-[52px] self-start rounded-[14px] bg-teal-deep px-7 font-bold text-white">
           {planDay ? "Save and add to menu" : "Save dish"}
         </SubmitButton>
-      </form>
+      </ActionForm>
 
       {dish && (
         <form action={deleteDish} className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-line bg-white px-6 py-4">
