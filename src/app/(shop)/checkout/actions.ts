@@ -14,6 +14,7 @@ const item = z.object({
 
 const input = z
   .object({
+    idempotencyKey: z.string().uuid("Refresh the page and try again"),
     mode: z.enum(["dine_in", "pickup", "delivery"]),
     tableToken: z.string().optional(),
     pickupAt: z.string().datetime().nullable().optional(),
@@ -47,6 +48,7 @@ export async function placeOrder(raw: CheckoutInput): Promise<CheckoutResult> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("place_order", {
     p: {
+      idempotency_key: v.idempotencyKey,
       mode: v.mode,
       table_token: v.tableToken ?? null,
       pickup_at: v.pickupAt ?? null,
@@ -72,6 +74,9 @@ export async function placeOrder(raw: CheckoutInput): Promise<CheckoutResult> {
   }
   const placed = data?.[0];
   if (!placed) return { ok: false, error: "Something went wrong placing your order. Try again." };
+
+  // A retry of an order that already went through: its payment was started the first time.
+  if (placed.replayed) return { ok: true, token: placed.public_token, payment: { kind: "none" } };
 
   const order = { code: placed.code, publicToken: placed.public_token, totalKes: placed.total_kes, phone };
   const payment: PaymentStart =

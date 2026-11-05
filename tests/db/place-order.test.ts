@@ -73,10 +73,8 @@ describe("cancelling an order", () => {
       const order = await placeOrder(tx, dineIn(f, [{ dish_id: f.rotating.id, menu_entry_id: f.openEntry.id, quantity: 2 }]));
       expect(await platesSold(tx, f.openEntry.id)).toBe(2);
 
-      const updated = await asOwner(tx, f, () =>
-        tx`update public.orders set status = 'cancelled' where public_token = ${order.public_token} returning id`,
-      );
-      expect(updated.length).toBe(1);
+      const [{ id }] = await tx`select id from public.orders where public_token = ${order.public_token}`;
+      await asOwner(tx, f, () => tx`select public.cancel_order(${id}::uuid)`);
       expect(await platesSold(tx, f.openEntry.id)).toBe(0);
     }));
 });

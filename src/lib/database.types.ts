@@ -208,6 +208,7 @@ export type Database = {
           delivery_notes: string | null;
           delivery_zone_id: string | null;
           id: string;
+          idempotency_key: string | null;
           mode: Database["public"]["Enums"]["order_mode"];
           mpesa_checkout_request_id: string | null;
           mpesa_receipt: string | null;
@@ -233,6 +234,7 @@ export type Database = {
           delivery_notes?: string | null;
           delivery_zone_id?: string | null;
           id?: string;
+          idempotency_key?: string | null;
           mode: Database["public"]["Enums"]["order_mode"];
           mpesa_checkout_request_id?: string | null;
           mpesa_receipt?: string | null;
@@ -258,6 +260,7 @@ export type Database = {
           delivery_notes?: string | null;
           delivery_zone_id?: string | null;
           id?: string;
+          idempotency_key?: string | null;
           mode?: Database["public"]["Enums"]["order_mode"];
           mpesa_checkout_request_id?: string | null;
           mpesa_receipt?: string | null;
@@ -314,14 +317,17 @@ export type Database = {
       };
     };
     Functions: {
+      advance_order: { Args: { p_order: string; p_from: Database["public"]["Enums"]["order_status"]; p_to: Database["public"]["Enums"]["order_status"] }; Returns: undefined };
+      cancel_order: { Args: { p_order: string }; Returns: undefined };
       copy_menu_day: { Args: { p_from: string; p_to: string }; Returns: number };
       dashboard_stats: { Args: { p_day: string }; Returns: Json };
       get_order_status: { Args: { p_token: string }; Returns: Json };
       is_owner: { Args: never; Returns: boolean };
       is_staff: { Args: never; Returns: boolean };
+      mark_order_paid: { Args: { p_order: string }; Returns: undefined };
       nairobi_time: { Args: never; Returns: string };
       nairobi_today: { Args: never; Returns: string };
-      place_order: { Args: { p: Json }; Returns: { code: string; public_token: string; total_kes: number }[] };
+      place_order: { Args: { p: Json }; Returns: { code: string; public_token: string; replayed: boolean; total_kes: number }[] };
       resolve_table: { Args: { p_token: string }; Returns: { id: string; label: string }[] };
       set_entry_sold_out: { Args: { p_entry: string; p_sold_out: boolean }; Returns: undefined };
     };

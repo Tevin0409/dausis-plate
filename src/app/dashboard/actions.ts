@@ -248,6 +248,16 @@ export async function setRegularAvailable(_prev: ActionResult, formData: FormDat
 
 // ───────── orders ─────────
 
+/**
+ * The order RPCs refuse a stale or invalid move with P0001 and a message written for staff
+ * (e.g. "Someone else already moved this order"); show it, since the refreshed board explains it.
+ * Anything else is an unexpected failure with a generic retry message.
+ */
+function orderRefused(what: string, error: { message: string; code?: string }, message: string): ActionResult {
+  if (error.code === "P0001") return { error: `${error.message}. The board is updated.` };
+  return failed(what, error, message);
+}
+
 const NEXT_STATUS: Partial<Record<Enums<"order_status">, Enums<"order_status">>> = {
   new: "preparing",
   preparing: "ready",
@@ -262,11 +272,10 @@ export async function advanceOrder(_prev: ActionResult, formData: FormData): Pro
   if (!to) return STALE_FORM;
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
-  // Guarded on the current status so two tablets tapping at once can't skip a step.
-  const { data, error } = await supabase.from("orders").update({ status: to }).eq("id", v.orderId).eq("status", v.from).select("id");
+  // advance_order checks the current status, so two tablets tapping at once can't skip a step.
+  const { error } = await supabase.rpc("advance_order", { p_order: v.orderId, p_from: v.from, p_to: to });
   revalidatePath("/dashboard/orders");
-  if (error) return failed("advanceOrder", error, "Couldn’t move the order. Try again.");
-  if (data.length === 0) return { error: "Someone else already moved this order. The board is updated." };
+  if (error) return orderRefused("advanceOrder", error, "Couldn’t move the order. Try again.");
   return null;
 }
 
@@ -275,9 +284,9 @@ export async function markPaid(_prev: ActionResult, formData: FormData): Promise
   if (!parsed.success) return STALE_FORM;
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
-  const { error } = await supabase.from("orders").update({ payment_status: "paid" }).eq("id", parsed.data.orderId);
-  if (error) return failed("markPaid", error, "Couldn’t mark it paid. Try again.");
+  const { error } = await supabase.rpc("mark_order_paid", { p_order: parsed.data.orderId });
   revalidatePath("/dashboard/orders");
+  if (error) return orderRefused("markPaid", error, "Couldn’t mark it paid. Try again.");
   return null;
 }
 
@@ -286,9 +295,9 @@ export async function cancelOrder(_prev: ActionResult, formData: FormData): Prom
   if (!parsed.success) return STALE_FORM;
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
-  const { error } = await supabase.from("orders").update({ status: "cancelled" }).eq("id", parsed.data.orderId);
-  if (error) return failed("cancelOrder", error, "Couldn’t decline the order. Try again.");
+  const { error } = await supabase.rpc("cancel_order", { p_order: parsed.data.orderId });
   revalidatePath("/dashboard/orders");
+  if (error) return orderRefused("cancelOrder", error, "Couldn’t decline the order. Try again.");
   return null;
 }
 
