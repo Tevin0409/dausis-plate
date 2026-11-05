@@ -219,6 +219,7 @@ The palette comes from `src/app/globals.css`, which stays the source. Contrast f
 **Dashboard**
 - **1280:** 96 px rail, 28 px page padding, a four-column board, 7-day planner.
 - **768:** bottom tab bar, 20 px padding, planner as one row per day. The board has two columns: New is always on screen, and the second column switches between Cooking, Ready, On the way and Done.
+- **375:** Settings only so far, because Mama may close early from her phone. See Settings under Components.
 - Nothing in the dashboard shrinks below a 44 px target. The tablet layout is fixed, not a scaled desktop.
 
 ## Elevation & Depth
@@ -266,12 +267,13 @@ Built with Tailwind v4 tokens from `globals.css` and the components in `src/comp
 - It shows the next open day's menu, titled "Friday's menu", in display-xl, under a notice: "Closed now. Opens tomorrow (Friday) at 11:00. Add dishes now, order when we open."
 - The first jump link names the day. Nothing shows as sold out, because plate counts start fresh; pills say "30 plates for Friday".
 - Add buttons, the dish sheet and combos all add to the saved order. The sheet's button says "Save · KSh 600", and serving hours name the day.
-- If that day isn't planned, it shows everyday dishes and combos under a teal-tint note: "Friday's specials aren't up yet. Everyday dishes are below." The Today and This week jump links go.
+- If that day isn't planned (Tevin, 2026-11-05), it shows everyday dishes, combos and any week dishes already running that day, under a teal-tint note: "Friday's specials aren't up yet. Everyday dishes are below." When week dishes are showing, the note says "This week's and everyday dishes are below." The Today jump link goes, and This week goes only if no week dish runs that day.
 
 **Saved cart, closed kitchen.**
 - A teal-tint note under the title: "We're closed. Opens tomorrow (Friday) at 11:00. Your order is saved here. Add to it or change it now, and place it when we open. Plates aren't held until then."
 - Steppers, remove, undo and the code field all work.
 - The main button is disabled and says "Order from 11:00 tomorrow · KSh 1,520", so the total stays in view.
+- A dine-in cart forgets its table at closing and keeps its items (Tevin, 2026-11-05). It never says "Table 4" the next day. To place the order, the customer scans the table's QR or chooses pickup or delivery.
 
 **Recheck against the next menu.**
 - It runs by itself while closed, and again when placing, because the menu or plate counts can change after a dish is added.
@@ -290,7 +292,18 @@ Built with Tailwind v4 tokens from `globals.css` and the components in `src/comp
 
 **Column heads.** New blush, Cooking amber tint, Ready teal tint, On the way sand, Done paper with a sand ring. No accent borders. New has the most colour on purpose.
 
-**Table request strip.** Deeper teal, white text, one 44 px Done button.
+**Table request strip.** Deeper teal, white text, one 44 px Done button. Request bill (Tevin, 2026-11-05) lists the table's unpaid orders today with a total. The orders stay separate, and staff settle them together or one by one. Staff should check the list, in case a new group has taken the table.
+
+**Settings (owner).** Status strip, close early, weekly hours, closed dates and the M-Pesa till number. Staff see the strip, hours and till number as plain text, with no controls. One set of hours covers every order type. Last orders is a select: 30 minutes before closing (the default), 15 minutes, or at closing time. A day with a break or a closing after midnight isn't designed, because that answer is still open.
+- **1280:** status strip across the top; weekly hours, then till number, on the left; close early, then closed dates, on the right.
+- **768 and 375:** one column: status strip, close early, weekly hours, closed dates, till number. An emergency shouldn't need a scroll past the table.
+- **375, weekly row:** two lines, with no table markup and no sideways scroll. Day and switch on the first; opens and closes side by side on the second, each half the width.
+- **375, closed dates:** date, note and Add stacked, full width.
+- **375, till number:** full width, 16 px, number keyboard. On the order page the line wraps with Copy on its own line if it must, and the number never breaks.
+- **375, close early confirm:** Keep open on the left and Close now on the right, equal width, 48 px, far enough apart for a thumb.
+- **375, time and date fields:** native pickers at 16 px, so iOS doesn't zoom, with `width: 100%; min-width: 0`, because iOS draws them wider than their box.
+- **375, save bar:** sticky, padded with `env(safe-area-inset-bottom, 0px)`. The page has enough bottom padding that the bar never covers closed dates.
+- **Not verified on a real phone:** the pickers, the save bar with the keyboard open, safe area and tap feel.
 
 **Fields.** 48 px, 1.5 px field border, focus border deep teal with a 3 px teal ring. Hints 13 px; errors 14/600 coral ink, naming the problem and the fix.
 

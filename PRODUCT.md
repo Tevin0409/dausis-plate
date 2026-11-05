@@ -37,8 +37,11 @@ One kitchen's own daily menu, in its own voice. Dishes change by day and by week
 - **Orders:** declining needs one of 4 reasons, which the customer sees. Delivery has an On the way step. Cancelled is final. Unfinished orders stay on the board past midnight.
 - **Order board (Tevin, 2026-11-05):** moves and Mark paid can be undone for 5 seconds, and the customer is told nothing until that has passed. Decline has no undo. An order's age turns amber at 15 minutes, to be reviewed after Mama's first busy week.
 - **Roles:** staff and owner are split, and a change record shows who changed what. Prices, sales, staff, hours, ads and settings are owner only.
-- **Hours:** weekly hours, closed dates, and close early (owner only).
-- **Closed kitchen (Tevin, 2026-11-05):** the menu shows the next open day's dishes, and customers can add them to their saved cart. Placing the order is off until opening, and plates aren't held until then. The cart is checked against that day's menu, and again when placing. If Mama hasn't planned that day, the menu shows everyday dishes and says that day's specials aren't up yet.
+- **Hours:** weekly hours, closed dates, and close early (owner only). One set of hours covers dine-in, pickup and delivery. Mama chooses when last orders stop: 30 minutes before closing, 15, or at closing, starting at 30 (Tevin, 2026-11-05).
+- **Still open:** whether the kitchen closes in the middle of the day or stays open past midnight. Tevin is checking with Mama. How hours are stored waits for that answer.
+- **Till number (Tevin, 2026-11-05):** Mama enters the M-Pesa till number in Settings, owner only, and it shows on the order status page.
+- **Request bill (Tevin, 2026-11-05):** it shows staff the table's unpaid orders today with a total. The orders stay separate.
+- **Closed kitchen (Tevin, 2026-11-05):** the menu shows the next open day's dishes, and customers can add them to their saved cart. Placing the order is off until opening, and plates aren't held until then. The cart is checked against that day's menu, and again when placing. If Mama hasn't planned that day, the menu shows everyday dishes and week dishes already running that day, and says that day's specials aren't up yet. A saved cart forgets its table at closing and keeps its items, so food never goes to the wrong table.
 - **Delivery:** zones with a fee and a minimum order.
 - **Sales:** paid and not paid are always shown separately.
 - **Regular dishes:** one switched off for the day comes back on the next morning.
