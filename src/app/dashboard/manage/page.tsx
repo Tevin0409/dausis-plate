@@ -151,24 +151,25 @@ export default async function ManagePage() {
                     </ActionForm>
                   </td>
                   <td className="px-5 py-1.5 text-right">
-                    <div className="flex justify-end gap-1.5">
+                    <div className="flex items-start justify-end gap-1.5">
                     <Link href={`/dashboard/dishes/${d.id}`} className="inline-flex min-h-10 items-center rounded-[10px] border border-line-deep px-3.5 text-sm font-semibold text-teal-deep">Edit</Link>
-                    <form action={removeFromRegulars}>
+                    <ActionForm action={removeFromRegulars} className="flex flex-col items-end gap-1">
                       <input type="hidden" name="dishId" value={d.id} />
-                      <SubmitButton aria-label={`Take ${d.name} off the everyday menu`} className="min-h-10 whitespace-nowrap rounded-[10px] border border-line-deep bg-white px-3 text-sm font-semibold text-ink-soft">
+                      <SubmitButton pendingLabel="Saving…" aria-label={`Take ${d.name} off the everyday menu`} className="min-h-10 whitespace-nowrap rounded-[10px] border border-line-deep bg-white px-3 text-sm font-semibold text-ink-soft">
                         Take off menu
                       </SubmitButton>
-                    </form>
-                    <form action={deleteDish}>
+                    </ActionForm>
+                    <ActionForm action={deleteDish} className="flex flex-col items-end gap-1">
                       <input type="hidden" name="dishId" value={d.id} />
                       <SubmitButton
                         confirm={`Delete ${d.name}? It will disappear from the menu and the dish library.`}
+                        pendingLabel="Deleting…"
                         aria-label={`Delete ${d.name}`}
                         className="min-h-10 rounded-[10px] border border-line-deep bg-white px-3 text-sm font-semibold text-coral-ink"
                       >
                         Delete
                       </SubmitButton>
-                    </form>
+                    </ActionForm>
                     </div>
                   </td>
                 </tr>
