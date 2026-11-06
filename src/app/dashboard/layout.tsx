@@ -28,10 +28,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
     );
   }
 
-  const { count } = await (await createClient())
+  const { count, error: countError } = await (await createClient())
     .from("orders")
     .select("id", { count: "exact", head: true })
     .eq("status", "new");
+  if (countError) console.error("[db] counting new orders failed:", countError.code ?? "", countError.message);
 
   return (
     <div className="flex min-h-dvh flex-wrap items-stretch bg-mist print:block print:bg-white">
@@ -40,7 +41,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <Image src="/brand/dausis-plate-icon.svg" alt="" width={36} height={36} />
           <span className="font-display text-xl">Dausis Plate</span>
         </div>
-        <DashboardNav newOrders={count ?? 0} />
+        <DashboardNav newOrders={countError ? null : (count ?? 0)} />
         <form action={signOut} className="mt-auto px-3 pt-6">
           <p className="truncate text-[13px] text-ink-soft">{staff.name ?? staff.email}</p>
           <Link href="/dashboard/account" className="mt-1 block text-sm font-semibold text-teal-deep">Account &amp; password</Link>

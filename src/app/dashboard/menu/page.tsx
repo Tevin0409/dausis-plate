@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { PlusIcon } from "@/components/icons";
 import { addDays, dayLabel, formatKes, hhmm, nairobiToday, weekdayName, weekStart } from "@/lib/format";
-import { createClient } from "@/lib/supabase/server";
-import { addFromLibrary, copyDay, endEntryEarly, removeEntry, setSoldOut } from "../actions";
+import { ActionForm } from "@/components/dashboard/action-form";
 import { SubmitButton } from "@/components/dashboard/submit-button";
+import { createClient } from "@/lib/supabase/server";
+import { must } from "@/lib/supabase/result";
+import { addFromLibrary, copyDay, endEntryEarly, removeEntry, setSoldOut } from "../actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Daily menu" };
@@ -11,6 +13,8 @@ export const metadata = { title: "Daily menu" };
 type Props = { searchParams: Promise<{ day?: string; q?: string }> };
 
 const btn = "min-h-10 rounded-[10px] border border-line-deep bg-white px-3 text-sm font-semibold";
+// An action's form: the button with its error message under it.
+const formCol = "flex max-w-[260px] flex-col items-start gap-1";
 
 export default async function MenuPlannerPage({ searchParams }: Props) {
   const { day: dayParam, q } = await searchParams;
@@ -29,7 +33,7 @@ export default async function MenuPlannerPage({ searchParams }: Props) {
     .limit(40);
   if (q?.trim()) libraryQuery = libraryQuery.ilike("name", `%${q.trim()}%`);
 
-  const [{ data: entries }, { data: library }] = await Promise.all([
+  const [entriesResult, libraryResult] = await Promise.all([
     supabase
       .from("menu_entries")
       .select("id, kind, starts_on, ends_on, plates_per_day, price_kes, show_from, show_until, ended_early_at, dish:dishes(id, name, price_kes)")
@@ -40,14 +44,16 @@ export default async function MenuPlannerPage({ searchParams }: Props) {
     libraryQuery,
   ]);
 
-  const live = (entries ?? []).filter((e) => e.ended_early_at === null);
+  const entries = must(entriesResult, "the week’s menu");
+  const library = must(libraryResult, "the dish library");
+  const live = entries.filter((e) => e.ended_early_at === null);
   const on = (d: string) => live.filter((e) => e.starts_on <= d && d <= e.ends_on);
   const selected = on(day);
   const ids = selected.map((e) => e.id);
-  const { data: dayRows } = ids.length
-    ? await supabase.from("menu_entry_days").select("entry_id, plates_sold, sold_out_manual").eq("day", day).in("entry_id", ids)
-    : { data: [] };
-  const sales = new Map((dayRows ?? []).map((r) => [r.entry_id, r]));
+  const dayRows = ids.length
+    ? must(await supabase.from("menu_entry_days").select("entry_id, plates_sold, sold_out_manual").eq("day", day).in("entry_id", ids), "plates sold")
+    : [];
+  const sales = new Map(dayRows.map((r) => [r.entry_id, r]));
 
   const week = Array.from({ length: 7 }, (_, i) => addDays(ws, i));
   const tomorrow = addDays(today, 1);
@@ -64,16 +70,16 @@ export default async function MenuPlannerPage({ searchParams }: Props) {
         </div>
         {!isPast && (
           <div className="flex flex-wrap gap-2">
-            <form action={copyDay}>
+            <ActionForm action={copyDay} className={formCol}>
               <input type="hidden" name="from" value={addDays(day, -7)} />
               <input type="hidden" name="to" value={day} />
-              <SubmitButton className="min-h-11 rounded-xl border-[1.5px] border-line-deep bg-white px-4 text-sm font-semibold">Copy last {dayName}</SubmitButton>
-            </form>
-            <form action={copyDay}>
+              <SubmitButton pendingLabel="Copying…" className="min-h-11 rounded-xl border-[1.5px] border-line-deep bg-white px-4 text-sm font-semibold">Copy last {dayName}</SubmitButton>
+            </ActionForm>
+            <ActionForm action={copyDay} className={formCol}>
               <input type="hidden" name="from" value={addDays(day, -1)} />
               <input type="hidden" name="to" value={day} />
-              <SubmitButton className="min-h-11 rounded-xl border-[1.5px] border-line-deep bg-white px-4 text-sm font-semibold">Copy {weekdayName(addDays(day, -1))}</SubmitButton>
-            </form>
+              <SubmitButton pendingLabel="Copying…" className="min-h-11 rounded-xl border-[1.5px] border-line-deep bg-white px-4 text-sm font-semibold">Copy {weekdayName(addDays(day, -1))}</SubmitButton>
+            </ActionForm>
             <Link href={`/dashboard/dishes/new?day=${day}`} className="flex min-h-11 items-center gap-2 rounded-xl bg-teal-deep px-[18px] text-sm font-bold text-white">
               <PlusIcon size={16} /> New dish
             </Link>
@@ -145,16 +151,18 @@ export default async function MenuPlannerPage({ searchParams }: Props) {
                         <div className="flex flex-wrap gap-1.5">
                           {e.dish && <Link href={`/dashboard/dishes/${e.dish.id}`} className={`${btn} flex items-center text-teal-deep`}>Edit</Link>}
                           {day === today && (
-                            <form action={setSoldOut}>
+                            <ActionForm action={setSoldOut} className={formCol}>
                               <input type="hidden" name="entryId" value={e.id} />
                               <input type="hidden" name="soldOut" value={soldOut ? "false" : "true"} />
-                              <SubmitButton className={`${btn} text-coral-ink`}>{soldOut ? "Back on" : "Sold out"}</SubmitButton>
-                            </form>
+                              <SubmitButton pendingLabel="Saving…" className={`${btn} text-coral-ink`}>{soldOut ? "Back on" : "Sold out"}</SubmitButton>
+                            </ActionForm>
                           )}
-                          <form action={kind === "week" && day === today ? endEntryEarly : removeEntry}>
+                          <ActionForm action={kind === "week" && day === today ? endEntryEarly : removeEntry} className={formCol}>
                             <input type="hidden" name="entryId" value={e.id} />
-                            <SubmitButton className={`${btn} text-ink-soft`}>{kind === "week" && day === today ? "End early" : "Remove"}</SubmitButton>
-                          </form>
+                            <SubmitButton pendingLabel={kind === "week" && day === today ? "Ending…" : "Removing…"} className={`${btn} text-ink-soft`}>
+                              {kind === "week" && day === today ? "End early" : "Remove"}
+                            </SubmitButton>
+                          </ActionForm>
                         </div>
                       )}
                     </div>
@@ -190,9 +198,9 @@ export default async function MenuPlannerPage({ searchParams }: Props) {
               <input type="hidden" name="day" value={day} />
               <input type="search" name="q" defaultValue={q} placeholder="Search past dishes" aria-label="Search past dishes" className="min-h-11 min-w-0 flex-1 text-sm outline-none" />
             </form>
-            {(library ?? []).length === 0 && <p className="text-sm text-ink-soft">No dishes yet. Create one with “New dish”.</p>}
-            {(library ?? []).map((l) => (
-              <div key={l.id} className="flex items-center gap-3 py-1.5">
+            {library.length === 0 && <p className="text-sm text-ink-soft">No dishes yet. Create one with “New dish”.</p>}
+            {library.map((l) => (
+              <div key={l.id} className="flex flex-wrap items-center gap-3 py-1.5">
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="text-[15px] font-semibold">{l.name}</span>
                   <span className="text-xs text-ink-soft">
@@ -200,14 +208,19 @@ export default async function MenuPlannerPage({ searchParams }: Props) {
                   </span>
                 </div>
                 {(["day", "week"] as const).map((kind) => (
-                  <form key={kind} action={addFromLibrary}>
+                  // `contents` makes the button and its error items of this row, so an error takes its own line under it.
+                  <ActionForm key={kind} action={addFromLibrary} className="contents" errorClassName="order-last basis-full text-[13px] font-semibold text-coral-ink">
                     <input type="hidden" name="dishId" value={l.id} />
                     <input type="hidden" name="day" value={day} />
                     <input type="hidden" name="kind" value={kind} />
-                    <SubmitButton aria-label={`Add ${l.name} ${kind === "day" ? `to ${dayName}` : "for the rest of the week"}`} className="min-h-10 rounded-[10px] border-[1.5px] border-teal-deep bg-white px-2.5 text-[13px] font-bold text-teal-deep">
+                    <SubmitButton
+                      pendingLabel="Adding…"
+                      aria-label={`Add ${l.name} ${kind === "day" ? `to ${dayName}` : "for the rest of the week"}`}
+                      className="min-h-10 rounded-[10px] border-[1.5px] border-teal-deep bg-white px-2.5 text-[13px] font-bold text-teal-deep"
+                    >
                       + {kind === "day" ? dayLabel(day).split(" ")[0] : "Week"}
                     </SubmitButton>
-                  </form>
+                  </ActionForm>
                 ))}
               </div>
             ))}

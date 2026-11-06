@@ -6,6 +6,7 @@ import { DishForm } from "@/components/shop/dish-form";
 import { hhmm, weekdayName, nairobiToday } from "@/lib/format";
 import type { TodaysMenuRow } from "@/lib/database.types";
 import { createClient } from "@/lib/supabase/server";
+import { isUuid, must } from "@/lib/supabase/result";
 
 export const dynamic = "force-dynamic";
 
@@ -13,13 +14,19 @@ type Props = { params: Promise<{ id: string }>; searchParams: Promise<{ entry?: 
 
 export default async function DishPage({ params, searchParams }: Props) {
   const [{ id }, { entry }] = await Promise.all([params, searchParams]);
+  if (!isUuid(id)) notFound();
+  // A malformed entry id just means "not from today's menu", same as none.
+  const entryId = entry && isUuid(entry) ? entry : null;
   const supabase = await createClient();
 
-  const [{ data: dish }, { data: options }, { data: todays }] = await Promise.all([
+  const [dishResult, optionsResult, todaysResult] = await Promise.all([
     supabase.from("dishes").select("id, name, description, price_kes, photo_url, is_regular, regular_available").eq("id", id).maybeSingle(),
     supabase.from("dish_options").select("id, label, price_delta_kes, is_default").eq("dish_id", id).order("sort_order"),
-    entry ? supabase.from("todays_menu").select("*").eq("entry_id", entry).returns<TodaysMenuRow[]>().maybeSingle() : Promise.resolve({ data: null }),
+    entryId ? supabase.from("todays_menu").select("*").eq("entry_id", entryId).returns<TodaysMenuRow[]>().maybeSingle() : Promise.resolve({ data: null, error: null }),
   ]);
+  const dish = must(dishResult, "the dish");
+  const options = must(optionsResult, "dish options");
+  const todays = must(todaysResult, "today’s menu");
   if (!dish) notFound();
 
   const rotating = todays && todays.dish_id === dish.id ? todays : null;
@@ -71,7 +78,7 @@ export default async function DishPage({ params, searchParams }: Props) {
           menuEntryId={rotating?.entry_id ?? null}
           name={dish.name}
           basePriceKes={price}
-          options={options ?? []}
+          options={options}
           unavailable={unavailable}
           rotating={Boolean(rotating)}
         />

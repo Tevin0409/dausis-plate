@@ -2,9 +2,11 @@ import Link from "next/link";
 import { z } from "zod";
 import { PlusIcon } from "@/components/icons";
 import { formatKes, nairobiToday, weekdayName } from "@/lib/format";
-import { createClient } from "@/lib/supabase/server";
-import { deleteDish, removeFromRegulars, setRegularAvailable } from "../actions";
+import { ActionForm } from "@/components/dashboard/action-form";
 import { SubmitButton } from "@/components/dashboard/submit-button";
+import { createClient } from "@/lib/supabase/server";
+import { must } from "@/lib/supabase/result";
+import { deleteDish, removeFromRegulars, setRegularAvailable } from "../actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Menu & sales" };
@@ -26,7 +28,7 @@ const CATEGORY = { mains: "Mains", sides: "Sides", breakfast: "Breakfast", drink
 export default async function ManagePage() {
   const today = nairobiToday();
   const supabase = await createClient();
-  const [{ data: raw }, { data: regulars }] = await Promise.all([
+  const [statsResult, regularsResult] = await Promise.all([
     supabase.rpc("dashboard_stats", { p_day: today }),
     supabase
       .from("dishes")
@@ -36,14 +38,20 @@ export default async function ManagePage() {
       .order("category")
       .order("sort_order"),
   ]);
-  const s = stats.safeParse(raw);
-  const st = s.success ? s.data : null;
+  const regulars = must(regularsResult, "regular dishes");
+  const s = stats.safeParse(must(statsResult, "today’s sales"));
+  if (!s.success) {
+    // Wrong shape is a failure too: showing zeros would look like a quiet day.
+    console.error("[db] dashboard_stats had an unexpected shape:", s.error.message);
+    throw new Error("Couldn't load today’s sales");
+  }
+  const st = s.data;
 
-  const sold = st?.rotating.reduce((n, r) => n + r.sold, 0) ?? 0;
-  const total = st?.rotating.reduce((n, r) => n + (r.total ?? 0), 0) ?? 0;
-  const best = st?.rotating[0];
-  const maxHour = Math.max(1, ...HOURS.map((h) => st?.by_hour[String(h)] ?? 0));
-  const onlineShare = st && st.orders > 0 ? Math.round((st.paid_online / st.orders) * 100) : 0;
+  const sold = st.rotating.reduce((n, r) => n + r.sold, 0);
+  const total = st.rotating.reduce((n, r) => n + (r.total ?? 0), 0);
+  const best = st.rotating[0];
+  const maxHour = Math.max(1, ...HOURS.map((h) => st.by_hour[String(h)] ?? 0));
+  const onlineShare = st.orders > 0 ? Math.round((st.paid_online / st.orders) * 100) : 0;
 
   const tile = "flex flex-col gap-1 rounded-[18px] border border-line bg-white p-[18px]";
   const big = "font-display text-[34px] leading-tight";
@@ -58,13 +66,13 @@ export default async function ManagePage() {
       <section aria-label="Today’s numbers" className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-3.5">
         <div className={tile}>
           <span className="text-sm font-semibold text-ink-soft">Revenue</span>
-          <span className={big}>{formatKes(st?.revenue_kes ?? 0)}</span>
+          <span className={big}>{formatKes(st.revenue_kes)}</span>
         </div>
         <div className={tile}>
           <span className="text-sm font-semibold text-ink-soft">Orders</span>
-          <span className={big}>{st?.orders ?? 0}</span>
+          <span className={big}>{st.orders}</span>
           <span className="text-[13px] text-ink-soft">
-            {st?.by_mode.delivery ?? 0} delivery · {st?.by_mode.pickup ?? 0} pickup · {st?.by_mode.dine_in ?? 0} dine-in
+            {st.by_mode.delivery ?? 0} delivery · {st.by_mode.pickup ?? 0} pickup · {st.by_mode.dine_in ?? 0} dine-in
           </span>
         </div>
         <div className="flex flex-col gap-2 rounded-[18px] bg-blush p-[18px]">
@@ -81,7 +89,7 @@ export default async function ManagePage() {
           <span className="text-sm font-semibold text-ink-soft">Paid online</span>
           <span className={big}>{onlineShare}%</span>
           <span className="text-[13px] text-ink-soft">
-            M-Pesa {st?.by_payment.mpesa ?? 0} · Card {st?.by_payment.card ?? 0} · On handover {st?.by_payment.on_handover ?? 0}
+            M-Pesa {st.by_payment.mpesa ?? 0} · Card {st.by_payment.card ?? 0} · On handover {st.by_payment.on_handover ?? 0}
           </span>
         </div>
       </section>
@@ -90,11 +98,11 @@ export default async function ManagePage() {
         <h2 className="text-base font-bold">Orders by hour</h2>
         <div
           role="img"
-          aria-label={HOURS.map((h) => `${h}:00 ${st?.by_hour[String(h)] ?? 0}`).join(", ")}
+          aria-label={HOURS.map((h) => `${h}:00 ${st.by_hour[String(h)] ?? 0}`).join(", ")}
           className="grid h-[120px] grid-cols-11 items-end gap-2.5"
         >
           {HOURS.map((h) => {
-            const n = st?.by_hour[String(h)] ?? 0;
+            const n = st.by_hour[String(h)] ?? 0;
             return <div key={h} className={`rounded-t-md ${n ? "bg-teal" : "bg-line-deep"}`} style={{ height: n ? `${(n / maxHour) * 100}%` : 4 }} />;
           })}
         </div>
@@ -105,7 +113,7 @@ export default async function ManagePage() {
 
       <section aria-label="Always on the menu" className="overflow-hidden rounded-[18px] border border-line bg-white">
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-          <h2 className="text-base font-bold">Always on the menu <span className="font-medium text-ink-soft">· {regulars?.length ?? 0} items</span></h2>
+          <h2 className="text-base font-bold">Always on the menu <span className="font-medium text-ink-soft">· {regulars.length} items</span></h2>
           <Link href="/dashboard/dishes/new?regular=1" className="flex min-h-10 items-center gap-1.5 rounded-[10px] bg-teal-deep px-4 text-sm font-bold text-white">
             <PlusIcon size={16} /> Add item
           </Link>
@@ -122,16 +130,17 @@ export default async function ManagePage() {
               </tr>
             </thead>
             <tbody>
-              {(regulars ?? []).map((d) => (
+              {regulars.map((d) => (
                 <tr key={d.id} className="border-t border-line">
                   <td className="px-5 py-2.5 font-semibold">{d.name}</td>
                   <td className="px-3 py-2.5 text-ink-soft">{CATEGORY[d.category]}</td>
                   <td className="px-3 py-2.5">{formatKes(d.price_kes)}</td>
                   <td className="px-3 py-1.5">
-                    <form action={setRegularAvailable}>
+                    <ActionForm action={setRegularAvailable} className="flex flex-col items-start gap-1">
                       <input type="hidden" name="dishId" value={d.id} />
                       <input type="hidden" name="available" value={d.regular_available ? "false" : "true"} />
                       <SubmitButton
+                        pendingLabel="Saving…"
                         aria-label={`${d.name}: ${d.regular_available ? "on sale, tap to mark sold out" : "sold out, tap to put back on sale"}`}
                         className={`min-h-11 rounded-full px-3.5 text-sm font-semibold ${
                           d.regular_available ? "bg-teal-tint text-teal-deeper" : "bg-blush text-coral-ink"
@@ -139,7 +148,7 @@ export default async function ManagePage() {
                       >
                         {d.regular_available ? "On sale" : "Sold out"}
                       </SubmitButton>
-                    </form>
+                    </ActionForm>
                   </td>
                   <td className="px-5 py-1.5 text-right">
                     <div className="flex justify-end gap-1.5">

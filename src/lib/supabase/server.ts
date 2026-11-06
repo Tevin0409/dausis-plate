@@ -21,14 +21,19 @@ export async function createClient() {
   });
 }
 
-/** Returns the signed-in staff member, or null. */
+/** Returns the signed-in staff member, or null. Throws if the staff list can't be read. */
 export async function getStaff() {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return null;
-  const { data } = await supabase.from("staff").select("role, display_name").eq("user_id", user.id).maybeSingle();
+  const { data, error } = await supabase.from("staff").select("role, display_name").eq("user_id", user.id).maybeSingle();
+  if (error) {
+    // Not "not on the staff list": the lookup itself failed.
+    console.error("[db] loading staff failed:", error.code ?? "", error.message);
+    throw new Error("Couldn't load staff");
+  }
   if (!data) return null;
   return { id: user.id, email: user.email ?? null, role: data.role, name: data.display_name };
 }

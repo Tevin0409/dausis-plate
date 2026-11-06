@@ -8,6 +8,7 @@ import { PlusIcon } from "@/components/icons";
 import type { Enums, TodaysMenuRow } from "@/lib/database.types";
 import { formatKes, hhmm, nairobiToday, weekdayName } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
+import { must } from "@/lib/supabase/result";
 import { parseTableCookie, TABLE_COOKIE } from "@/lib/table-cookie";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ const CATEGORY_LABEL: Record<Enums<"dish_category">, string> = {
 
 export default async function MenuPage() {
   const supabase = await createClient();
-  const [{ data: today }, { data: regulars }, { data: optionRows }] = await Promise.all([
+  const [todayResult, regularsResult, optionsResult] = await Promise.all([
     supabase.from("todays_menu").select("*").order("sort_order").returns<TodaysMenuRow[]>(),
     supabase
       .from("dishes")
@@ -33,13 +34,16 @@ export default async function MenuPage() {
     supabase.from("dish_options").select("dish_id"),
   ]);
 
-  const hasOptions = new Set((optionRows ?? []).map((o) => o.dish_id));
-  const rotating = (today ?? []).filter((d) => !(d.sold_out && d.auto_hide_sold_out));
+  // A failed read throws to error.tsx: an empty menu must mean nothing is planned, not a broken query.
+  const today = must(todayResult, "today’s menu");
+  const regulars = must(regularsResult, "the regular menu");
+  const hasOptions = new Set(must(optionsResult, "dish options").map((o) => o.dish_id));
+  const rotating = today.filter((d) => !(d.sold_out && d.auto_hide_sold_out));
   const table = parseTableCookie((await cookies()).get(TABLE_COOKIE)?.value);
   const day = weekdayName(nairobiToday());
 
-  const groups = new Map<Enums<"dish_category">, NonNullable<typeof regulars>>();
-  for (const d of regulars ?? []) groups.set(d.category, [...(groups.get(d.category) ?? []), d]);
+  const groups = new Map<Enums<"dish_category">, typeof regulars>();
+  for (const d of regulars) groups.set(d.category, [...(groups.get(d.category) ?? []), d]);
 
   return (
     <>

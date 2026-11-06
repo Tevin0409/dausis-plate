@@ -10,7 +10,8 @@ const items = [
   { href: "/dashboard/tables", label: "Tables & delivery", Icon: QrIcon },
 ] as const;
 
-export function DashboardNav({ newOrders }: { newOrders: number }) {
+/** `newOrders` is null when the count couldn't be loaded: say so rather than show none. */
+export function DashboardNav({ newOrders }: { newOrders: number | null }) {
   const path = usePathname();
   return (
     <nav aria-label="Dashboard" className="flex flex-col gap-1">
@@ -27,7 +28,10 @@ export function DashboardNav({ newOrders }: { newOrders: number }) {
           >
             <Icon />
             {label}
-            {href === "/dashboard/orders" && newOrders > 0 && (
+            {href === "/dashboard/orders" && newOrders === null && (
+              <span className="ml-auto whitespace-nowrap text-xs font-semibold text-coral-ink">Count failed</span>
+            )}
+            {href === "/dashboard/orders" && newOrders !== null && newOrders > 0 && (
               <span className="ml-auto rounded-full bg-coral px-2 py-0.5 text-xs font-bold text-ink">{newOrders} new</span>
             )}
           </Link>

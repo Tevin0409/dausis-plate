@@ -2,9 +2,11 @@ import Link from "next/link";
 import { LiveOrders } from "@/components/dashboard/live-orders";
 import type { Enums } from "@/lib/database.types";
 import { formatKes, minutesAgo, nairobiToday, timeLabel } from "@/lib/format";
-import { createClient } from "@/lib/supabase/server";
-import { advanceOrder, cancelOrder, markPaid } from "../actions";
+import { ActionForm } from "@/components/dashboard/action-form";
 import { SubmitButton } from "@/components/dashboard/submit-button";
+import { createClient } from "@/lib/supabase/server";
+import { must } from "@/lib/supabase/result";
+import { advanceOrder, cancelOrder, markPaid } from "../actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Live orders" };
@@ -12,10 +14,10 @@ export const metadata = { title: "Live orders" };
 type Status = Enums<"order_status">;
 type Mode = Enums<"order_mode">;
 
-const COLUMNS: { status: Status; title: string; pill: string; edge: string; action?: string }[] = [
-  { status: "new", title: "New", pill: "bg-blush text-coral-ink", edge: "border-t-coral", action: "Accept order" },
-  { status: "preparing", title: "Preparing", pill: "bg-amber-tint text-amber-ink", edge: "border-t-amber", action: "Mark ready" },
-  { status: "ready", title: "Ready", pill: "bg-teal-tint text-teal-deeper", edge: "border-t-teal", action: "Handed over" },
+const COLUMNS: { status: Status; title: string; pill: string; edge: string; action?: string; pending?: string }[] = [
+  { status: "new", title: "New", pill: "bg-blush text-coral-ink", edge: "border-t-coral", action: "Accept order", pending: "Accepting…" },
+  { status: "preparing", title: "Preparing", pill: "bg-amber-tint text-amber-ink", edge: "border-t-amber", action: "Mark ready", pending: "Marking ready…" },
+  { status: "ready", title: "Ready", pill: "bg-teal-tint text-teal-deeper", edge: "border-t-teal", action: "Handed over", pending: "Saving…" },
   { status: "completed", title: "Completed", pill: "bg-[#eef2f6] text-ink-soft", edge: "border-t-line-deep" },
 ];
 
@@ -36,8 +38,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
     .neq("status", "cancelled")
     .order("created_at", { ascending: true });
   if (mode) query = query.eq("mode", mode);
-  const { data: orders } = await query;
-  const all = orders ?? [];
+  const all = must(await query, "today’s orders");
 
   const filters: { id: Mode | null; label: string }[] = [
     { id: null, label: "All" },
@@ -113,31 +114,32 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
                     </div>
                     <a href={`tel:${o.customer_phone}`} className="text-[13px] font-semibold text-teal-deep">{o.customer_name} · {o.customer_phone}</a>
                     {col.action && (
-                      <form action={advanceOrder}>
+                      <ActionForm action={advanceOrder} className="flex flex-col gap-1.5">
                         <input type="hidden" name="orderId" value={o.id} />
                         <input type="hidden" name="from" value={o.status} />
                         <SubmitButton
+                          pendingLabel={col.pending ?? "Saving…"}
                           className={`min-h-11 w-full rounded-xl text-[15px] font-bold ${
                             col.status === "new" ? "bg-teal-deep text-white" : "border-[1.5px] border-teal-deep bg-white text-teal-deep"
                           }`}
                         >
                           {col.status === "ready" && o.mode === "delivery" ? "Out for delivery" : col.action}
                         </SubmitButton>
-                      </form>
+                      </ActionForm>
                     )}
                     {col.status !== "completed" && (
-                      <div className="flex gap-3 text-[13px] font-semibold">
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[13px] font-semibold">
                         {!paid && (
-                          <form action={markPaid}>
+                          <ActionForm action={markPaid} className="flex flex-col">
                             <input type="hidden" name="orderId" value={o.id} />
-                            <SubmitButton className="text-teal-deep">Mark paid</SubmitButton>
-                          </form>
+                            <SubmitButton pendingLabel="Marking paid…" className="min-h-11 text-left text-teal-deep">Mark paid</SubmitButton>
+                          </ActionForm>
                         )}
                         {col.status === "new" && (
-                          <form action={cancelOrder}>
+                          <ActionForm action={cancelOrder} className="flex flex-col">
                             <input type="hidden" name="orderId" value={o.id} />
-                            <SubmitButton className="text-coral-ink">Decline</SubmitButton>
-                          </form>
+                            <SubmitButton pendingLabel="Declining…" className="min-h-11 text-left text-coral-ink">Decline</SubmitButton>
+                          </ActionForm>
                         )}
                       </div>
                     )}

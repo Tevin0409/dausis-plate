@@ -7,6 +7,7 @@ import { AutoRefresh } from "@/components/shop/auto-refresh";
 import { Narrow } from "@/components/shop/ui";
 import { formatKes, timeLabel } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
+import { must } from "@/lib/supabase/result";
 
 export const dynamic = "force-dynamic";
 
@@ -34,9 +35,14 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
   const { token } = await params;
   if (!z.string().uuid().safeParse(token).success) notFound();
   const supabase = await createClient();
-  const { data } = await supabase.rpc("get_order_status", { p_token: token });
+  const data = must(await supabase.rpc("get_order_status", { p_token: token }), "the order");
+  if (data === null) notFound();
   const parsed = status.safeParse(data);
-  if (!parsed.success) notFound();
+  if (!parsed.success) {
+    // The order exists but came back in a shape we don't understand: that's our bug, not "not found".
+    console.error("[db] get_order_status had an unexpected shape:", parsed.error.message);
+    throw new Error("Couldn't load the order");
+  }
   const o = parsed.data;
 
   const where =
