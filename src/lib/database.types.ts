@@ -337,7 +337,7 @@ export type Database = {
       entry_kind: "day" | "week";
       order_mode: "dine_in" | "pickup" | "delivery";
       order_status: "new" | "preparing" | "ready" | "completed" | "cancelled";
-      payment_method: "mpesa" | "card" | "on_handover";
+      payment_method: "mpesa" | "card" | "on_handover" | "at_counter";
       payment_status: "pending" | "paid" | "failed" | "unpaid";
       staff_role: "owner" | "staff";
     };

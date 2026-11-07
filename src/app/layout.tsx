@@ -12,7 +12,15 @@ export const metadata: Metadata = {
   icons: { icon: "/brand/dausis-plate-icon.svg" },
 };
 
-export const viewport: Viewport = { themeColor: "#006b66", width: "device-width", initialScale: 1 };
+// viewportFit "cover" makes env(safe-area-inset-*) real, so the bottom bar can clear the home
+// indicator; resizes-content lets the keyboard shrink the layout on Android (spec-2.1-payments.md).
+export const viewport: Viewport = {
+  themeColor: "#006b66",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  interactiveWidget: "resizes-content",
+};
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

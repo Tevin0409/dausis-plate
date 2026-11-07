@@ -15,7 +15,8 @@ const status = z.object({
   code: z.string(),
   status: z.enum(["new", "preparing", "ready", "completed", "cancelled"]),
   mode: z.enum(["dine_in", "pickup", "delivery"]),
-  payment_method: z.enum(["mpesa", "card", "on_handover"]),
+  // mpesa and card stay readable: older orders may carry them.
+  payment_method: z.enum(["mpesa", "card", "on_handover", "at_counter"]),
   payment_status: z.enum(["pending", "paid", "failed", "unpaid"]),
   customer_name: z.string(),
   table_label: z.string().nullable(),
@@ -56,14 +57,20 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
     completed: doneLabel,
   };
   const current = o.status === "cancelled" ? -1 : STEPS.indexOf(o.status);
+  // spec-2.1-payments.md: every unpaid order that isn't at the counter (older mpesa or card
+  // orders, pending or failed included) reads as on handover for its order type.
   const paymentChip =
     o.payment_status === "paid"
-      ? `Paid with ${o.payment_method === "mpesa" ? "M-Pesa" : "card"}`
-      : o.payment_status === "pending"
-        ? "Check your phone to pay"
-        : o.payment_status === "failed"
-          ? "Payment didn’t go through"
-          : "Pay on handover";
+      ? "Paid"
+      : o.status === "cancelled"
+        ? null
+        : o.payment_method === "at_counter"
+          ? "Pay at the counter"
+          : o.mode === "dine_in"
+            ? "Pay when your food arrives"
+            : o.mode === "pickup"
+              ? "Pay when you collect"
+              : "Pay when the rider arrives";
 
   return (
     <Narrow>
@@ -71,10 +78,12 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
       <section className="flex flex-col gap-1.5 rounded-b-[28px] bg-teal-deep md:rounded-[28px] px-5 pb-[26px] pt-[22px] text-white">
         <div className="flex items-center justify-between">
           <Image src="/brand/dausis-plate-icon.svg" alt="Dausis Plate" width={40} height={40} />
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[13px] font-semibold">
-            {o.payment_status === "paid" && <CheckIcon />}
-            {paymentChip}
-          </span>
+          {paymentChip && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[13px] font-semibold">
+              {o.payment_status === "paid" && <CheckIcon />}
+              {paymentChip}
+            </span>
+          )}
         </div>
         <span className="mt-3.5 font-script text-[30px] leading-none">Asante, {o.customer_name}!</span>
         <span className="text-[15px] text-[#d7f0ee]">Order {o.code} · {where}</span>

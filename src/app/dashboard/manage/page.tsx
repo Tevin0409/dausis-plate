@@ -14,10 +14,11 @@ export const metadata = { title: "Menu & sales" };
 const counts = z.record(z.string(), z.number()).catch({});
 const stats = z.object({
   revenue_kes: z.number(),
+  paid_kes: z.number(),
+  unpaid_kes: z.number(),
   orders: z.number(),
   by_mode: counts,
   by_payment: counts,
-  paid_online: z.number(),
   by_hour: counts,
   rotating: z.array(z.object({ name: z.string(), sold: z.number(), total: z.number().nullable() })),
 });
@@ -51,10 +52,15 @@ export default async function ManagePage() {
   const total = st.rotating.reduce((n, r) => n + (r.total ?? 0), 0);
   const best = st.rotating[0];
   const maxHour = Math.max(1, ...HOURS.map((h) => st.by_hour[String(h)] ?? 0));
-  const onlineShare = st.orders > 0 ? Math.round((st.paid_online / st.orders) * 100) : 0;
 
   const tile = "flex flex-col gap-1 rounded-[18px] border border-line bg-white p-[18px]";
   const big = "font-display text-[34px] leading-tight";
+  // "KSh" and the figure never split (formatKes), so a seven-figure day steps down to
+  // display-lg (28 px) to stay inside a 200 px tile; six figures and below keep 34 px.
+  const money = (kes: number) => {
+    const text = formatKes(kes);
+    return <span className={text.length > 11 ? "font-display text-[28px] leading-tight" : big}>{text}</span>;
+  };
 
   return (
     <div className="flex max-w-[1040px] flex-col gap-5">
@@ -65,8 +71,8 @@ export default async function ManagePage() {
 
       <section aria-label="Today’s numbers" className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-3.5">
         <div className={tile}>
-          <span className="text-sm font-semibold text-ink-soft">Revenue</span>
-          <span className={big}>{formatKes(st.revenue_kes)}</span>
+          <span className="text-sm font-semibold text-ink-soft">Total ordered</span>
+          {money(st.revenue_kes)}
         </div>
         <div className={tile}>
           <span className="text-sm font-semibold text-ink-soft">Orders</span>
@@ -86,11 +92,9 @@ export default async function ManagePage() {
           {best && best.sold > 0 && <span className="text-[13px] text-ink-soft">Best seller: {best.name}, {best.sold}{best.total ? ` of ${best.total}` : ""}</span>}
         </div>
         <div className={tile}>
-          <span className="text-sm font-semibold text-ink-soft">Paid online</span>
-          <span className={big}>{onlineShare}%</span>
-          <span className="text-[13px] text-ink-soft">
-            M-Pesa {st.by_payment.mpesa ?? 0} · Card {st.by_payment.card ?? 0} · On handover {st.by_payment.on_handover ?? 0}
-          </span>
+          <span className="text-sm font-semibold text-ink-soft">Paid so far</span>
+          {money(st.paid_kes)}
+          <span className="text-[13px] text-ink-soft">{formatKes(st.unpaid_kes)} not paid yet</span>
         </div>
       </section>
 

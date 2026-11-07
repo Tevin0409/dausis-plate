@@ -1,6 +1,8 @@
 const kes = new Intl.NumberFormat("en-KE", { maximumFractionDigits: 0 });
 
-export const formatKes = (amount: number) => `KSh ${kes.format(amount)}`;
+// A no-break space keeps "KSh" on the same line as the figure, so a large amount wraps as a
+// whole instead of leaving "KSh" alone on a line (2.1 break-ui: seven-figure owner tiles).
+export const formatKes = (amount: number) => `KSh\u00A0${kes.format(amount)}`;
 
 const TZ = "Africa/Nairobi";
 

@@ -8,7 +8,16 @@ import { BottomBar } from "./ui";
 
 type Zone = { id: string; name: string; fee_kes: number };
 type Mode = "dine_in" | "pickup" | "delivery";
-type Pay = "mpesa" | "card" | "on_handover";
+type Pay = "on_handover" | "at_counter";
+
+/** Launch takes no online payment (spec-2.1-payments.md). Dine-in may also pay at the counter. */
+const defaultPay = (mode: Mode): Pay => (mode === "dine_in" ? "at_counter" : "on_handover");
+const PAY_LINE = {
+  at_counter: "Pay cash or M-Pesa to our till when you’re done.",
+  dine_in: "Pay cash or M-Pesa to our till when your food arrives.",
+  pickup: "Pay cash or M-Pesa to our till when you collect.",
+  delivery: "Pay cash or M-Pesa to our till when the rider arrives.",
+} as const;
 
 const input = "min-h-[50px] w-full rounded-[14px] border border-sand-deep bg-white px-3.5 text-[15px]";
 
@@ -45,7 +54,7 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
   const [error, setError] = useState<string | null>(null);
 
   const [mode, setMode] = useState<Mode>(table ? "dine_in" : "pickup");
-  const [pay, setPay] = useState<Pay>("mpesa");
+  const [pay, setPay] = useState<Pay>(defaultPay(table ? "dine_in" : "pickup"));
   const [pickupAt, setPickupAt] = useState<string | null>(null);
   const [zoneId, setZoneId] = useState<string>(zones[0]?.id ?? "");
   const [address, setAddress] = useState("");
@@ -66,13 +75,18 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
   const fee = mode === "delivery" ? (zone?.fee_kes ?? 0) : 0;
   const total = subtotalKes + fee;
 
-  const handover = mode === "dine_in" ? "Pay at your table" : mode === "pickup" ? "Pay at the counter" : "Pay the rider on arrival";
-  const payOptions: { id: Pay; label: string; hint: string }[] = [
-    { id: "mpesa", label: "M-Pesa", hint: phone ? `We’ll send a prompt to ${phone}` : "We’ll send a prompt to your phone" },
-    { id: "card", label: "Card", hint: "Visa or Mastercard" },
-    { id: "on_handover", label: handover, hint: "Cash or M-Pesa when your food arrives" },
-  ];
-  const cta = pay === "mpesa" ? "Pay with M-Pesa" : pay === "card" ? "Pay by card" : "Place order";
+  const payOptions: { id: Pay; label: string; line: string }[] =
+    mode === "dine_in"
+      ? [
+          { id: "at_counter", label: "Pay at the counter", line: PAY_LINE.at_counter },
+          { id: "on_handover", label: "Pay on handover", line: PAY_LINE.dine_in },
+        ]
+      : [{ id: "on_handover", label: "Pay on handover", line: PAY_LINE[mode] }];
+  // Changing the order type resets the choice, so a pickup order can never go as "at the counter".
+  const chooseMode = (m: Mode) => {
+    setMode(m);
+    setPay(defaultPay(m));
+  };
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -105,8 +119,7 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
         sessionStorage.removeItem(ATTEMPT_STORAGE);
       } catch {}
       clear();
-      if (res.payment.kind === "redirect") window.location.assign(res.payment.url);
-      else router.push(`/order/${res.token}`);
+      router.push(`/order/${res.token}`);
     });
   }
 
@@ -131,7 +144,7 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
             aria-checked={mode === id}
             // Delivery needs an area that's on (the server refuses it too, in place_order).
             disabled={(id === "dine_in" && !table) || (id === "delivery" && zones.length === 0)}
-            onClick={() => setMode(id)}
+            onClick={() => chooseMode(id)}
             className={`min-h-11 rounded-xl text-sm font-semibold disabled:opacity-50 ${
               mode === id ? "bg-white text-teal-deep shadow-sm" : "text-ink-soft"
             }`}
@@ -205,37 +218,64 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
         </label>
       </section>
 
-      <fieldset className="mx-5 mt-5 flex flex-col gap-2">
-        <legend className="mb-2 font-display text-xl">Pay with</legend>
-        {payOptions.map((p) => (
-          <label
-            key={p.id}
-            className={`flex cursor-pointer items-center gap-3 rounded-[14px] bg-white px-4 py-3 ${pay === p.id ? "border-2 border-teal-deep" : "border border-sand-deep"}`}
-          >
-            <input type="radio" name="pay" checked={pay === p.id} onChange={() => setPay(p.id)} className="size-[18px] accent-teal-deep" />
-            <span className="flex flex-col">
-              <span className="text-[15px] font-semibold">{p.label}</span>
-              <span className="text-[13px] text-ink-soft">{p.hint}</span>
-            </span>
-          </label>
-        ))}
-      </fieldset>
+      {payOptions.length > 1 ? (
+        <fieldset className="mx-5 mt-5 flex flex-col rounded-[24px] bg-white p-[18px] shadow-[var(--shadow-card)]">
+          <legend className="float-left font-display text-[21px] leading-tight">How you’ll pay</legend>
+          <p className="clear-left mt-1 text-[13px] text-ink-soft">Nothing is charged now.</p>
+          {payOptions.map((p) => (
+            <label
+              key={p.id}
+              className="mt-2.5 flex min-h-11 cursor-pointer touch-manipulation items-start gap-3 rounded-[var(--r-md)] p-3.5 shadow-[inset_0_0_0_1.5px_var(--color-sand-deep)] select-none [-webkit-tap-highlight-color:transparent] active:bg-teal-tint has-checked:bg-teal-tint has-checked:shadow-[inset_0_0_0_2px_var(--color-teal-deep)]"
+            >
+              <input
+                type="radio"
+                name="pay"
+                value={p.id}
+                checked={pay === p.id}
+                onChange={() => setPay(p.id)}
+                className="mt-[3px] size-5 shrink-0 accent-teal-deep"
+              />
+              <span className="flex flex-col">
+                <span className="text-[15px] font-semibold">{p.label}</span>
+                <span className="text-sm text-ink-soft">{p.line}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      ) : (
+        <section aria-labelledby="pay-heading" className="mx-5 mt-5 flex flex-col rounded-[24px] bg-white p-[18px] shadow-[var(--shadow-card)]">
+          <h2 id="pay-heading" className="font-display text-[21px] leading-tight">How you’ll pay</h2>
+          <p className="mt-1 text-[13px] text-ink-soft">Nothing is charged now.</p>
+          {/* One way to pay: plain text, no ring or radio, so it can't read as a selected option. */}
+          <p className="flex flex-col pt-1.5">
+            <span className="text-[15px] font-semibold">{payOptions[0]!.label}</span>
+            <span className="text-sm text-ink-soft">{payOptions[0]!.line}</span>
+          </p>
+        </section>
+      )}
 
-      <section className="mx-5 mt-[18px] flex flex-col gap-2 text-[15px]">
+      <section aria-label="Summary" className="mx-5 mt-[18px] flex flex-col gap-2 text-[15px]">
         <div className="flex justify-between"><span className="text-ink-soft">Subtotal</span><span className="font-semibold">{formatKes(subtotalKes)}</span></div>
         {mode === "delivery" && zone && (
           <div className="flex justify-between"><span className="text-ink-soft">Delivery · {zone.name}</span><span className="font-semibold">{formatKes(fee)}</span></div>
         )}
+        <div className="flex justify-between border-t border-sand-deep pt-2 text-lg font-bold">
+          <span>{pay === "at_counter" ? "To pay at the counter" : "To pay on handover"}</span>
+          <span>{formatKes(total)}</span>
+        </div>
       </section>
 
       {error && (
-        <p ref={errorRef} role="alert" className="mx-5 mt-4 rounded-xl bg-blush px-4 py-3 text-[15px] [overflow-wrap:anywhere] text-coral-ink">{error}</p>
+        <p ref={errorRef} role="alert" className="note-in mx-5 mt-4 rounded-xl bg-blush px-4 py-3 text-[15px] [overflow-wrap:anywhere] text-coral-ink">{error}</p>
       )}
 
       <BottomBar inlineOnDesktop="padded">
-        <button type="submit" disabled={pending} className="flex min-h-14 flex-1 items-center justify-between rounded-[18px] bg-teal-deep px-5 font-semibold text-white disabled:opacity-60">
-          <span>{pending ? "Placing order…" : cta}</span>
-          <span>{formatKes(total)}</span>
+        <button
+          type="submit"
+          disabled={pending}
+          className="press flex min-h-14 flex-1 touch-manipulation items-center justify-center rounded-[18px] bg-teal-deep px-5 font-semibold text-white select-none disabled:opacity-60"
+        >
+          {pending ? "Sending to Mama…" : `Place order · ${formatKes(total)}`}
         </button>
       </BottomBar>
     </form>
