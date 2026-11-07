@@ -88,7 +88,7 @@ export default async function DishEditorPage({ params, searchParams }: Props) {
             <div className="grid grid-cols-3 gap-3">
               <label className={label}>
                 Plates a day
-                <input name="plates_per_day" type="number" min={0} placeholder="No limit" className={field} />
+                <input name="plates_per_day" type="number" min={0} max={1000} step={1} placeholder="No limit" className={field} />
               </label>
               <label className={label}>
                 Show from
@@ -108,7 +108,11 @@ export default async function DishEditorPage({ params, searchParams }: Props) {
       </ActionForm>
 
       {dish && (
-        <form action={deleteDish} className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-line bg-white px-6 py-4">
+        <ActionForm
+          action={deleteDish}
+          className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-line bg-white px-6 py-4"
+          errorClassName="basis-full text-[13px] font-semibold text-coral-ink"
+        >
           <input type="hidden" name="dishId" value={dish.id} />
           <input type="hidden" name="after" value={dish.is_regular ? "/dashboard/manage" : "/dashboard/menu"} />
           <p className="text-sm text-ink-soft">Remove this dish from the menu and the dish library. Past orders keep their record.</p>
@@ -119,7 +123,7 @@ export default async function DishEditorPage({ params, searchParams }: Props) {
           >
             Delete dish
           </SubmitButton>
-        </form>
+        </ActionForm>
       )}
     </div>
   );

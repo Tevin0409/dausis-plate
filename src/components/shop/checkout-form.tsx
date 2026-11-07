@@ -1,6 +1,6 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { placeOrder } from "@/app/(shop)/checkout/actions";
 import { formatKes, timeLabel } from "@/lib/format";
 import { useCart } from "./cart-provider";
@@ -20,6 +20,24 @@ function pickupSlots(now = new Date()): string[] {
   return [0, 1, 2].map((i) => new Date(start.getTime() + i * 30 * 60000).toISOString());
 }
 
+type Attempt = { key: string; cart: string };
+const ATTEMPT_STORAGE = "dp-checkout-attempt";
+
+/** The key for this cart: kept across a refresh, so a retry after a lost response finds the same order. */
+function attemptFor(cart: string): Attempt {
+  try {
+    const stored: Attempt | null = JSON.parse(sessionStorage.getItem(ATTEMPT_STORAGE) ?? "null");
+    if (stored?.cart === cart) return stored;
+  } catch {
+    // Storage can be blocked or hold junk: fall through to a new key, kept in memory by the caller.
+  }
+  const attempt = { key: crypto.randomUUID(), cart };
+  try {
+    sessionStorage.setItem(ATTEMPT_STORAGE, JSON.stringify(attempt));
+  } catch {}
+  return attempt;
+}
+
 export function CheckoutForm({ zones }: { zones: Zone[] }) {
   const { lines, subtotalKes, table, clear } = useCart();
   const router = useRouter();
@@ -35,7 +53,15 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
 
-  const slots = useMemo(() => pickupSlots(), []);
+  // Recomputed after a failed attempt, so a page left open stops offering times that have passed.
+  const slots = useMemo(() => pickupSlots(), [error]); // eslint-disable-line react-hooks/exhaustive-deps
+  // One key per attempt at this cart: a retry after an error or a lost response reuses it.
+  const attempt = useRef<Attempt | null>(null);
+  // The message sits below the fold on a phone, behind the bottom bar: bring it into view.
+  const errorRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView({ block: "center" });
+  }, [error]);
   const zone = zones.find((z) => z.id === zoneId);
   const fee = mode === "delivery" ? (zone?.fee_kes ?? 0) : 0;
   const total = subtotalKes + fee;
@@ -51,8 +77,13 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
   function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    const items = lines.map((l) => ({ dishId: l.dishId, menuEntryId: l.menuEntryId, optionId: l.optionId, quantity: l.quantity, note: l.note }));
+    const cart = JSON.stringify(items);
+    if (attempt.current?.cart !== cart) attempt.current = attemptFor(cart);
+    const idempotencyKey = attempt.current.key;
     startTransition(async () => {
       const res = await placeOrder({
+        idempotencyKey,
         mode,
         tableToken: table?.token,
         pickupAt: mode === "pickup" ? pickupAt : null,
@@ -62,12 +93,17 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
         name,
         phone,
         payment: pay,
-        items: lines.map((l) => ({ dishId: l.dishId, menuEntryId: l.menuEntryId, optionId: l.optionId, quantity: l.quantity, note: l.note })),
-      });
+        items,
+      }).catch(() => ({ ok: false as const, error: "We couldn’t confirm your order. Check your connection and try again." }));
       if (!res.ok) {
         setError(res.error);
+        if (pickupAt && new Date(pickupAt) < new Date()) setPickupAt(null);
         return;
       }
+      attempt.current = null;
+      try {
+        sessionStorage.removeItem(ATTEMPT_STORAGE);
+      } catch {}
       clear();
       if (res.payment.kind === "redirect") window.location.assign(res.payment.url);
       else router.push(`/order/${res.token}`);
@@ -93,7 +129,8 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
             type="button"
             role="radio"
             aria-checked={mode === id}
-            disabled={id === "dine_in" && !table}
+            // Delivery needs an area that's on (the server refuses it too, in place_order).
+            disabled={(id === "dine_in" && !table) || (id === "delivery" && zones.length === 0)}
             onClick={() => setMode(id)}
             className={`min-h-11 rounded-xl text-sm font-semibold disabled:opacity-50 ${
               mode === id ? "bg-white text-teal-deep shadow-sm" : "text-ink-soft"
@@ -192,7 +229,7 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
       </section>
 
       {error && (
-        <p role="alert" className="mx-5 mt-4 rounded-xl bg-blush px-4 py-3 text-[15px] text-coral-ink">{error}</p>
+        <p ref={errorRef} role="alert" className="mx-5 mt-4 rounded-xl bg-blush px-4 py-3 text-[15px] [overflow-wrap:anywhere] text-coral-ink">{error}</p>
       )}
 
       <BottomBar inlineOnDesktop="padded">

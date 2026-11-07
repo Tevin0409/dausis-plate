@@ -45,10 +45,11 @@ describe("order timestamps", () => {
         return o;
       };
 
-      await asOwner(tx, f, () => tx`update public.orders set payment_status = 'paid' where public_token = ${order.public_token}`);
+      const [{ id }] = await tx`select id from public.orders where public_token = ${order.public_token}`;
+      await asOwner(tx, f, () => tx`select public.mark_order_paid(${id}::uuid)`);
       expect(await stamps()).toEqual({ updated: true, status_changed: false });
 
-      await asOwner(tx, f, () => tx`update public.orders set status = 'preparing' where public_token = ${order.public_token}`);
+      await asOwner(tx, f, () => tx`select public.advance_order(${id}::uuid, 'new'::public.order_status, 'preparing'::public.order_status)`);
       expect(await stamps()).toEqual({ updated: true, status_changed: true });
     }));
 });

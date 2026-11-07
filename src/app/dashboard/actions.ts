@@ -3,10 +3,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import type { Enums } from "@/lib/database.types";
-import { addDays, nairobiToday, weekStart } from "@/lib/format";
+import { addDays, weekdayName, weekStart } from "@/lib/format";
 import { deletePhotoSet, PHOTO_KEY, photoExists, publicPhotoUrl } from "@/lib/r2";
 import { createClient, getStaff } from "@/lib/supabase/server";
-import type { ActionResult } from "./action-result";
+import type { ActionResult, OrderRefusal } from "./action-result";
 
 // Form actions return null on success or { error } with a message for the person
 // who tapped (shown by ActionForm). Details go to the server log, never the UI.
@@ -27,17 +27,13 @@ async function staffClient(): Promise<[Db, null] | [null, ActionResult]> {
   return [await createClient(), null];
 }
 
-/** For the actions still on plain forms: a failure throws to the dashboard's error page. */
-async function staffClientOrThrow(): Promise<Db> {
-  const [supabase, denied] = await staffClient();
-  if (!supabase) throw new Error(denied?.error ?? "Not signed in as staff");
-  return supabase;
-}
-
 function failed(what: string, error: DbError, message: string): ActionResult {
   console.error(`[action] ${what} failed:`, error?.code ?? "", error?.message ?? "");
   return { error: message };
 }
+
+const FOREIGN_KEY_VIOLATION = "23503";
+const UNIQUE_VIOLATION = "23505";
 
 const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const uuid = z.string().uuid();
@@ -49,6 +45,9 @@ export async function signOut() {
 }
 
 // ───────── dishes ─────────
+
+/** The most plates a menu entry can offer in a day (the planner's "Plates a day" field). */
+const MAX_PLATES_PER_DAY = 1000;
 
 const dishForm = z.object({
   id: uuid.optional().or(z.literal("")),
@@ -62,14 +61,19 @@ const dishForm = z.object({
   is_regular: z.literal("on").optional(),
   add_day: isoDay.optional().or(z.literal("")),
   add_kind: z.enum(["day", "week"]).optional(),
-  plates_per_day: z.coerce.number().int().min(0).max(1000).optional(),
+  plates_per_day: z.coerce.number().int().min(0).max(MAX_PLATES_PER_DAY).optional(),
   show_from: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   show_until: z.string().regex(/^\d{2}:\d{2}$/).optional(),
 });
 
 export async function saveDish(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
   const parsed = dishForm.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return { error: "Check the name, price and times, then save again." };
+  if (!parsed.success) {
+    if (parsed.error.issues.some((i) => i.path[0] === "plates_per_day")) {
+      return { error: `Plates a day must be a whole number up to ${MAX_PLATES_PER_DAY.toLocaleString("en-KE")}. Leave it empty for no limit.` };
+    }
+    return { error: "Check the name, price and times, then save again." };
+  }
   const v = parsed.data;
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
@@ -145,6 +149,8 @@ async function insertEntry(
 ): Promise<ActionResult> {
   const ends_on = kind === "day" ? day : addDays(weekStart(day), 6);
   const { error } = await supabase.from("menu_entries").insert({ dish_id: dishId, kind, starts_on: day, ends_on, ...opts });
+  // 23505 = menu_entries_one_per_day: it's already planned for that day, so retrying can't help.
+  if (error?.code === UNIQUE_VIOLATION) return { error: `This dish is already on ${weekdayName(day)}’s menu.` };
   if (error) return failed("insertEntry", error, "Couldn’t add the dish to the menu. Try again.");
   const { error: served } = await supabase.from("dishes").update({ last_served_on: day }).eq("id", dishId);
   if (served) return failed("insertEntry last_served_on", served, "Added to the menu, but the dish library date didn’t update.");
@@ -212,8 +218,6 @@ export async function endEntryEarly(_prev: ActionResult, formData: FormData): Pr
   return null;
 }
 
-const FOREIGN_KEY_VIOLATION = "23503";
-
 /** Removes a planned dish. Entries that already have orders are unpublished instead, to keep history. */
 export async function removeEntry(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
   const parsed = z.object({ entryId: uuid }).safeParse(Object.fromEntries(formData));
@@ -248,6 +252,39 @@ export async function setRegularAvailable(_prev: ActionResult, formData: FormDat
 
 // ───────── orders ─────────
 
+/**
+ * The order RPCs refuse a stale or invalid move with P0001 and a message written for staff
+ * (e.g. "Someone else already moved this order"). Return it with the order as it is now, so the
+ * board's strip can say where the order went: the refresh remounts the ticket's form, which
+ * can't show it. Anything else is an unexpected failure with a generic retry message.
+ */
+async function orderRefused(
+  supabase: Db,
+  refusal: Pick<OrderRefusal, "orderId" | "kind" | "from">,
+  what: string,
+  error: { message: string; code?: string },
+  message: string,
+): Promise<ActionResult> {
+  if (error.code !== "P0001") return failed(what, error, message);
+  const { data, error: readError } = await supabase
+    .from("orders")
+    .select("code, customer_name, status, payment_status")
+    .eq("id", refusal.orderId)
+    .maybeSingle();
+  // Without the current state the strip falls back to the database's own message.
+  if (readError) console.error(`[action] ${what} refusal read failed:`, readError.code ?? "", readError.message);
+  return {
+    error: error.message,
+    refused: {
+      ...refusal,
+      code: data?.code ?? null,
+      customerName: data?.customer_name ?? null,
+      status: data?.status ?? null,
+      paymentStatus: data?.payment_status ?? null,
+    },
+  };
+}
+
 const NEXT_STATUS: Partial<Record<Enums<"order_status">, Enums<"order_status">>> = {
   new: "preparing",
   preparing: "ready",
@@ -262,11 +299,10 @@ export async function advanceOrder(_prev: ActionResult, formData: FormData): Pro
   if (!to) return STALE_FORM;
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
-  // Guarded on the current status so two tablets tapping at once can't skip a step.
-  const { data, error } = await supabase.from("orders").update({ status: to }).eq("id", v.orderId).eq("status", v.from).select("id");
+  // advance_order checks the current status, so two tablets tapping at once can't skip a step.
+  const { error } = await supabase.rpc("advance_order", { p_order: v.orderId, p_from: v.from, p_to: to });
   revalidatePath("/dashboard/orders");
-  if (error) return failed("advanceOrder", error, "Couldn’t move the order. Try again.");
-  if (data.length === 0) return { error: "Someone else already moved this order. The board is updated." };
+  if (error) return orderRefused(supabase, { orderId: v.orderId, kind: "advance", from: v.from }, "advanceOrder", error, "Couldn’t move the order. Try again.");
   return null;
 }
 
@@ -275,62 +311,74 @@ export async function markPaid(_prev: ActionResult, formData: FormData): Promise
   if (!parsed.success) return STALE_FORM;
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
-  const { error } = await supabase.from("orders").update({ payment_status: "paid" }).eq("id", parsed.data.orderId);
-  if (error) return failed("markPaid", error, "Couldn’t mark it paid. Try again.");
+  const { error } = await supabase.rpc("mark_order_paid", { p_order: parsed.data.orderId });
   revalidatePath("/dashboard/orders");
+  // mark_order_paid never refuses a stale tap (paying twice is harmless), so there is nothing for
+  // the board's strip; its only P0001 is "Order not found", shown under the button.
+  if (error) return error.code === "P0001" ? { error: error.message } : failed("markPaid", error, "Couldn’t mark it paid. Try again.");
   return null;
 }
 
 export async function cancelOrder(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const parsed = z.object({ orderId: uuid }).safeParse(Object.fromEntries(formData));
+  const parsed = z.object({ orderId: uuid, from: z.enum(["new"]) }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return STALE_FORM;
+  const v = parsed.data;
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
-  const { error } = await supabase.from("orders").update({ status: "cancelled" }).eq("id", parsed.data.orderId);
-  if (error) return failed("cancelOrder", error, "Couldn’t decline the order. Try again.");
+  // cancel_order checks the status the tap saw, so a Decline can't cancel an order another tablet moved on.
+  const { error } = await supabase.rpc("cancel_order", { p_order: v.orderId, p_from: v.from });
   revalidatePath("/dashboard/orders");
+  if (error) return orderRefused(supabase, { orderId: v.orderId, kind: "cancel", from: v.from }, "cancelOrder", error, "Couldn’t decline the order. Try again.");
   return null;
 }
 
 // ───────── removing dishes ─────────
 
 /** Takes a regular dish off the everyday menu; it stays in the dish library for rotating days. */
-export async function removeFromRegulars(formData: FormData) {
-  const { dishId } = z.object({ dishId: uuid }).parse(Object.fromEntries(formData));
-  const supabase = await staffClientOrThrow();
-  const { error } = await supabase.from("dishes").update({ is_regular: false }).eq("id", dishId);
-  if (error) throw error;
+export async function removeFromRegulars(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
+  const parsed = z.object({ dishId: uuid }).safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return STALE_FORM;
+  const [supabase, denied] = await staffClient();
+  if (!supabase) return denied;
+  const { data, error } = await supabase.from("dishes").update({ is_regular: false }).eq("id", parsed.data.dishId).select("id");
+  if (error) return failed("removeFromRegulars", error, "Couldn’t take it off the menu. Try again.");
+  if (data.length === 0) return { error: "This dish no longer exists. Refresh the page." };
   revalidatePath("/dashboard/manage");
   revalidatePath("/dashboard/menu");
   revalidatePath("/");
+  return null;
 }
 
-/**
- * Deletes a dish everywhere. A dish that was never ordered is removed for good (with its photo);
- * one with past orders is archived instead so receipts and sales history stay intact.
- * Either way it disappears from the menu, the planner and the library, today included.
- */
-export async function deleteDish(formData: FormData) {
-  const { dishId, after } = z
-    .object({ dishId: uuid, after: z.enum(["/dashboard/menu", "/dashboard/manage"]).optional() })
-    .parse(Object.fromEntries(formData));
-  const supabase = await staffClientOrThrow();
-  const { data: dish } = await supabase.from("dishes").select("photo_key").eq("id", dishId).maybeSingle();
-  if (!dish) return;
+const deleteResult = z.object({
+  result: z.enum(["deleted", "archived", "missing"]),
+  photo_key: z.string().nullable().optional(),
+});
 
-  const { count } = await supabase.from("order_items").select("id", { count: "exact", head: true }).eq("dish_id", dishId);
-  if (!count) {
-    await supabase.from("menu_entries").delete().eq("dish_id", dishId);
-    const { error } = await supabase.from("dishes").delete().eq("id", dishId);
-    if (error) throw error;
-    await deletePhotoSet(dish.photo_key);
-  } else {
-    const { error } = await supabase.from("dishes").update({ archived: true, is_regular: false }).eq("id", dishId);
-    if (error) throw error;
-    await supabase.from("menu_entries").update({ published: false }).eq("dish_id", dishId).gte("ends_on", nairobiToday());
+/**
+ * Deletes a dish everywhere, in one database transaction (delete_dish). A dish that was never
+ * ordered is removed for good (with its photo); one with past orders is archived instead so
+ * receipts and sales history stay intact. Either way it leaves the menu, the planner and the library.
+ * Any failure changes nothing, so the message can say so.
+ */
+export async function deleteDish(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
+  const parsed = z
+    .object({ dishId: uuid, after: z.enum(["/dashboard/menu", "/dashboard/manage"]).optional() })
+    .safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return STALE_FORM;
+  const { dishId, after } = parsed.data;
+  const [supabase, denied] = await staffClient();
+  if (!supabase) return denied;
+  const { data, error } = await supabase.rpc("delete_dish", { p_dish: dishId });
+  if (error) return failed("deleteDish", error, "Couldn’t delete the dish. Nothing was changed. Try again.");
+  const done = deleteResult.safeParse(data);
+  if (!done.success) {
+    return failed("deleteDish result", { message: done.error.message }, "Couldn’t tell whether the dish was deleted. Refresh the page to check.");
   }
+  if (done.data.result === "missing") return { error: "This dish was already deleted. Refresh the page." };
+  if (done.data.result === "deleted") await deletePhotoSet(done.data.photo_key ?? null);
   revalidatePath("/dashboard/manage");
   revalidatePath("/dashboard/menu");
   revalidatePath("/");
   if (after) redirect(after);
+  return null;
 }

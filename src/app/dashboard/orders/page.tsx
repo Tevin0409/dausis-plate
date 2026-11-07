@@ -2,7 +2,7 @@ import Link from "next/link";
 import { LiveOrders } from "@/components/dashboard/live-orders";
 import type { Enums } from "@/lib/database.types";
 import { formatKes, minutesAgo, nairobiToday, timeLabel } from "@/lib/format";
-import { ActionForm } from "@/components/dashboard/action-form";
+import { BoardActionForm, BoardNotices } from "@/components/dashboard/board-notices";
 import { SubmitButton } from "@/components/dashboard/submit-button";
 import { createClient } from "@/lib/supabase/server";
 import { must } from "@/lib/supabase/result";
@@ -71,85 +71,93 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         </div>
       </header>
 
-      <div className="flex flex-wrap items-start gap-4">
-        {COLUMNS.map((col) => {
-          const list = all.filter((o) => o.status === col.status);
-          const shown = col.status === "completed" ? list.slice(-6).reverse() : list;
-          return (
-            <section key={col.status} aria-label={col.title} className="flex min-w-0 flex-[1_1_220px] flex-col gap-2.5">
-              <div className="flex items-center justify-between">
-                <span className={`inline-flex items-center rounded-full px-3 py-1.5 text-sm font-bold ${col.pill}`}>{col.title}</span>
-                <span className="text-sm font-semibold text-ink-soft">{list.length}</span>
-              </div>
-              {shown.map((o) => {
-                const where =
-                  o.mode === "dine_in"
-                    ? (o.table?.label ?? "Table")
-                    : o.mode === "pickup"
-                      ? `Pickup · ${o.pickup_at ? timeLabel(o.pickup_at) : "ASAP"}`
-                      : `Delivery · ${o.zone?.name ?? ""}`;
-                const paid = o.payment_status === "paid";
-                return (
-                  <article key={o.id} className={`flex flex-col gap-2 rounded-2xl border border-t-4 border-line bg-white p-3.5 ${col.edge}`}>
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-base font-bold">{o.code}</span>
-                      <span className="text-[13px] text-ink-soft">{minutesAgo(o.created_at)}</span>
-                    </div>
-                    <span className="self-start rounded-lg bg-[#eef2f6] px-2.5 py-1 text-[13px] font-semibold">{where}</span>
-                    <ul className="text-sm leading-normal">
-                      {o.items.map((it, i) => (
-                        <li key={i}>
-                          {it.quantity} × {it.name}
-                          {it.option_label ? ` (${it.option_label})` : ""}
-                          {it.note && <span className="block text-[13px] text-coral-ink">“{it.note}”</span>}
-                        </li>
-                      ))}
-                    </ul>
-                    {o.mode === "delivery" && o.delivery_address && <p className="text-[13px] text-ink-soft">{o.delivery_address}</p>}
-                    <div className="flex items-center justify-between gap-2 text-[13px]">
-                      <span className={`font-semibold ${paid ? "text-teal-deeper" : o.payment_status === "failed" ? "text-coral-ink" : "text-ink-soft"}`}>
-                        {paid ? "Paid" : o.payment_status === "pending" ? "Awaiting" : o.payment_status === "failed" ? "Failed" : "Pay"} · {PAY_LABEL[o.payment_method]}
-                      </span>
-                      <span className="text-sm font-bold">{formatKes(o.total_kes)}</span>
-                    </div>
-                    <a href={`tel:${o.customer_phone}`} className="text-[13px] font-semibold text-teal-deep">{o.customer_name} · {o.customer_phone}</a>
-                    {col.action && (
-                      <ActionForm action={advanceOrder} className="flex flex-col gap-1.5">
-                        <input type="hidden" name="orderId" value={o.id} />
-                        <input type="hidden" name="from" value={o.status} />
-                        <SubmitButton
-                          pendingLabel={col.pending ?? "Saving…"}
-                          className={`min-h-11 w-full rounded-xl text-[15px] font-bold ${
-                            col.status === "new" ? "bg-teal-deep text-white" : "border-[1.5px] border-teal-deep bg-white text-teal-deep"
-                          }`}
-                        >
-                          {col.status === "ready" && o.mode === "delivery" ? "Out for delivery" : col.action}
-                        </SubmitButton>
-                      </ActionForm>
-                    )}
-                    {col.status !== "completed" && (
-                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[13px] font-semibold">
-                        {!paid && (
-                          <ActionForm action={markPaid} className="flex flex-col">
-                            <input type="hidden" name="orderId" value={o.id} />
-                            <SubmitButton pendingLabel="Marking paid…" className="min-h-11 text-left text-teal-deep">Mark paid</SubmitButton>
-                          </ActionForm>
-                        )}
-                        {col.status === "new" && (
-                          <ActionForm action={cancelOrder} className="flex flex-col">
-                            <input type="hidden" name="orderId" value={o.id} />
-                            <SubmitButton pendingLabel="Declining…" className="min-h-11 text-left text-coral-ink">Decline</SubmitButton>
-                          </ActionForm>
-                        )}
+      <BoardNotices titles={Object.fromEntries(COLUMNS.map((c) => [c.status, c.title]))}>
+        <div className="flex flex-wrap items-start gap-4">
+          {COLUMNS.map((col) => {
+            const list = all.filter((o) => o.status === col.status);
+            const shown = col.status === "completed" ? list.slice(-6).reverse() : list;
+            return (
+              <section key={col.status} aria-label={col.title} className="flex min-w-0 flex-[1_1_220px] flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <span className={`inline-flex items-center rounded-full px-3 py-1.5 text-sm font-bold ${col.pill}`}>{col.title}</span>
+                  <span className="text-sm font-semibold text-ink-soft">{list.length}</span>
+                </div>
+                {shown.map((o) => {
+                  const where =
+                    o.mode === "dine_in"
+                      ? (o.table?.label ?? "Table")
+                      : o.mode === "pickup"
+                        ? `Pickup · ${o.pickup_at ? timeLabel(o.pickup_at) : "ASAP"}`
+                        : `Delivery · ${o.zone?.name ?? ""}`;
+                  const paid = o.payment_status === "paid";
+                  return (
+                    <article
+                      key={o.id}
+                      id={`order-${o.id}`}
+                      tabIndex={-1}
+                      className={`flex flex-col gap-2 rounded-2xl border border-t-4 border-line bg-white p-3.5 outline-none data-shown:focus:outline-2 data-shown:focus:outline-solid data-shown:focus:outline-offset-2 data-shown:focus:outline-teal-deep ${col.edge}`}
+                    >
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="text-base font-bold">{o.code}</span>
+                        <span className="text-[13px] text-ink-soft">{minutesAgo(o.created_at)}</span>
                       </div>
-                    )}
-                  </article>
-                );
-              })}
-            </section>
-          );
-        })}
-      </div>
+                      <span className="self-start rounded-lg bg-[#eef2f6] px-2.5 py-1 text-[13px] font-semibold">{where}</span>
+                      <ul className="text-sm leading-normal">
+                        {o.items.map((it, i) => (
+                          <li key={i}>
+                            {it.quantity} × {it.name}
+                            {it.option_label ? ` (${it.option_label})` : ""}
+                            {it.note && <span className="block text-[13px] text-coral-ink">“{it.note}”</span>}
+                          </li>
+                        ))}
+                      </ul>
+                      {o.mode === "delivery" && o.delivery_address && <p className="text-[13px] text-ink-soft">{o.delivery_address}</p>}
+                      <div className="flex items-center justify-between gap-2 text-[13px]">
+                        <span className={`font-semibold ${paid ? "text-teal-deeper" : o.payment_status === "failed" ? "text-coral-ink" : "text-ink-soft"}`}>
+                          {paid ? "Paid" : o.payment_status === "pending" ? "Awaiting" : o.payment_status === "failed" ? "Failed" : "Pay"} · {PAY_LABEL[o.payment_method]}
+                        </span>
+                        <span className="text-sm font-bold">{formatKes(o.total_kes)}</span>
+                      </div>
+                      <a href={`tel:${o.customer_phone}`} className="text-[13px] font-semibold text-teal-deep">{o.customer_name} · {o.customer_phone}</a>
+                      {col.action && (
+                        <BoardActionForm action={advanceOrder} className="flex flex-col gap-1.5">
+                          <input type="hidden" name="orderId" value={o.id} />
+                          <input type="hidden" name="from" value={o.status} />
+                          <SubmitButton
+                            pendingLabel={col.pending ?? "Saving…"}
+                            className={`min-h-11 w-full rounded-xl text-[15px] font-bold ${
+                              col.status === "new" ? "bg-teal-deep text-white" : "border-[1.5px] border-teal-deep bg-white text-teal-deep"
+                            }`}
+                          >
+                            {col.status === "ready" && o.mode === "delivery" ? "Out for delivery" : col.action}
+                          </SubmitButton>
+                        </BoardActionForm>
+                      )}
+                      {col.status !== "completed" && (
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[13px] font-semibold">
+                          {!paid && (
+                            <BoardActionForm action={markPaid} className="flex flex-col">
+                              <input type="hidden" name="orderId" value={o.id} />
+                              <SubmitButton pendingLabel="Marking paid…" className="min-h-11 text-left text-teal-deep">Mark paid</SubmitButton>
+                            </BoardActionForm>
+                          )}
+                          {col.status === "new" && (
+                            <BoardActionForm action={cancelOrder} className="flex flex-col">
+                              <input type="hidden" name="orderId" value={o.id} />
+                              <input type="hidden" name="from" value={col.status} />
+                              <SubmitButton pendingLabel="Declining…" className="min-h-11 text-left text-coral-ink">Decline</SubmitButton>
+                            </BoardActionForm>
+                          )}
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </section>
+            );
+          })}
+        </div>
+      </BoardNotices>
     </div>
   );
 }
