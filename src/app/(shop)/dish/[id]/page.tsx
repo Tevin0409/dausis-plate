@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { BackIcon } from "@/components/icons";
 import { DishForm } from "@/components/shop/dish-form";
 import { hhmm, weekdayName, nairobiToday } from "@/lib/format";
+import { backOnSale, regularOnSale } from "@/lib/kitchen";
+import { getKitchen } from "@/lib/kitchen-server";
 import type { TodaysMenuRow } from "@/lib/database.types";
 import { createClient } from "@/lib/supabase/server";
 import { isUuid, must } from "@/lib/supabase/result";
@@ -19,10 +21,11 @@ export default async function DishPage({ params, searchParams }: Props) {
   const entryId = entry && isUuid(entry) ? entry : null;
   const supabase = await createClient();
 
-  const [dishResult, optionsResult, todaysResult] = await Promise.all([
-    supabase.from("dishes").select("id, name, description, price_kes, photo_url, is_regular, regular_available").eq("id", id).maybeSingle(),
+  const [dishResult, optionsResult, todaysResult, kitchen] = await Promise.all([
+    supabase.from("dishes").select("id, name, description, price_kes, photo_url, is_regular, unavailable_on").eq("id", id).maybeSingle(),
     supabase.from("dish_options").select("id, label, price_delta_kes, is_default").eq("dish_id", id).order("sort_order"),
     entryId ? supabase.from("todays_menu").select("*").eq("entry_id", entryId).returns<TodaysMenuRow[]>().maybeSingle() : Promise.resolve({ data: null, error: null }),
+    getKitchen(),
   ]);
   const dish = must(dishResult, "the dish");
   const options = must(optionsResult, "dish options");
@@ -38,8 +41,8 @@ export default async function DishPage({ params, searchParams }: Props) {
     else if (!rotating.open_now) unavailable = `Orders open ${hhmm(rotating.show_from)}–${hhmm(rotating.show_until)}`;
   } else if (!dish.is_regular) {
     unavailable = "Not on today’s menu";
-  } else if (!dish.regular_available) {
-    unavailable = "Sold out today";
+  } else if (!regularOnSale(dish.unavailable_on, kitchen.status.today)) {
+    unavailable = backOnSale(kitchen.status);
   }
 
   const src = dish.photo_url;

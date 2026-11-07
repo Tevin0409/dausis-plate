@@ -1,9 +1,11 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { placeOrder } from "@/app/(shop)/checkout/actions";
-import { formatKes, timeLabel } from "@/lib/format";
+import { formatKes } from "@/lib/format";
+import { justClosedNote } from "@/lib/kitchen";
 import { useCart } from "./cart-provider";
+import { ClosedButton, KitchenNotice, useKitchen, usePickupSlots } from "./kitchen-provider";
 import { BottomBar } from "./ui";
 
 type Zone = { id: string; name: string; fee_kes: number };
@@ -21,13 +23,11 @@ const PAY_LINE = {
 
 const input = "min-h-[50px] w-full rounded-[14px] border border-sand-deep bg-white px-3.5 text-[15px]";
 
-/** Next three half-hour slots at least 30 minutes away. */
-function pickupSlots(now = new Date()): string[] {
-  const start = new Date(now.getTime() + 30 * 60000);
-  start.setSeconds(0, 0);
-  start.setMinutes(start.getMinutes() < 30 ? 30 : 60);
-  return [0, 1, 2].map((i) => new Date(start.getTime() + i * 30 * 60000).toISOString());
-}
+const MAIN_BUTTON = "flex min-h-14 flex-1 touch-manipulation items-center justify-center rounded-[18px] px-5 font-semibold select-none";
+const chipClass = (selected: boolean) =>
+  `press min-h-11 touch-manipulation rounded-xl px-3.5 text-sm select-none [-webkit-tap-highlight-color:transparent] ${
+    selected ? "border-2 border-teal-deep bg-teal-tint font-semibold text-teal-deeper" : "border border-sand-deep bg-white"
+  }`;
 
 type Attempt = { key: string; cart: string };
 const ATTEMPT_STORAGE = "dp-checkout-attempt";
@@ -51,6 +51,7 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
   const { lines, subtotalKes, table, clear } = useCart();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const kitchen = useKitchen();
   const [error, setError] = useState<string | null>(null);
 
   const [mode, setMode] = useState<Mode>(table ? "dine_in" : "pickup");
@@ -62,8 +63,17 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
 
-  // Recomputed after a failed attempt, so a page left open stops offering times that have passed.
-  const slots = useMemo(() => pickupSlots(), [error]); // eslint-disable-line react-hooks/exhaustive-deps
+  // From the server's status and clock (spec-2.2 "Checkout: pickup time"). They are rebuilt whenever
+  // the status is read again: on focus, at the next change, and after any refusal below.
+  const slots = usePickupSlots();
+  const chips = slots.length > 4 ? slots.slice(0, 3) : slots;
+  const later = slots.length > 4 ? slots.slice(3) : [];
+  const [showLater, setShowLater] = useState(false);
+  const pickedLater = later.some((s) => s.at === pickupAt);
+  // A chosen time that's no longer offered goes back to "As soon as it's ready".
+  useEffect(() => {
+    if (pickupAt && !slots.some((s) => s.at === pickupAt)) setPickupAt(null);
+  }, [slots, pickupAt]);
   // One key per attempt at this cart: a retry after an error or a lost response reuses it.
   const attempt = useRef<Attempt | null>(null);
   // The message sits below the fold on a phone, behind the bottom bar: bring it into view.
@@ -90,6 +100,7 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!kitchen.open) return;
     setError(null);
     const items = lines.map((l) => ({ dishId: l.dishId, menuEntryId: l.menuEntryId, optionId: l.optionId, quantity: l.quantity, note: l.note }));
     const cart = JSON.stringify(items);
@@ -108,10 +119,11 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
         phone,
         payment: pay,
         items,
-      }).catch(() => ({ ok: false as const, error: "We couldn’t confirm your order. Check your connection and try again." }));
+      }).catch(() => ({ ok: false as const, error: "We couldn’t confirm your order. Check your connection and try again.", reason: undefined }));
       if (!res.ok) {
-        setError(res.error);
-        if (pickupAt && new Date(pickupAt) < new Date()) setPickupAt(null);
+        // Every refusal reads the status again, so the button and pickup times match the server.
+        const status = await kitchen.refresh();
+        setError(res.reason === "kitchen_closed" ? justClosedNote(status) : res.error);
         return;
       }
       attempt.current = null;
@@ -166,20 +178,51 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
           <>
             <span className="text-sm font-semibold">When will you collect?</span>
             <div className="flex flex-wrap gap-2">
-              {[null, ...slots].map((s) => (
+              {[{ at: null, label: "As soon as it’s ready" }, ...chips].map((s) => (
                 <button
-                  key={s ?? "asap"}
+                  key={s.at ?? "asap"}
                   type="button"
-                  onClick={() => setPickupAt(s)}
-                  aria-pressed={pickupAt === s}
-                  className={`min-h-11 rounded-xl px-3.5 text-sm ${
-                    pickupAt === s ? "border-2 border-teal-deep bg-teal-tint font-semibold text-teal-deeper" : "border border-sand-deep bg-white"
-                  }`}
+                  onClick={() => {
+                    setPickupAt(s.at);
+                    setShowLater(false);
+                  }}
+                  aria-pressed={pickupAt === s.at && !(s.at === null && showLater)}
+                  className={chipClass(pickupAt === s.at && !(s.at === null && showLater))}
                 >
-                  {s ? timeLabel(s) : "As soon as it’s ready"}
+                  {s.label}
                 </button>
               ))}
+              {later.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowLater(true);
+                    if (!pickedLater) setPickupAt(later[0]!.at);
+                  }}
+                  aria-pressed={showLater || pickedLater}
+                  aria-expanded={showLater || pickedLater}
+                  className={chipClass(showLater || pickedLater)}
+                >
+                  Later
+                </button>
+              )}
             </div>
+            {(showLater || pickedLater) && later.length > 0 && (
+              <label className="flex flex-col gap-1.5 text-sm font-semibold">
+                Pickup time
+                <select
+                  value={pickedLater ? (pickupAt ?? "") : later[0]!.at}
+                  onChange={(e) => setPickupAt(e.target.value)}
+                  className="min-h-12 w-full min-w-0 rounded-[14px] border border-sand-deep bg-white px-3.5 text-base"
+                >
+                  {later.map((s) => (
+                    <option key={s.at} value={s.at}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </>
         )}
 
@@ -269,14 +312,20 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
         <p ref={errorRef} role="alert" className="note-in mx-5 mt-4 rounded-xl bg-blush px-4 py-3 text-[15px] [overflow-wrap:anywhere] text-coral-ink">{error}</p>
       )}
 
+      {!kitchen.open && <KitchenNotice className="mx-5 mt-4" />}
+
       <BottomBar inlineOnDesktop="padded">
-        <button
-          type="submit"
-          disabled={pending}
-          className="press flex min-h-14 flex-1 touch-manipulation items-center justify-center rounded-[18px] bg-teal-deep px-5 font-semibold text-white select-none disabled:opacity-60"
-        >
-          {pending ? "Sending to Mama…" : `Place order · ${formatKes(total)}`}
-        </button>
+        {kitchen.open ? (
+          <button
+            type="submit"
+            disabled={pending}
+            className={`press ${MAIN_BUTTON} bg-teal-deep text-white disabled:opacity-60`}
+          >
+            {pending ? "Sending to Mama…" : `Place order · ${formatKes(total)}`}
+          </button>
+        ) : (
+          <ClosedButton totalKes={total} className={`${MAIN_BUTTON} bg-sand-deep text-ink-soft`} />
+        )}
       </BottomBar>
     </form>
   );

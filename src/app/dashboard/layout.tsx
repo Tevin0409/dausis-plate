@@ -1,9 +1,14 @@
-import Link from "next/link";
-import Image from "next/image";
+import type { Viewport } from "next";
 import { redirect } from "next/navigation";
-import { DashboardNav } from "@/components/dashboard/nav";
+import { ClosedEarlyStrip } from "@/components/dashboard/closed-early-strip";
+import { DashboardRail, DashboardTabBar } from "@/components/dashboard/nav";
+import type { KitchenStatus } from "@/lib/kitchen";
+import { getKitchen } from "@/lib/kitchen-server";
 import { createClient, getStaff } from "@/lib/supabase/server";
 import { signOut } from "./actions";
+
+// The top of every dashboard page is cream, so the status bar is too (customer pages keep teal).
+export const viewport: Viewport = { themeColor: "#fbf7f1" };
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const staff = await getStaff();
@@ -28,27 +33,42 @@ export default async function DashboardLayout({ children }: { children: React.Re
     );
   }
 
-  const { count, error: countError } = await (await createClient())
-    .from("orders")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "new");
+  const [{ count, error: countError }, kitchen] = await Promise.all([
+    (await createClient()).from("orders").select("id", { count: "exact", head: true }).eq("status", "new"),
+    readKitchenStatus(),
+  ]);
   if (countError) console.error("[db] counting new orders failed:", countError.code ?? "", countError.message);
+  const newOrders = countError ? null : (count ?? 0);
 
+  // spec-2.2 "Dashboard shell": a min-h-dvh column with the tab bar sticky at its foot below 1024 px,
+  // a row with the sticky rail from 1024 px. Neither prints.
   return (
-    <div className="flex min-h-dvh flex-wrap items-stretch bg-mist print:block print:bg-white">
-      <aside className="print:hidden flex max-w-full flex-[1_1_220px] flex-col gap-1 border-r border-line bg-white px-4 py-6">
-        <div className="flex items-center gap-2.5 px-2 pb-5">
-          <Image src="/brand/dausis-plate-icon.svg" alt="" width={36} height={36} />
-          <span className="font-display text-xl">Dausis Plate</span>
-        </div>
-        <DashboardNav newOrders={countError ? null : (count ?? 0)} />
-        <form action={signOut} className="mt-auto px-3 pt-6">
-          <p className="truncate text-[13px] text-ink-soft">{staff.name ?? staff.email}</p>
-          <Link href="/dashboard/account" className="mt-1 block text-sm font-semibold text-teal-deep">Account &amp; password</Link>
-          <button className="mt-1 text-sm font-semibold text-teal-deep">Sign out</button>
-        </form>
-      </aside>
-      <main className="min-w-0 flex-[999_1_560px] px-4 py-7 sm:px-8 print:p-0">{children}</main>
+    <div className="dash flex min-h-dvh flex-col bg-cream lg:flex-row print:block print:bg-white">
+      <a
+        href="#main"
+        className="sr-only z-50 rounded-xl bg-paper px-4 py-3 font-semibold text-teal-deeper focus:not-sr-only focus:fixed focus:left-3 focus:top-3 print:hidden"
+      >
+        Skip to content
+      </a>
+      <DashboardRail newOrders={newOrders} role={staff.role} name={staff.name} email={staff.email} />
+      <main
+        id="main"
+        tabIndex={-1}
+        className="min-w-0 flex-1 px-4 pb-4 pt-[calc(16px+env(safe-area-inset-top,0px))] outline-none min-[600px]:px-5 min-[600px]:pb-5 min-[600px]:pt-[calc(20px+env(safe-area-inset-top,0px))] lg:px-7 lg:pb-7 lg:pt-[calc(28px+env(safe-area-inset-top,0px))] print:block print:p-0"
+      >
+        <ClosedEarlyStrip closedEarly={kitchen?.reason === "closed_early"} owner={staff.role === "owner"} />
+        {children}
+      </main>
+      <DashboardTabBar newOrders={newOrders} role={staff.role} />
     </div>
   );
+}
+
+/** The kitchen status for the strip. A failed read just leaves the strip off; the screens still work. */
+async function readKitchenStatus(): Promise<KitchenStatus | null> {
+  try {
+    return (await getKitchen()).status;
+  } catch {
+    return null;
+  }
 }

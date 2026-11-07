@@ -45,8 +45,8 @@ export type Database = {
           photo_thumb_url: string | null;
           photo_url: string | null;
           price_kes: number;
-          regular_available: boolean;
           sort_order: number;
+          unavailable_on: string | null;
           updated_at: string;
         };
         Insert: {
@@ -62,8 +62,8 @@ export type Database = {
           photo_thumb_url?: string | null;
           photo_url?: string | null;
           price_kes: number;
-          regular_available?: boolean;
           sort_order?: number;
+          unavailable_on?: string | null;
           updated_at?: string;
         };
         Update: {
@@ -79,8 +79,8 @@ export type Database = {
           photo_thumb_url?: string | null;
           photo_url?: string | null;
           price_kes?: number;
-          regular_available?: boolean;
           sort_order?: number;
+          unavailable_on?: string | null;
           updated_at?: string;
         };
         Relationships: [];
@@ -281,6 +281,32 @@ export type Database = {
           { foreignKeyName: "orders_table_id_fkey"; columns: ["table_id"]; isOneToOne: false; referencedRelation: "dining_tables"; referencedColumns: ["id"] },
         ];
       };
+      opening_hours: {
+        Row: { weekday: number; is_open: boolean; opens: string; closes: string };
+        Insert: { weekday: number; is_open?: boolean; opens?: string; closes?: string };
+        Update: { weekday?: number; is_open?: boolean; opens?: string; closes?: string };
+        Relationships: [];
+      };
+      closed_dates: {
+        Row: { day: string; note: string | null; created_by: string | null; created_at: string };
+        Insert: { day: string; note?: string | null; created_by?: string | null; created_at?: string };
+        Update: { day?: string; note?: string | null; created_by?: string | null; created_at?: string };
+        Relationships: [];
+      };
+      kitchen_settings: {
+        Row: {
+          id: boolean;
+          last_orders_minutes: number;
+          closed_early_on: string | null;
+          closed_early_at: string | null;
+          closed_early_by: string | null;
+          till_number: string | null;
+          updated_at: string;
+        };
+        Insert: { id?: boolean; last_orders_minutes?: number; closed_early_on?: string | null; closed_early_at?: string | null; closed_early_by?: string | null; till_number?: string | null; updated_at?: string };
+        Update: { id?: boolean; last_orders_minutes?: number; closed_early_on?: string | null; closed_early_at?: string | null; closed_early_by?: string | null; till_number?: string | null; updated_at?: string };
+        Relationships: [];
+      };
       staff: {
         Row: { created_at: string; display_name: string | null; role: Database["public"]["Enums"]["staff_role"]; user_id: string };
         Insert: { created_at?: string; display_name?: string | null; role?: Database["public"]["Enums"]["staff_role"]; user_id: string };
@@ -317,6 +343,14 @@ export type Database = {
       };
     };
     Functions: {
+      close_early: { Args: never; Returns: Json };
+      has_permission: { Args: { p_permission: string }; Returns: boolean };
+      kitchen_status: { Args: never; Returns: Json };
+      regular_on_sale: { Args: { p_unavailable_on: string | null }; Returns: boolean };
+      reopen_today: { Args: never; Returns: Json };
+      save_opening_hours: { Args: { p_days: Json; p_last_orders_minutes: number }; Returns: Json };
+      set_regular_on_sale: { Args: { p_dish: string; p_on_sale: boolean }; Returns: undefined };
+      set_till_number: { Args: { p_till: string }; Returns: string | null };
       advance_order: { Args: { p_order: string; p_from: Database["public"]["Enums"]["order_status"]; p_to: Database["public"]["Enums"]["order_status"] }; Returns: undefined };
       cancel_order: { Args: { p_order: string; p_from: Database["public"]["Enums"]["order_status"] }; Returns: undefined };
       copy_menu_day: { Args: { p_from: string; p_to: string }; Returns: number };

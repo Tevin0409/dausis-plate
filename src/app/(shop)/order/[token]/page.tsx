@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 import { CheckIcon, PhoneIcon } from "@/components/icons";
 import { AutoRefresh } from "@/components/shop/auto-refresh";
+import { TillLine } from "@/components/shop/till-line";
 import { Narrow } from "@/components/shop/ui";
 import { formatKes, timeLabel } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
@@ -27,6 +28,8 @@ const status = z.object({
   total_kes: z.number(),
   created_at: z.string(),
   status_changed_at: z.string(),
+  // Only while unpaid and not cancelled, and only if Mama has set one (get_order_status decides).
+  till_number: z.string().nullable().optional(),
   items: z.array(z.object({ name: z.string(), option_label: z.string().nullable(), quantity: z.number(), unit_price_kes: z.number() })),
 });
 
@@ -85,6 +88,7 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
             </span>
           )}
         </div>
+        {o.till_number && o.payment_status !== "paid" && o.status !== "cancelled" && <TillLine till={o.till_number} />}
         <span className="mt-3.5 font-script text-[30px] leading-none">Asante, {o.customer_name}!</span>
         <span className="text-[15px] text-[#d7f0ee]">Order {o.code} · {where}</span>
         {o.status === "cancelled" && <span className="mt-3 text-lg font-semibold">This order was cancelled. Call us if that’s a surprise.</span>}

@@ -2,11 +2,13 @@
 import Link from "next/link";
 import { formatKes } from "@/lib/format";
 import { useCart } from "./cart-provider";
+import { ClosedButton, useKitchen } from "./kitchen-provider";
 import { Stepper } from "./ui";
 
 /** Desktop-only sticky order summary beside the menu (phones use the bottom CartBar instead). */
 export function OrderPanel() {
   const { lines, subtotalKes, setQuantity, table } = useCart();
+  const { open } = useKitchen();
   return (
     <aside aria-label="Your order" className="sticky top-6 hidden max-h-[calc(100dvh-3rem)] flex-col rounded-3xl border border-sand bg-white lg:flex">
       <div className="border-b border-sand px-5 py-4">
@@ -35,9 +37,13 @@ export function OrderPanel() {
               <span className="font-semibold">Subtotal</span>
               <span className="font-display text-2xl">{formatKes(subtotalKes)}</span>
             </div>
-            <Link href="/checkout" className="flex min-h-[52px] items-center justify-center rounded-2xl bg-teal-deep font-semibold text-white">
-              Go to checkout
-            </Link>
+            {open ? (
+              <Link href="/checkout" className="flex min-h-[52px] items-center justify-center rounded-2xl bg-teal-deep font-semibold text-white">
+                Go to checkout
+              </Link>
+            ) : (
+              <ClosedButton totalKes={subtotalKes} className="flex min-h-[52px] items-center justify-center rounded-2xl bg-sand-deep px-4 text-center font-semibold text-ink-soft" />
+            )}
           </div>
         </>
       )}

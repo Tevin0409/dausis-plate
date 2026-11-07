@@ -243,7 +243,9 @@ export async function setRegularAvailable(_prev: ActionResult, formData: FormDat
   if (!parsed.success) return STALE_FORM;
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
-  const { error } = await supabase.from("dishes").update({ regular_available: parsed.data.available === "true" }).eq("id", parsed.data.dishId);
+  // "Sold out" stores today's date, so the dish is back tomorrow with no job running (spec-2.2).
+  const { error } = await supabase.rpc("set_regular_on_sale", { p_dish: parsed.data.dishId, p_on_sale: parsed.data.available === "true" });
+  if (error?.code === "P0001") return failed("setRegularAvailable", error, error.message);
   if (error) return failed("setRegularAvailable", error, "Couldn’t change it. Try again.");
   revalidatePath("/dashboard/manage");
   revalidatePath("/");

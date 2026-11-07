@@ -1,6 +1,6 @@
 // Order safety (slice 0.2): place_order input checks, idempotency, order codes
 // and the order lifecycle. Each test failed on the schema before these migrations.
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { TransactionSQL } from "bun";
 import { attempt, dineIn, inTx, placeOrder, platesSold, seedFixtures, sql, type Fixtures } from "./helpers";
 
@@ -137,7 +137,21 @@ describe("place_order: idempotency", () => {
 
   describe("two calls at once on separate connections", () => {
     let dishId: string | undefined;
+    // Committed, not in a rolled-back transaction, so open the kitchen all day for this test
+    // and put the hours back after.
+    let hours: Record<string, unknown>[] = [];
+    let lastOrders = 30;
+    beforeAll(async () => {
+      hours = await sql`select weekday, is_open, opens, closes from public.opening_hours`;
+      [{ last_orders_minutes: lastOrders }] = await sql`select last_orders_minutes from public.kitchen_settings`;
+      await sql`update public.opening_hours set is_open = true, opens = '00:00', closes = '24:00'`;
+      await sql`update public.kitchen_settings set last_orders_minutes = 0`;
+    });
     afterAll(async () => {
+      for (const h of hours) {
+        await sql`update public.opening_hours set is_open = ${h.is_open}, opens = ${h.opens}, closes = ${h.closes} where weekday = ${h.weekday}`;
+      }
+      await sql`update public.kitchen_settings set last_orders_minutes = ${lastOrders}`;
       if (!dishId) return;
       await sql`delete from public.order_items where dish_id = ${dishId}`;
       await sql`delete from public.orders where customer_name = 'Concurrent test'`;

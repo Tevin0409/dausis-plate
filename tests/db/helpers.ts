@@ -40,6 +40,11 @@ export type Fixtures = Awaited<ReturnType<typeof seedFixtures>>;
 export async function seedFixtures(tx: Tx) {
   const [owner] = await tx`insert into auth.users (email) values ('owner@test.local') returning id`;
   await tx`insert into public.staff (user_id, role, display_name) values (${owner.id}, 'owner', 'Test owner')`;
+  // Open all day, every day, so order tests don't depend on the clock (opening-hours.test.ts
+  // sets its own hours). Last orders at closing, closing at midnight.
+  await tx`update public.opening_hours set is_open = true, opens = '00:00', closes = '24:00'`;
+  await tx`update public.kitchen_settings set last_orders_minutes = 0, closed_early_on = null, closed_early_at = null`;
+  await tx`delete from public.closed_dates`;
   const [regular] = await tx`
     insert into public.dishes (name, price_kes, is_regular, updated_at)
     values ('Test regular', 300, true, '2020-01-01') returning *`;

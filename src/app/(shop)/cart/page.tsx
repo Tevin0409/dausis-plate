@@ -2,11 +2,13 @@
 import Link from "next/link";
 import { ArrowIcon } from "@/components/icons";
 import { useCart } from "@/components/shop/cart-provider";
+import { ClosedButton, useKitchen } from "@/components/shop/kitchen-provider";
 import { BottomBar, Narrow, ScreenHeader, Stepper } from "@/components/shop/ui";
 import { formatKes } from "@/lib/format";
 
 export default function CartPage() {
   const { lines, subtotalKes, setQuantity } = useCart();
+  const { open } = useKitchen();
 
   return (
     <Narrow>
@@ -41,9 +43,14 @@ export default function CartPage() {
           </section>
 
           <BottomBar inlineOnDesktop="padded">
-            <Link href="/checkout" className="flex min-h-14 flex-1 items-center justify-center gap-2 rounded-[18px] bg-teal-deep font-semibold text-white">
-              Go to checkout <ArrowIcon />
-            </Link>
+            {open ? (
+              <Link href="/checkout" className="flex min-h-14 flex-1 items-center justify-center gap-2 rounded-[18px] bg-teal-deep font-semibold text-white">
+                Go to checkout <ArrowIcon />
+              </Link>
+            ) : (
+              // Closed: off, with the total still showing (spec-2.2). The cart stays saved on the phone.
+              <ClosedButton totalKes={subtotalKes} className="flex min-h-14 flex-1 items-center justify-center rounded-[18px] bg-sand-deep px-5 font-semibold text-ink-soft" />
+            )}
           </BottomBar>
         </>
       )}

@@ -2,11 +2,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { AddButton } from "@/components/shop/add-button";
+import { KitchenNotice } from "@/components/shop/kitchen-provider";
 import { OrderPanel } from "@/components/shop/order-panel";
 import { CartBar } from "@/components/shop/ui";
 import { PlusIcon } from "@/components/icons";
 import type { Enums, TodaysMenuRow } from "@/lib/database.types";
 import { formatKes, hhmm, nairobiToday, weekdayName } from "@/lib/format";
+import { backOnSale, regularOnSale } from "@/lib/kitchen";
+import { getKitchen } from "@/lib/kitchen-server";
 import { createClient } from "@/lib/supabase/server";
 import { must } from "@/lib/supabase/result";
 import { parseTableCookie, TABLE_COOKIE } from "@/lib/table-cookie";
@@ -22,21 +25,23 @@ const CATEGORY_LABEL: Record<Enums<"dish_category">, string> = {
 
 export default async function MenuPage() {
   const supabase = await createClient();
-  const [todayResult, regularsResult, optionsResult] = await Promise.all([
+  const [todayResult, regularsResult, optionsResult, kitchen] = await Promise.all([
     supabase.from("todays_menu").select("*").order("sort_order").returns<TodaysMenuRow[]>(),
     supabase
       .from("dishes")
-      .select("id, name, description, price_kes, photo_thumb_url, category, regular_available")
+      .select("id, name, description, price_kes, photo_thumb_url, category, unavailable_on")
       .eq("is_regular", true)
       .eq("archived", false)
       .order("category")
       .order("sort_order"),
     supabase.from("dish_options").select("dish_id"),
+    getKitchen(),
   ]);
 
   // A failed read throws to error.tsx: an empty menu must mean nothing is planned, not a broken query.
   const today = must(todayResult, "today’s menu");
-  const regulars = must(regularsResult, "the regular menu");
+  const regulars = must(regularsResult, "the regular menu").map((d) => ({ ...d, onSale: regularOnSale(d.unavailable_on, kitchen.status.today) }));
+  const soldOutLine = backOnSale(kitchen.status);
   const hasOptions = new Set(must(optionsResult, "dish options").map((o) => o.dish_id));
   const rotating = today.filter((d) => !(d.sold_out && d.auto_hide_sold_out));
   const table = parseTableCookie((await cookies()).get(TABLE_COOKIE)?.value);
@@ -61,6 +66,7 @@ export default async function MenuPage() {
           )}
         </div>
       </header>
+      <KitchenNotice className="mx-auto max-w-6xl px-5 pt-3 md:px-8 md:pt-5" />
 
       <div className="mx-auto max-w-6xl pb-28 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-10 lg:px-8 lg:pb-16">
         <main className="min-w-0">
@@ -112,17 +118,17 @@ export default async function MenuPage() {
                       {dishes.map((d) => (
                         <div
                           key={d.id}
-                          className={`flex items-center gap-3.5 border-b border-sand py-3 md:rounded-2xl md:border md:bg-white md:p-3 ${d.regular_available ? "" : "opacity-60"}`}
+                          className={`flex items-center gap-3.5 border-b border-sand py-3 md:rounded-2xl md:border md:bg-white md:p-3 ${d.onSale ? "" : "opacity-60"}`}
                         >
                           <div className="relative size-[68px] flex-none overflow-hidden rounded-2xl bg-teal-tint md:size-20">
                             {d.photo_thumb_url && <Image src={d.photo_thumb_url} alt="" fill sizes="80px" className="object-cover" />}
                           </div>
                           <Link href={`/dish/${d.id}`} className="flex min-w-0 flex-1 flex-col gap-0.5">
                             <span className="text-base font-semibold">{d.name}</span>
-                            <span className="line-clamp-2 text-[13px] text-ink-soft">{d.regular_available ? d.description : "Sold out today"}</span>
+                            <span className="line-clamp-2 text-[13px] text-ink-soft">{d.onSale ? d.description : soldOutLine}</span>
                             <span className="text-[15px] font-bold">{formatKes(d.price_kes)}</span>
                           </Link>
-                          {d.regular_available &&
+                          {d.onSale &&
                             (hasOptions.has(d.id) ? (
                               <Link href={`/dish/${d.id}`} aria-label={`Choose options for ${d.name}`} className="flex size-11 flex-none items-center justify-center rounded-full border-[1.5px] border-teal-deep text-teal-deep">
                                 <PlusIcon />

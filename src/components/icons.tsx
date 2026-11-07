@@ -45,3 +45,22 @@ export const QrIcon = ({ size = 18, className }: IconProps) => (
 export const PhoneIcon = ({ size = 18, className }: IconProps) => (
   <svg {...base(size)} strokeWidth={2} className={className}><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2" /></svg>
 );
+export const SettingsIcon = ({ size = 18, className }: IconProps) => (
+  <svg {...base(size)} strokeWidth={2} className={className}>
+    <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+    <circle cx="16" cy="7" r="2" />
+    <circle cx="10" cy="17" r="2" />
+  </svg>
+);
+export const MoreIcon = ({ size = 18, className }: IconProps) => (
+  <svg {...base(size)} strokeWidth={2.6} className={className}><path d="M5 12h.01M12 12h.01M19 12h.01" /></svg>
+);
+export const AccountIcon = ({ size = 18, className }: IconProps) => (
+  <svg {...base(size)} strokeWidth={2} className={className}><circle cx="12" cy="8" r="4" /><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" /></svg>
+);
+export const SignOutIcon = ({ size = 18, className }: IconProps) => (
+  <svg {...base(size)} strokeWidth={2} className={className}><path d="M14 4H5v16h9M10 12h10M17 8l4 4-4 4" /></svg>
+);
+export const DishesIcon = ({ size = 18, className }: IconProps) => (
+  <svg {...base(size)} strokeWidth={2} className={className}><path d="M3 13h18a9 9 0 0 1-18 0zM12 4v2M8 6.5l.8 1.6M16 6.5l-.8 1.6" /></svg>
+);

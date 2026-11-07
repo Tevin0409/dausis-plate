@@ -37,7 +37,12 @@ const input = z
 export type CheckoutInput = z.input<typeof input>;
 export type CheckoutResult =
   | { ok: true; token: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; reason?: "kitchen_closed" | "pickup_time" };
+
+/** place_order's stable refusal codes (its DETAIL), so checkout can rebuild the button or the pickup times. */
+const REASONS = new Set(["kitchen_closed", "pickup_time"] as const);
+const reasonOf = (details: string | undefined) =>
+  REASONS.has(details as "kitchen_closed") ? (details as "kitchen_closed" | "pickup_time") : undefined;
 
 export async function placeOrder(raw: CheckoutInput): Promise<CheckoutResult> {
   const parsed = input.safeParse(raw);
@@ -72,7 +77,8 @@ export async function placeOrder(raw: CheckoutInput): Promise<CheckoutResult> {
 
   if (error) {
     // P0001 = messages written for customers inside place_order.
-    return { ok: false, error: error.code === "P0001" ? error.message : "Something went wrong placing your order. Try again." };
+    if (error.code === "P0001") return { ok: false, error: error.message, reason: reasonOf(error.details) };
+    return { ok: false, error: "Something went wrong placing your order. Try again." };
   }
   const placed = data?.[0];
   if (!placed) return { ok: false, error: "Something went wrong placing your order. Try again." };

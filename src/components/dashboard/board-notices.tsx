@@ -138,7 +138,7 @@ export function BoardNotices({ titles, children }: { titles: Record<string, stri
         {notice && !leaving ? text : ""}
       </div>
       {notice && (
-        <div className="pointer-events-none fixed inset-x-4 bottom-[calc(16px+env(safe-area-inset-bottom,0px))] z-40 flex justify-center lg:left-[236px]">
+        <div className="pointer-events-none fixed inset-x-4 bottom-[calc(var(--tabbar-h,0px)+16px)] z-40 flex justify-center lg:bottom-[calc(16px+env(safe-area-inset-bottom,0px))] lg:left-[112px]">
           <div
             ref={strip}
             data-leaving={leaving ? "" : undefined}

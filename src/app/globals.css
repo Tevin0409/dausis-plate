@@ -15,6 +15,9 @@
   --color-blush-deep: #f3d3cf;
   --color-pink: #e99d99;
   --color-cream: #fbf7f1;
+  --color-paper: #ffffff;
+  --color-field: #8c8478;
+  --color-on-teal-soft: #d4ecea;
   --color-sand: #ece5da;
   --color-sand-deep: #d9d2c7;
   --color-mist: #f4f6f8;
@@ -33,7 +36,9 @@
 
 /* Shape, depth and motion tokens, as defined in DESIGN.md. Only the ones in use so far. */
 :root {
+  --r-sm: 10px;
   --r-md: 16px;
+  --r-lg: 24px;
   --shadow-card: 0 1px 2px rgba(26, 32, 44, 0.06), 0 4px 14px rgba(26, 32, 44, 0.05);
   --dur-press: 120ms;
   --dur-small: 180ms;
@@ -116,5 +121,68 @@ body {
     .note-in {
       transform: none;
     }
+  }
+}
+
+/* Dashboard shell (spec-2.2). The tab bar's height, for the save bar and the board strip. */
+.dash {
+  --tabbar-h: calc(64px + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 1024px) {
+  .dash {
+    --tabbar-h: 0px;
+  }
+}
+/* While a text field has focus on a touch screen, the tab bar goes at once, so the keyboard
+   meets the content and the save bar drops to the keyboard's edge. */
+@media (pointer: coarse) {
+  .dash:has(:is(input:not([type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="file"]), textarea, select):focus) {
+    --tabbar-h: 0px;
+  }
+  .dash:has(:is(input:not([type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="file"]), textarea, select):focus) .dash-tabbar {
+    display: none;
+  }
+}
+
+/* Closed-early strip: enters from 8 px above when it's noticed, leaves the same way. Not on page load. */
+.early-strip[data-phase] {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .early-strip[data-phase="in"] {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+.early-strip[data-phase="out"] {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+/* Settings: the hours switch. Only the knob moves; the track's colour changes at once (DESIGN.md). */
+.switch-knob {
+  transition: transform var(--dur-small) var(--ease-out);
+}
+.switch:checked + .switch-track .switch-knob,
+.switch[aria-checked="true"] .switch-knob {
+  transform: translateX(18px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .early-strip[data-phase] {
+    transition: opacity var(--dur-small) var(--ease-out);
+  }
+  @starting-style {
+    .early-strip[data-phase="in"] {
+      transform: none;
+    }
+  }
+  .early-strip[data-phase="out"] {
+    transform: none;
+  }
+  .switch-knob {
+    transition: none;
   }
 }

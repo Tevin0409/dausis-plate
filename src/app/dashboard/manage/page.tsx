@@ -2,6 +2,7 @@ import Link from "next/link";
 import { z } from "zod";
 import { PlusIcon } from "@/components/icons";
 import { formatKes, nairobiToday, weekdayName } from "@/lib/format";
+import { regularOnSale } from "@/lib/kitchen";
 import { ActionForm } from "@/components/dashboard/action-form";
 import { SubmitButton } from "@/components/dashboard/submit-button";
 import { createClient } from "@/lib/supabase/server";
@@ -33,13 +34,13 @@ export default async function ManagePage() {
     supabase.rpc("dashboard_stats", { p_day: today }),
     supabase
       .from("dishes")
-      .select("id, name, category, price_kes, regular_available")
+      .select("id, name, category, price_kes, unavailable_on")
       .eq("is_regular", true)
       .eq("archived", false)
       .order("category")
       .order("sort_order"),
   ]);
-  const regulars = must(regularsResult, "regular dishes");
+  const regulars = must(regularsResult, "regular dishes").map((d) => ({ ...d, onSale: regularOnSale(d.unavailable_on, today) }));
   const s = stats.safeParse(must(statsResult, "today’s sales"));
   if (!s.success) {
     // Wrong shape is a failure too: showing zeros would look like a quiet day.
@@ -142,16 +143,18 @@ export default async function ManagePage() {
                   <td className="px-3 py-1.5">
                     <ActionForm action={setRegularAvailable} className="flex flex-col items-start gap-1">
                       <input type="hidden" name="dishId" value={d.id} />
-                      <input type="hidden" name="available" value={d.regular_available ? "false" : "true"} />
+                      <input type="hidden" name="available" value={d.onSale ? "false" : "true"} />
                       <SubmitButton
                         pendingLabel="Saving…"
-                        aria-label={`${d.name}: ${d.regular_available ? "on sale, tap to mark sold out" : "sold out, tap to put back on sale"}`}
+                        aria-label={`${d.name}: ${d.onSale ? "on sale, tap to mark sold out" : "sold out, tap to put back on sale"}`}
                         className={`min-h-11 rounded-full px-3.5 text-sm font-semibold ${
-                          d.regular_available ? "bg-teal-tint text-teal-deeper" : "bg-blush text-coral-ink"
+                          d.onSale ? "bg-teal-tint text-teal-deeper" : "bg-blush text-coral-ink"
                         }`}
                       >
-                        {d.regular_available ? "On sale" : "Sold out"}
+                        {d.onSale ? "On sale" : "Sold out"}
                       </SubmitButton>
+                      {/* About the dish, so it says tomorrow whether or not tomorrow is open (spec-2.2). */}
+                      {!d.onSale && <span className="text-[13px] text-ink-soft">Back on sale tomorrow.</span>}
                     </ActionForm>
                   </td>
                   <td className="px-5 py-1.5 text-right">
