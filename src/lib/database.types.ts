@@ -318,7 +318,7 @@ export type Database = {
     };
     Functions: {
       advance_order: { Args: { p_order: string; p_from: Database["public"]["Enums"]["order_status"]; p_to: Database["public"]["Enums"]["order_status"] }; Returns: undefined };
-      cancel_order: { Args: { p_order: string }; Returns: undefined };
+      cancel_order: { Args: { p_order: string; p_from: Database["public"]["Enums"]["order_status"] }; Returns: undefined };
       copy_menu_day: { Args: { p_from: string; p_to: string }; Returns: number };
       dashboard_stats: { Args: { p_day: string }; Returns: Json };
       get_order_status: { Args: { p_token: string }; Returns: Json };

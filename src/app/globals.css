@@ -31,6 +31,15 @@
   --font-script: var(--font-parisienne), cursive;
 }
 
+/* Shape, depth and motion tokens, as defined in DESIGN.md. Only the ones in use so far. */
+:root {
+  --r-md: 16px;
+  --shadow-card: 0 1px 2px rgba(26, 32, 44, 0.06), 0 4px 14px rgba(26, 32, 44, 0.05);
+  --dur-press: 120ms;
+  --dur-small: 180ms;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
 body {
   color: var(--color-ink);
   font-family: var(--font-sans);
@@ -43,4 +52,45 @@ body {
     rgb(229 107 111 / 0.1) 0 12px,
     transparent 12px 24px
   );
+}
+
+/* Press / tap feedback (DESIGN.md motion table). */
+.press {
+  transition: transform var(--dur-press) var(--ease-out);
+}
+.press:active {
+  transform: scale(0.97);
+}
+
+/* Board strip (the stale-tap message): fade in with 6 px translate, fade out on opacity only. */
+.board-notice {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .board-notice {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.board-notice[data-leaving] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .press:active {
+    transform: none;
+  }
+  .board-notice {
+    transition: opacity var(--dur-small) var(--ease-out);
+  }
+  @starting-style {
+    .board-notice {
+      transform: none;
+    }
+  }
 }

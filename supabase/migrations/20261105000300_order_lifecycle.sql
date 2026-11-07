@@ -53,7 +53,9 @@ begin
   end if;
 end $$;
 
-create function public.cancel_order(p_order uuid)
+-- A Decline. p_from is the status the staff member saw: if another tablet has moved the order since,
+-- the Decline is refused like any other stale tap (Tevin, 2026-11-06, option A).
+create function public.cancel_order(p_order uuid, p_from public.order_status)
 returns void
 language plpgsql security definer set search_path = '' as $$
 declare
@@ -64,6 +66,9 @@ begin
   select status into v_status from public.orders where id = p_order for update;
   if v_status is null then
     raise exception 'Order not found' using errcode = 'P0001';
+  end if;
+  if v_status is distinct from p_from and v_status not in ('completed', 'cancelled') then
+    raise exception 'Someone else already moved this order' using errcode = 'P0001';
   end if;
   if not exists (
     select from public.order_transitions t where t.from_status = v_status and t.to_status = 'cancelled'
@@ -86,10 +91,10 @@ begin
 end $$;
 
 revoke all on function public.advance_order(uuid, public.order_status, public.order_status) from public, anon;
-revoke all on function public.cancel_order(uuid) from public, anon;
+revoke all on function public.cancel_order(uuid, public.order_status) from public, anon;
 revoke all on function public.mark_order_paid(uuid) from public, anon;
 grant execute on function public.advance_order(uuid, public.order_status, public.order_status) to authenticated;
-grant execute on function public.cancel_order(uuid) to authenticated;
+grant execute on function public.cancel_order(uuid, public.order_status) to authenticated;
 grant execute on function public.mark_order_paid(uuid) to authenticated;
 
 -- Staff read orders; they no longer write them directly. place_order (definer) and the

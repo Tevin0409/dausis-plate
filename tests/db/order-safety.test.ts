@@ -27,8 +27,11 @@ async function newOrder(tx: TransactionSQL, f: Fixtures, items: object[] = regul
 const advance = (tx: TransactionSQL, f: Fixtures, id: string, from: string, to: string) =>
   attempt(tx, "authenticated", f.ownerId, (sp) =>
     sp`select public.advance_order(${id}::uuid, ${from}::public.order_status, ${to}::public.order_status)`);
-const cancel = (tx: TransactionSQL, f: Fixtures, id: string) =>
-  attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.cancel_order(${id}::uuid)`);
+/** A Decline; `from` is the status the tap saw, which defaults to the order's current one. */
+const cancel = async (tx: TransactionSQL, f: Fixtures, id: string, from?: string) => {
+  const seen = from ?? (await statusOf(tx, id));
+  return attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.cancel_order(${id}::uuid, ${seen}::public.order_status)`);
+};
 const markPaid = (tx: TransactionSQL, f: Fixtures, id: string) =>
   attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.mark_order_paid(${id}::uuid)`);
 
@@ -278,6 +281,28 @@ describe("order lifecycle", () => {
       expect(await statusOf(tx, id)).toBe("preparing");
     }));
 
+  for (const now of ["preparing", "ready"] as const) {
+    test(`a stale Decline is refused when the order has moved on to ${now}, and keeps its plates`, () =>
+      inTx(async (tx) => {
+        const f = await seedFixtures(tx);
+        const id = await newOrder(tx, f, rotatingLine(f, 2));
+        for (const [from, to] of FORWARD) {
+          if (from === now) break;
+          await advance(tx, f, id, from, to);
+        }
+        await expect(cancel(tx, f, id, "new")).rejects.toThrow("Someone else already moved this order");
+        expect(await statusOf(tx, id)).toBe(now);
+        expect(await platesSold(tx, f.openEntry.id)).toBe(2);
+      }));
+  }
+
+  test("a stale Decline on an order that has since finished or been cancelled is refused", () =>
+    inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      await expect(cancel(tx, f, await orderAt(tx, f, "completed"), "new")).rejects.toThrow("This order is already completed");
+      await expect(cancel(tx, f, await orderAt(tx, f, "cancelled"), "new")).rejects.toThrow("This order is already cancelled");
+    }));
+
   test("cancelling a final order is refused with a clear message", () =>
     inTx(async (tx) => {
       const f = await seedFixtures(tx);
@@ -364,7 +389,7 @@ describe("who can write orders", () => {
           name === "advance_order"
             ? sp`select public.advance_order(${id}::uuid, 'new'::public.order_status, 'preparing'::public.order_status)`
             : name === "cancel_order"
-              ? sp`select public.cancel_order(${id}::uuid)`
+              ? sp`select public.cancel_order(${id}::uuid, 'new'::public.order_status)`
               : sp`select public.mark_order_paid(${id}::uuid)`;
         await expect(attempt(tx, "anon", null, call)).rejects.toThrow("permission denied");
         await expect(attempt(tx, "authenticated", crypto.randomUUID(), call)).rejects.toThrow("Not allowed");

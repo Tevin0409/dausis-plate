@@ -74,7 +74,7 @@ describe("cancelling an order", () => {
       expect(await platesSold(tx, f.openEntry.id)).toBe(2);
 
       const [{ id }] = await tx`select id from public.orders where public_token = ${order.public_token}`;
-      await asOwner(tx, f, () => tx`select public.cancel_order(${id}::uuid)`);
+      await asOwner(tx, f, () => tx`select public.cancel_order(${id}::uuid, 'new'::public.order_status)`);
       expect(await platesSold(tx, f.openEntry.id)).toBe(0);
     }));
 });
