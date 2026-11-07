@@ -21,7 +21,8 @@ const COLUMNS: { status: Status; title: string; pill: string; edge: string; acti
   { status: "completed", title: "Completed", pill: "bg-[#eef2f6] text-ink-soft", edge: "border-t-line-deep" },
 ];
 
-const PAY_LABEL: Record<Enums<"payment_method">, string> = { mpesa: "M-Pesa", card: "Card", on_handover: "On handover" };
+// Launch has two ways to pay (spec-2.1-payments.md); older mpesa or card orders read as on handover.
+const PAY_LABEL: Record<Enums<"payment_method">, string> = { at_counter: "At the counter", on_handover: "On handover", mpesa: "On handover", card: "On handover" };
 
 export default async function OrdersPage({ searchParams }: { searchParams: Promise<{ mode?: string }> }) {
   const { mode: modeParam } = await searchParams;
@@ -113,8 +114,8 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
                       </ul>
                       {o.mode === "delivery" && o.delivery_address && <p className="text-[13px] text-ink-soft">{o.delivery_address}</p>}
                       <div className="flex items-center justify-between gap-2 text-[13px]">
-                        <span className={`font-semibold ${paid ? "text-teal-deeper" : o.payment_status === "failed" ? "text-coral-ink" : "text-ink-soft"}`}>
-                          {paid ? "Paid" : o.payment_status === "pending" ? "Awaiting" : o.payment_status === "failed" ? "Failed" : "Pay"} · {PAY_LABEL[o.payment_method]}
+                        <span className={`font-semibold ${paid ? "text-teal-deeper" : "text-ink-soft"}`}>
+                          {paid ? "Paid" : `Not paid yet · ${PAY_LABEL[o.payment_method]}`}
                         </span>
                         <span className="text-sm font-bold">{formatKes(o.total_kes)}</span>
                       </div>

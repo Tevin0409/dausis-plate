@@ -61,6 +61,22 @@ body {
 .press:active {
   transform: scale(0.97);
 }
+.press:disabled:active {
+  transform: none;
+}
+
+/* Checkout error note: fade in with 6 px translate when placing fails (spec-2.1-payments.md). */
+.note-in {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .note-in {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
 
 /* Board strip (the stale-tap message): fade in with 6 px translate, fade out on opacity only. */
 .board-notice {
@@ -90,6 +106,14 @@ body {
   }
   @starting-style {
     .board-notice {
+      transform: none;
+    }
+  }
+  .note-in {
+    transition: opacity var(--dur-small) var(--ease-out);
+  }
+  @starting-style {
+    .note-in {
       transform: none;
     }
   }

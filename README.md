@@ -51,7 +51,9 @@ Online menu, ordering (dine-in by table QR, pickup, delivery) and the owner dash
 
 ## Payments
 
-M-Pesa and card are **stubbed** in `src/lib/payments`: orders are created with payment *pending* and staff can tap **Mark paid** on the board. The Daraja STK push steps are written out in `startMpesaPayment`, and the callback handler at `/api/payments/mpesa/callback` already verifies a shared secret and marks orders paid or failed.
+At launch nothing is charged online. Every order is **pay on handover** (cash or M-Pesa to the till when the food arrives, is collected or is delivered), and dine-in orders can instead choose **pay at the counter**. Both are stored as `on_handover` / `at_counter` with payment status *unpaid*, and staff tap **Mark paid** on the board when the money comes in. `place_order` refuses any other method, and `at_counter` for anything but dine-in.
+
+The M-Pesa code is kept but unused until real M-Pesa is switched on after launch: the Daraja STK push steps in `startMpesaPayment` (`src/lib/payments`) and the callback handler at `/api/payments/mpesa/callback`, which verifies a shared secret and marks orders paid or failed. Nothing in the shop can start a payment today.
 
 ## Notes
 

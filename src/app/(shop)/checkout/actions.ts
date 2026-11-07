@@ -1,6 +1,5 @@
 "use server";
 import { z } from "zod";
-import { startCardPayment, startMpesaPayment, type PaymentStart } from "@/lib/payments";
 import { normaliseKenyanPhone } from "@/lib/phone";
 import { createClient } from "@/lib/supabase/server";
 
@@ -23,18 +22,21 @@ const input = z
     riderNotes: z.string().max(300).optional(),
     name: z.string().trim().min(1, "Add your name").max(80),
     phone: z.string(),
-    payment: z.enum(["mpesa", "card", "on_handover"]),
+    // Launch takes no online payment (spec-2.1-payments.md); place_order checks the same.
+    payment: z.enum(["on_handover", "at_counter"], { message: "Choose how you’ll pay" }),
     items: z.array(item).min(1, "Your order is empty").max(30),
   })
   .superRefine((v, ctx) => {
     if (v.mode === "delivery" && !v.zoneId) ctx.addIssue({ code: "custom", message: "Choose a delivery area" });
     if (v.mode === "delivery" && !v.address?.trim()) ctx.addIssue({ code: "custom", message: "Add your delivery address" });
     if (v.mode === "dine_in" && !v.tableToken) ctx.addIssue({ code: "custom", message: "Scan the QR code on your table" });
+    if (v.mode !== "dine_in" && v.payment === "at_counter")
+      ctx.addIssue({ code: "custom", message: "Pay at the counter is for orders at a table. Choose pay on handover." });
   });
 
 export type CheckoutInput = z.input<typeof input>;
 export type CheckoutResult =
-  | { ok: true; token: string; payment: PaymentStart }
+  | { ok: true; token: string }
   | { ok: false; error: string };
 
 export async function placeOrder(raw: CheckoutInput): Promise<CheckoutResult> {
@@ -75,12 +77,6 @@ export async function placeOrder(raw: CheckoutInput): Promise<CheckoutResult> {
   const placed = data?.[0];
   if (!placed) return { ok: false, error: "Something went wrong placing your order. Try again." };
 
-  // A retry of an order that already went through: its payment was started the first time.
-  if (placed.replayed) return { ok: true, token: placed.public_token, payment: { kind: "none" } };
-
-  const order = { code: placed.code, publicToken: placed.public_token, totalKes: placed.total_kes, phone };
-  const payment: PaymentStart =
-    v.payment === "mpesa" ? await startMpesaPayment(order) : v.payment === "card" ? await startCardPayment(order) : { kind: "none" };
-
-  return { ok: true, token: placed.public_token, payment };
+  // A retry of an order that already went through gets the same order back (placed.replayed).
+  return { ok: true, token: placed.public_token };
 }

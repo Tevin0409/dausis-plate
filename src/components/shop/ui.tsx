@@ -33,14 +33,16 @@ export function Stepper({ value, onChange, label }: { value: number; onChange: (
 export function BottomBar({ children, inlineOnDesktop = false }: { children: React.ReactNode; inlineOnDesktop?: boolean | "padded" }) {
   return (
     <div className={`fixed inset-x-0 bottom-0 z-10 border-t border-sand bg-cream ${inlineOnDesktop ? "md:static md:border-0 md:bg-transparent" : ""}`}>
-      <div className={`mx-auto flex max-w-md gap-3 px-5 pb-6 pt-3.5 ${inlineOnDesktop ? `md:max-w-none md:pb-0 md:pt-6 ${inlineOnDesktop === "padded" ? "" : "md:px-0"}` : ""}`}>{children}</div>
+      {/* Below md the bar is fixed: it pads past the home indicator instead of a fixed pb-6. */}
+      <div className={`mx-auto flex max-w-md gap-3 px-5 pb-[calc(14px+env(safe-area-inset-bottom,0px))] pt-3.5 ${inlineOnDesktop ? `md:max-w-none md:pb-0 md:pt-6 ${inlineOnDesktop === "padded" ? "" : "md:px-0"}` : ""}`}>{children}</div>
     </div>
   );
 }
 
 /** Centred column for the ordering steps (cart, checkout, status). */
 export function Narrow({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto max-w-md pb-28 md:max-w-xl md:pt-6">{children}</div>;
+  // Bottom padding clears the fixed BottomBar below md, home indicator included.
+  return <div className="mx-auto max-w-md pb-[calc(112px+env(safe-area-inset-bottom,0px))] md:max-w-xl md:pb-28 md:pt-6">{children}</div>;
 }
 
 export function CartBar() {
