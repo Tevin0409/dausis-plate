@@ -129,7 +129,8 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
             type="button"
             role="radio"
             aria-checked={mode === id}
-            disabled={id === "dine_in" && !table}
+            // Delivery needs an area that's on (the server refuses it too, in place_order).
+            disabled={(id === "dine_in" && !table) || (id === "delivery" && zones.length === 0)}
             onClick={() => setMode(id)}
             className={`min-h-11 rounded-xl text-sm font-semibold disabled:opacity-50 ${
               mode === id ? "bg-white text-teal-deep shadow-sm" : "text-ink-soft"

@@ -1,10 +1,12 @@
 import Image from "next/image";
 import { headers } from "next/headers";
 import QRCode from "qrcode";
+import { ActionForm } from "@/components/dashboard/action-form";
 import { PrintButton } from "@/components/dashboard/print-button";
 import { SubmitButton } from "@/components/dashboard/submit-button";
 import { formatKes } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
+import { must } from "@/lib/supabase/result";
 import { addNamedTable, addTables, addZone, renameTable, resetTableCode, setTableActive, updateZone } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +14,8 @@ export const metadata = { title: "Tables & delivery" };
 
 const field = "min-h-11 rounded-xl border border-line-deep px-3 text-[15px]";
 const smallBtn = "min-h-10 rounded-[10px] border border-line-deep bg-white px-3 text-sm font-semibold";
+// A failure message takes its own line under the form's controls.
+const rowError = "basis-full text-[13px] font-semibold text-coral-ink";
 
 async function siteOrigin() {
   const configured = process.env.NEXT_PUBLIC_SITE_URL;
@@ -25,12 +29,15 @@ async function siteOrigin() {
 export default async function TablesPage() {
   const supabase = await createClient();
   const origin = await siteOrigin();
-  const [{ data: tables }, { data: zones }] = await Promise.all([
+  const [tablesResult, zonesResult] = await Promise.all([
     supabase.from("dining_tables").select("id, label, qr_token, active").order("label"),
     supabase.from("delivery_zones").select("id, name, fee_kes, active").order("sort_order"),
   ]);
+  // A failed read throws to error.tsx (with Try again) instead of looking like "no tables yet".
+  const tables = must(tablesResult, "tables");
+  const zones = must(zonesResult, "delivery areas");
 
-  const sorted = (tables ?? []).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  const sorted = tables.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
   const withQr = await Promise.all(
     sorted.map(async (t) => {
       const url = `${origin}/t/${t.qr_token}`;
@@ -53,7 +60,7 @@ export default async function TablesPage() {
       </header>
 
       <section aria-label="Add tables" className="flex flex-wrap items-end gap-6 rounded-[20px] border border-line bg-white p-5 print:hidden">
-        <form action={addTables} className="flex items-end gap-2">
+        <ActionForm action={addTables} className="flex flex-wrap items-end gap-2" errorClassName={rowError}>
           <label className="flex flex-col gap-1.5 text-sm font-semibold">
             Add numbered tables
             <input name="count" type="number" min={1} max={50} defaultValue={sorted.length ? 1 : 10} className={`${field} w-24`} />
@@ -61,8 +68,8 @@ export default async function TablesPage() {
           <SubmitButton pendingLabel="Adding…" className="min-h-11 rounded-xl bg-teal-deep px-4 text-sm font-bold text-white">
             Add
           </SubmitButton>
-        </form>
-        <form action={addNamedTable} className="flex items-end gap-2">
+        </ActionForm>
+        <ActionForm action={addNamedTable} className="flex flex-wrap items-end gap-2" errorClassName={rowError}>
           <label className="flex flex-col gap-1.5 text-sm font-semibold">
             Or a named spot
             <input name="label" required maxLength={40} placeholder="e.g. Terrace 1, Bar" className={`${field} w-52`} />
@@ -70,7 +77,7 @@ export default async function TablesPage() {
           <SubmitButton pendingLabel="Adding…" className="min-h-11 rounded-xl border-[1.5px] border-teal-deep bg-white px-4 text-sm font-bold text-teal-deep">
             Add
           </SubmitButton>
-        </form>
+        </ActionForm>
       </section>
 
       {withQr.length === 0 ? (
@@ -95,23 +102,23 @@ export default async function TablesPage() {
 
               <div className="mt-1 flex w-full flex-col gap-2 border-t border-line pt-3 print:hidden">
                 <a href={t.url} target="_blank" rel="noreferrer" className="truncate text-xs text-teal-deep underline">{t.url.replace(/^https?:\/\//, "")}</a>
-                <form action={renameTable} className="flex gap-1.5">
+                <ActionForm action={renameTable} className="flex flex-wrap gap-1.5" errorClassName={rowError}>
                   <input type="hidden" name="id" value={t.id} />
                   <input name="label" defaultValue={t.label} aria-label={`Rename ${t.label}`} maxLength={40} className={`${field} min-w-0 flex-1`} />
                   <SubmitButton className={smallBtn}>Rename</SubmitButton>
-                </form>
+                </ActionForm>
                 <div className="flex justify-center gap-1.5">
-                  <form action={setTableActive}>
+                  <ActionForm action={setTableActive} className="flex flex-col items-center gap-1">
                     <input type="hidden" name="id" value={t.id} />
                     <input type="hidden" name="active" value={t.active ? "false" : "true"} />
                     <SubmitButton className={smallBtn}>{t.active ? "Turn off" : "Turn on"}</SubmitButton>
-                  </form>
-                  <form action={resetTableCode}>
+                  </ActionForm>
+                  <ActionForm action={resetTableCode} className="flex flex-col items-center gap-1">
                     <input type="hidden" name="id" value={t.id} />
                     <SubmitButton className={`${smallBtn} text-coral-ink`} aria-label={`New QR code for ${t.label}; the printed one stops working`}>
                       New code
                     </SubmitButton>
-                  </form>
+                  </ActionForm>
                 </div>
               </div>
             </article>
@@ -124,8 +131,8 @@ export default async function TablesPage() {
           <h2 className="text-[17px] font-bold">Delivery areas</h2>
           <p className="text-sm text-ink-soft">Customers pick one at checkout and its fee is added to the order. Delivery can’t be chosen until at least one area is on.</p>
         </div>
-        {(zones ?? []).map((z) => (
-          <form key={z.id} action={updateZone} className="flex flex-wrap items-center gap-3 border-t border-line pt-3">
+        {zones.map((z) => (
+          <ActionForm key={z.id} action={updateZone} className="flex flex-wrap items-center gap-3 border-t border-line pt-3" errorClassName={rowError}>
             <input type="hidden" name="id" value={z.id} />
             <span className={`min-w-32 flex-1 font-semibold ${z.active ? "" : "text-ink-soft line-through"}`}>{z.name}</span>
             <label className="flex items-center gap-2 text-sm">
@@ -140,9 +147,9 @@ export default async function TablesPage() {
             </label>
             <SubmitButton className={smallBtn}>Save</SubmitButton>
             <span className="sr-only">Currently {formatKes(z.fee_kes)}</span>
-          </form>
+          </ActionForm>
         ))}
-        <form action={addZone} className="flex flex-wrap items-end gap-2 border-t border-line pt-3">
+        <ActionForm action={addZone} className="flex flex-wrap items-end gap-2 border-t border-line pt-3" errorClassName={rowError}>
           <label className="flex flex-col gap-1.5 text-sm font-semibold">
             Area
             <input name="name" required maxLength={40} placeholder="e.g. Kilimani" className={`${field} w-48`} />
@@ -154,7 +161,7 @@ export default async function TablesPage() {
           <SubmitButton pendingLabel="Adding…" className="min-h-11 rounded-xl bg-teal-deep px-4 text-sm font-bold text-white">
             Add area
           </SubmitButton>
-        </form>
+        </ActionForm>
       </section>
     </div>
   );

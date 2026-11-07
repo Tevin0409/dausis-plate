@@ -321,6 +321,7 @@ export type Database = {
       cancel_order: { Args: { p_order: string; p_from: Database["public"]["Enums"]["order_status"] }; Returns: undefined };
       copy_menu_day: { Args: { p_from: string; p_to: string }; Returns: number };
       dashboard_stats: { Args: { p_day: string }; Returns: Json };
+      delete_dish: { Args: { p_dish: string }; Returns: Json };
       get_order_status: { Args: { p_token: string }; Returns: Json };
       is_owner: { Args: never; Returns: boolean };
       is_staff: { Args: never; Returns: boolean };
