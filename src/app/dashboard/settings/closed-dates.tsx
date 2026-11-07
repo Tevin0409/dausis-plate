@@ -1,21 +1,10 @@
 "use client";
 import { useId, useRef, useState, useTransition } from "react";
-import { addDays } from "@/lib/format";
+import { addDays, closedDateLabel } from "@/lib/format";
 import { addClosedDate, removeClosedDate, restoreClosedDate } from "./actions";
 import { btnLink, btnPrimary, errorText, field, hint, tile, tileHeading } from "./ui";
 
 export type ClosedDate = { day: string; note: string | null };
-
-/** "Fri 25 Dec", with the year only when it isn't this year. */
-export function closedDateLabel(day: string, today: string) {
-  const sameYear = day.slice(0, 4) === today.slice(0, 4);
-  // Built from parts: en-GB puts a comma after the weekday once the year is in.
-  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" }).formatToParts(
-    new Date(`${day}T12:00:00Z`),
-  );
-  const get = (t: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === t)?.value ?? "";
-  return [get("weekday"), get("day"), get("month"), sameYear ? "" : get("year")].filter(Boolean).join(" ");
-}
 
 type Row = ClosedDate & { removed?: boolean; fresh?: boolean; note2?: string };
 

@@ -1,11 +1,13 @@
 import { notFound } from "next/navigation";
-import { addDays, hhmm } from "@/lib/format";
+import { RefusalNote } from "@/components/dashboard/refusal-note";
+import { addDays, closedDateLabel, hhmm } from "@/lib/format";
 import { statusStrip } from "@/lib/kitchen";
 import { getKitchen } from "@/lib/kitchen-server";
 import { createClient, getStaff } from "@/lib/supabase/server";
 import { must } from "@/lib/supabase/result";
+import { can } from "@/lib/permissions";
 import { CloseEarlyCard } from "./close-early-card";
-import { ClosedDates, closedDateLabel } from "./closed-dates";
+import { ClosedDates } from "./closed-dates";
 import { HoursForm, type Day } from "./hours-form";
 import { TillCard } from "./till-card";
 import { hint, tile, tileHeading } from "./ui";
@@ -27,6 +29,7 @@ export default async function SettingsPage() {
   const staff = await getStaff();
   if (!staff) notFound();
   const owner = staff.role === "owner";
+  const closes = can(staff, "close_early");
   const supabase = await createClient();
   const { status, now } = await getKitchen();
   const today = status.today;
@@ -62,12 +65,17 @@ export default async function SettingsPage() {
   return (
     <div className="mx-auto max-w-6xl pb-28 lg:pb-16">
       <h1 className="font-display text-[34px] leading-tight">Settings</h1>
+      <RefusalNote className="mt-1" />
       <p
         className={`mt-3 rounded-[var(--r-md)] px-4 py-3 text-[15px] font-semibold tabular-nums ${open ? "bg-teal-tint text-teal-deeper" : "bg-sand text-ink"}`}
       >
         {statusStrip(status)}
       </p>
-      {!owner && <p className={`${hint} mt-2 text-[15px]`}>Only the owner can change these.</p>}
+      {!owner && (
+        <p className={`${hint} mt-2 text-[15px]`}>
+          {closes ? "Only the owner can change the hours, closed dates and till number." : "Only the owner can change these."}
+        </p>
+      )}
 
       <div className="mt-5 flex flex-col gap-5 xl:grid xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] xl:items-start">
         {/* Phone and tablet: one column, close early first. 1280: hours and till left, close early and dates right. */}
@@ -91,7 +99,7 @@ export default async function SettingsPage() {
           </div>
         </div>
         <div className="contents xl:flex xl:flex-col xl:gap-5">
-          {owner && (
+          {closes && (
             <div className="order-1 empty:hidden xl:order-none">
               <CloseEarlyCard status={status} pickupsDue={pickupsDue} />
             </div>

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useId, useRef, useState, useTransition } from "react";
+import { useReportRefusal } from "@/components/dashboard/refusal-note";
 import { opensWhen, type KitchenStatus } from "@/lib/kitchen";
 import { timeLabel } from "@/lib/format";
 import { closeEarly, reopenToday } from "./actions";
@@ -21,6 +22,8 @@ export function CloseEarlyCard({ status, pickupsDue }: { status: KitchenStatus; 
   const [error, setError] = useState<string | null>(null);
   const [announce, setAnnounce] = useState("");
   const [pending, start] = useTransition();
+  const [stale, setStale] = useState(false);
+  const reportRefusal = useReportRefusal();
   const headingId = useId();
   // Where focus goes after the next render: Keep open on the confirm step, Reopen after closing,
   // Close early after Keep open or reopening.
@@ -37,6 +40,15 @@ export function CloseEarlyCard({ status, pickupsDue }: { status: KitchenStatus; 
     }
   });
 
+  // Refused because the page was stale (Close early switched off): read the line, then refresh, and
+  // the line moves to the note under the heading (spec-2.3).
+  useEffect(() => {
+    if (!stale || !error) return;
+    const line = error;
+    const t = setTimeout(() => reportRefusal(line), 3000);
+    return () => clearTimeout(t);
+  }, [stale, error, reportRefusal]);
+
   if (!card) return null;
   const after = opensWhen(status, "after_today");
   const opensLine = after ? `Opens ${after}.` : "No opening day is set.";
@@ -47,6 +59,7 @@ export function CloseEarlyCard({ status, pickupsDue }: { status: KitchenStatus; 
       const res = await closeEarly().catch(() => null);
       if (!res?.ok) {
         setError(res && !res.ok ? res.error : "Couldn’t close. Customers can still order. Try again.");
+        setStale(Boolean(res && !res.ok && res.stale));
         return;
       }
       setConfirming(false);
@@ -61,6 +74,7 @@ export function CloseEarlyCard({ status, pickupsDue }: { status: KitchenStatus; 
       const res = await reopenToday().catch(() => null);
       if (!res?.ok) {
         setError(res && !res.ok ? res.error : "Couldn’t reopen. Customers still see closed. Try again.");
+        setStale(Boolean(res && !res.ok && res.stale));
         return;
       }
       focusNext.current = "close";

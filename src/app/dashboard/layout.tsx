@@ -2,8 +2,10 @@ import type { Viewport } from "next";
 import { redirect } from "next/navigation";
 import { ClosedEarlyStrip } from "@/components/dashboard/closed-early-strip";
 import { DashboardRail, DashboardTabBar } from "@/components/dashboard/nav";
+import { RefusalNoteProvider } from "@/components/dashboard/refusal-note";
 import type { KitchenStatus } from "@/lib/kitchen";
 import { getKitchen } from "@/lib/kitchen-server";
+import { can } from "@/lib/permissions";
 import { createClient, getStaff } from "@/lib/supabase/server";
 import { signOut } from "./actions";
 
@@ -50,16 +52,16 @@ export default async function DashboardLayout({ children }: { children: React.Re
       >
         Skip to content
       </a>
-      <DashboardRail newOrders={newOrders} role={staff.role} name={staff.name} email={staff.email} />
+      <DashboardRail newOrders={newOrders} role={staff.role} grants={staff.grants} name={staff.name} email={staff.email} />
       <main
         id="main"
         tabIndex={-1}
         className="min-w-0 flex-1 px-4 pb-4 pt-[calc(16px+env(safe-area-inset-top,0px))] outline-none min-[600px]:px-5 min-[600px]:pb-5 min-[600px]:pt-[calc(20px+env(safe-area-inset-top,0px))] lg:px-7 lg:pb-7 lg:pt-[calc(28px+env(safe-area-inset-top,0px))] print:block print:p-0"
       >
-        <ClosedEarlyStrip closedEarly={kitchen?.reason === "closed_early"} owner={staff.role === "owner"} />
-        {children}
+        <ClosedEarlyStrip closedEarly={kitchen?.reason === "closed_early"} owner={can(staff, "close_early")} />
+        <RefusalNoteProvider>{children}</RefusalNoteProvider>
       </main>
-      <DashboardTabBar newOrders={newOrders} role={staff.role} />
+      <DashboardTabBar newOrders={newOrders} role={staff.role} grants={staff.grants} />
     </div>
   );
 }

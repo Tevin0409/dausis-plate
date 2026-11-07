@@ -65,12 +65,23 @@ describe("delete_dish", () => {
       expect(await deleteDish(tx, f.ownerId, "00000000-0000-4000-8000-000000000000")).toEqual({ result: "missing" });
     }));
 
-  test("only staff may call it: a signed-in non-staff user is refused and nothing changes", () =>
+  test("only the owner may call it: a signed-in non-staff user is refused and nothing changes", () =>
     inTx(async (tx) => {
       const f = await seedFixtures(tx);
       const [stranger] = await tx`insert into auth.users (email) values ('stranger@test.local') returning id`;
       const before = await state(tx, f.rotating.id);
-      await expect(deleteDish(tx, stranger.id, f.rotating.id)).rejects.toThrow("Not allowed");
+      await expect(deleteDish(tx, stranger.id, f.rotating.id)).rejects.toThrow("Only the owner can do this.");
+      expect(await state(tx, f.rotating.id)).toEqual(before);
+    }));
+
+  test("staff are refused too (slice 2.3: deleting and archiving are the owner's)", () =>
+    inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      const [u] = await tx`insert into auth.users (email) values ('cook@test.local') returning id`;
+      await tx`insert into public.staff (user_id, role) values (${u.id}, 'staff')`;
+      await tx`insert into public.staff_grants (user_id, job) values (${u.id}, 'dishes_prices'), (${u.id}, 'everyday_menu')`;
+      const before = await state(tx, f.rotating.id);
+      await expect(deleteDish(tx, u.id, f.rotating.id)).rejects.toThrow("Only the owner can do this.");
       expect(await state(tx, f.rotating.id)).toEqual(before);
     }));
 

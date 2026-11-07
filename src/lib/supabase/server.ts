@@ -3,6 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import type { Database } from "@/lib/database.types";
 import { env } from "@/lib/env";
+import { GRANTS, type Grant } from "@/lib/permissions";
 
 /** Supabase client bound to the request's auth cookies (RLS applies). */
 export async function createClient() {
@@ -35,5 +36,15 @@ export async function getStaff() {
     throw new Error("Couldn't load staff");
   }
   if (!data) return null;
-  return { id: user.id, email: user.email ?? null, role: data.role, name: data.display_name };
+  // Owners hold every job (slice 2.3); staff read their own grants (RLS shows only their rows).
+  let grants: Grant[] = [...GRANTS];
+  if (data.role !== "owner") {
+    const { data: rows, error: grantsError } = await supabase.from("staff_grants").select("job").eq("user_id", user.id);
+    if (grantsError) {
+      console.error("[db] loading staff grants failed:", grantsError.code ?? "", grantsError.message);
+      throw new Error("Couldn't load staff");
+    }
+    grants = rows.map((r) => r.job);
+  }
+  return { id: user.id, email: user.email ?? null, role: data.role, name: data.display_name, grants };
 }

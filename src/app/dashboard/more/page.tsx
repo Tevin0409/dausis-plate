@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AccountIcon, ExternalIcon, QrIcon, SignOutIcon } from "@/components/icons";
+import { AccountIcon, ClockIcon, ExternalIcon, QrIcon, SignOutIcon } from "@/components/icons";
+import { can } from "@/lib/permissions";
 import { NAV_TOUCH, roleLabel, shortName } from "@/components/dashboard/nav-shared";
 import { SubmitButton } from "@/components/dashboard/submit-button";
 import { getStaff } from "@/lib/supabase/server";
@@ -15,6 +16,8 @@ export default async function MorePage() {
   const staff = await getStaff();
   if (!staff) redirect("/login");
   const owner = staff.role === "owner";
+  // Tables moves here below 600 px whenever Settings takes its place in the tab bar.
+  const tablesHere = can(staff, "close_early");
 
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-4">
@@ -26,7 +29,7 @@ export default async function MorePage() {
       </div>
 
       <ul className="overflow-hidden rounded-[var(--r-md)] bg-paper shadow-[var(--shadow-card)]">
-        {owner && (
+        {tablesHere && (
           <li className="border-b border-sand min-[600px]:hidden">
             <Link href="/dashboard/tables" className={ROW}>
               <QrIcon size={20} /> Tables
@@ -47,6 +50,13 @@ export default async function MorePage() {
             <AccountIcon size={20} /> Account &amp; password
           </Link>
         </li>
+        {owner && (
+          <li className="border-t border-sand lg:hidden">
+            <Link href="/dashboard/history" className={ROW}>
+              <ClockIcon size={20} /> History
+            </Link>
+          </li>
+        )}
       </ul>
 
       <form action={signOut} className="overflow-hidden rounded-[var(--r-md)] bg-paper shadow-[var(--shadow-card)]">

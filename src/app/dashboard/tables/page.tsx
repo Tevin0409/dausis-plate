@@ -1,11 +1,14 @@
 import Image from "next/image";
+import { RefusalNote } from "@/components/dashboard/refusal-note";
 import { headers } from "next/headers";
 import QRCode from "qrcode";
 import { ActionForm } from "@/components/dashboard/action-form";
 import { PrintButton } from "@/components/dashboard/print-button";
 import { SubmitButton } from "@/components/dashboard/submit-button";
 import { formatKes } from "@/lib/format";
-import { createClient } from "@/lib/supabase/server";
+import { notFound } from "next/navigation";
+import { can, OWNER_ONLY } from "@/lib/permissions";
+import { createClient, getStaff } from "@/lib/supabase/server";
 import { must } from "@/lib/supabase/result";
 import { addNamedTable, addTables, addZone, renameTable, resetTableCode, setTableActive, updateZone } from "./actions";
 
@@ -27,6 +30,10 @@ async function siteOrigin() {
 }
 
 export default async function TablesPage() {
+  const staff = await getStaff();
+  if (!staff) notFound();
+  // Without Tables and delivery, the QR cards and Print stay; everything that changes them goes (spec-2.3).
+  const edits = can(staff, "tables_delivery");
   const supabase = await createClient();
   const origin = await siteOrigin();
   const [tablesResult, zonesResult] = await Promise.all([
@@ -52,13 +59,16 @@ export default async function TablesPage() {
       <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
         <div>
           <h1 className="font-display text-[34px] leading-tight">Tables &amp; delivery</h1>
+          <RefusalNote className="mt-1" />
           <p className="mt-1 max-w-xl text-[15px] text-ink-soft">
             Each table gets its own QR code. Guests scan it, the menu opens with their table already chosen, and the order arrives on the board as dine-in.
           </p>
         </div>
         {active.length > 0 && <PrintButton label={`Print ${active.length} QR cards`} />}
+        {!edits && <p className="basis-full text-sm text-ink-soft">{OWNER_ONLY.tables_delivery}</p>}
       </header>
 
+      {edits && (
       <section aria-label="Add tables" className="flex flex-wrap items-end gap-6 rounded-[20px] border border-line bg-white p-5 print:hidden">
         <ActionForm action={addTables} className="flex flex-wrap items-end gap-2" errorClassName={rowError}>
           <label className="flex flex-col gap-1.5 text-sm font-semibold">
@@ -79,9 +89,12 @@ export default async function TablesPage() {
           </SubmitButton>
         </ActionForm>
       </section>
+      )}
 
       {withQr.length === 0 ? (
-        <p className="rounded-2xl bg-blush px-5 py-4 text-[15px] text-coral-ink print:hidden">No tables yet. Add them above to get their QR codes.</p>
+        <p className="rounded-2xl bg-blush px-5 py-4 text-[15px] text-coral-ink print:hidden">
+          {edits ? "No tables yet. Add them above to get their QR codes." : "No tables yet."}
+        </p>
       ) : (
         <section aria-label="Tables" className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4 print:grid-cols-2 print:gap-6">
           {withQr.map((t) => (
@@ -102,6 +115,8 @@ export default async function TablesPage() {
 
               <div className="mt-1 flex w-full flex-col gap-2 border-t border-line pt-3 print:hidden">
                 <a href={t.url} target="_blank" rel="noreferrer" className="truncate text-xs text-teal-deep underline">{t.url.replace(/^https?:\/\//, "")}</a>
+                {edits && (
+                <>
                 <ActionForm action={renameTable} className="flex flex-wrap gap-1.5" errorClassName={rowError}>
                   <input type="hidden" name="id" value={t.id} />
                   <input name="label" defaultValue={t.label} aria-label={`Rename ${t.label}`} maxLength={40} className={`${field} min-w-0 flex-1`} />
@@ -120,6 +135,8 @@ export default async function TablesPage() {
                     </SubmitButton>
                   </ActionForm>
                 </div>
+                </>
+                )}
               </div>
             </article>
           ))}
@@ -131,7 +148,15 @@ export default async function TablesPage() {
           <h2 className="text-[17px] font-bold">Delivery areas</h2>
           <p className="text-sm text-ink-soft">Customers pick one at checkout and its fee is added to the order. Delivery can’t be chosen until at least one area is on.</p>
         </div>
-        {zones.map((z) => (
+        {!edits &&
+          zones.map((z) => (
+            <p key={z.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-3 text-[15px]">
+              <span className={`min-w-32 flex-1 font-semibold [overflow-wrap:anywhere] ${z.active ? "" : "text-ink-soft line-through"}`}>{z.name}</span>
+              <span className="tabular-nums">{formatKes(z.fee_kes)}</span>
+              <span className="text-sm text-ink-soft">{z.active ? "Delivering" : "Paused"}</span>
+            </p>
+          ))}
+        {edits && zones.map((z) => (
           <ActionForm key={z.id} action={updateZone} className="flex flex-wrap items-center gap-3 border-t border-line pt-3" errorClassName={rowError}>
             <input type="hidden" name="id" value={z.id} />
             <span className={`min-w-32 flex-1 font-semibold ${z.active ? "" : "text-ink-soft line-through"}`}>{z.name}</span>
@@ -149,6 +174,7 @@ export default async function TablesPage() {
             <span className="sr-only">Currently {formatKes(z.fee_kes)}</span>
           </ActionForm>
         ))}
+        {edits && (
         <ActionForm action={addZone} className="flex flex-wrap items-end gap-2 border-t border-line pt-3" errorClassName={rowError}>
           <label className="flex flex-col gap-1.5 text-sm font-semibold">
             Area
@@ -162,6 +188,7 @@ export default async function TablesPage() {
             Add area
           </SubmitButton>
         </ActionForm>
+        )}
       </section>
     </div>
   );

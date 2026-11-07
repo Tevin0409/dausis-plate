@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { RefusalNote } from "@/components/dashboard/refusal-note";
 import { PlusIcon } from "@/components/icons";
 import { addDays, dayLabel, formatKes, hhmm, nairobiToday, weekdayName, weekStart } from "@/lib/format";
 import { ActionForm } from "@/components/dashboard/action-form";
 import { SubmitButton } from "@/components/dashboard/submit-button";
-import { createClient } from "@/lib/supabase/server";
+import { can, OWNER_ONLY } from "@/lib/permissions";
+import { createClient, getStaff } from "@/lib/supabase/server";
 import { must } from "@/lib/supabase/result";
 import { addFromLibrary, copyDay, endEntryEarly, removeEntry, setSoldOut } from "../actions";
 
@@ -23,6 +25,8 @@ export default async function MenuPlannerPage({ searchParams }: Props) {
   const ws = weekStart(day);
   const we = addDays(ws, 6);
   const supabase = await createClient();
+  const staff = await getStaff();
+  const edits = staff ? can(staff, "dishes_prices") : false;
 
   let libraryQuery = supabase
     .from("dishes")
@@ -67,6 +71,7 @@ export default async function MenuPlannerPage({ searchParams }: Props) {
         <div>
           <span className="text-sm text-ink-soft">Week of {dayLabel(ws, "long")} – {dayLabel(we, "long")}</span>
           <h1 className="mt-1 font-display text-[34px] leading-tight">Daily &amp; weekly menu</h1>
+          <RefusalNote className="mt-1" />
         </div>
         {!isPast && (
           <div className="flex flex-wrap gap-2">
@@ -80,9 +85,11 @@ export default async function MenuPlannerPage({ searchParams }: Props) {
               <input type="hidden" name="to" value={day} />
               <SubmitButton pendingLabel="Copying…" className="min-h-11 rounded-xl border-[1.5px] border-line-deep bg-white px-4 text-sm font-semibold">Copy {weekdayName(addDays(day, -1))}</SubmitButton>
             </ActionForm>
-            <Link href={`/dashboard/dishes/new?day=${day}`} className="flex min-h-11 items-center gap-2 rounded-xl bg-teal-deep px-[18px] text-sm font-bold text-white">
-              <PlusIcon size={16} /> New dish
-            </Link>
+            {edits && (
+              <Link href={`/dashboard/dishes/new?day=${day}`} className="flex min-h-11 items-center gap-2 rounded-xl bg-teal-deep px-[18px] text-sm font-bold text-white">
+                <PlusIcon size={16} /> New dish
+              </Link>
+            )}
           </div>
         )}
       </header>
@@ -149,7 +156,7 @@ export default async function MenuPlannerPage({ searchParams }: Props) {
                       </div>
                       {!isPast && (
                         <div className="flex flex-wrap gap-1.5">
-                          {e.dish && <Link href={`/dashboard/dishes/${e.dish.id}`} className={`${btn} flex items-center text-teal-deep`}>Edit</Link>}
+                          {e.dish && <Link href={`/dashboard/dishes/${e.dish.id}`} className={`${btn} flex items-center text-teal-deep`}>{edits ? "Edit" : "View"}</Link>}
                           {day === today && (
                             <ActionForm action={setSoldOut} className={formCol}>
                               <input type="hidden" name="entryId" value={e.id} />
@@ -198,7 +205,7 @@ export default async function MenuPlannerPage({ searchParams }: Props) {
               <input type="hidden" name="day" value={day} />
               <input type="search" name="q" defaultValue={q} placeholder="Search past dishes" aria-label="Search past dishes" className="min-h-11 min-w-0 flex-1 text-sm outline-none" />
             </form>
-            {library.length === 0 && <p className="text-sm text-ink-soft">No dishes yet. Create one with “New dish”.</p>}
+            {library.length === 0 && <p className="text-sm text-ink-soft">{edits ? "No dishes yet. Create one with “New dish”." : `No dishes yet. ${OWNER_ONLY.dishes_prices}`}</p>}
             {library.map((l) => (
               <div key={l.id} className="flex flex-wrap items-center gap-3 py-1.5">
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">

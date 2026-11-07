@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   AccountIcon,
   CalendarIcon,
+  ClockIcon,
   DishesIcon,
   ExternalIcon,
   MoreIcon,
@@ -15,20 +16,35 @@ import {
 } from "@/components/icons";
 import { signOut } from "@/app/dashboard/actions";
 import { SubmitButton } from "./submit-button";
+import { can, type Grant } from "@/lib/permissions";
 import { NAV_TOUCH, roleLabel, shortName, type Role as Role0 } from "./nav-shared";
 
 // spec-2.2 "Dashboard shell". One rail from 1024 px, one tab bar below it; CSS alone picks which shows.
 
 type Role = Role0;
-type Item = { href: string; label: string; Icon: (p: { size?: number }) => React.ReactNode; also?: (path: string) => boolean; ownerOnly?: boolean };
+type Who = { role: Role; grants: readonly Grant[] };
+type Item = {
+  href: string;
+  label: string;
+  Icon: (p: { size?: number }) => React.ReactNode;
+  also?: (path: string) => boolean;
+  /** Who sees it; everyone when absent. */
+  shows?: (who: Who) => boolean;
+  /** Rail only: below 1024 px it is a row on More (History, spec-2.3). */
+  railOnly?: boolean;
+};
 
 const ITEMS: Item[] = [
   { href: "/dashboard/orders", label: "Orders", Icon: ReceiptIcon },
   { href: "/dashboard/menu", label: "Menu", Icon: CalendarIcon },
   { href: "/dashboard/manage", label: "Dishes", Icon: DishesIcon, also: (p) => p.startsWith("/dashboard/dishes/") },
   { href: "/dashboard/tables", label: "Tables", Icon: QrIcon },
-  { href: "/dashboard/settings", label: "Settings", Icon: SettingsIcon, ownerOnly: true },
+  // Staff with Close early see Settings for its card (spec-2.3); the other cards stay read-only.
+  { href: "/dashboard/settings", label: "Settings", Icon: SettingsIcon, shows: (w) => can(w, "close_early") },
+  { href: "/dashboard/history", label: "History", Icon: ClockIcon, shows: (w) => w.role === "owner", railOnly: true },
 ];
+
+const visible = (who: Who) => ITEMS.filter((i) => !i.shows || i.shows(who));
 
 const isOn = (path: string, item: Item) => path === item.href || path.startsWith(`${item.href}/`) || Boolean(item.also?.(path));
 
@@ -55,11 +71,11 @@ function ordersLabel(count: number | null) {
 }
 
 
-type NavProps = { newOrders: number | null; role: Role; name: string | null; email: string | null };
+type NavProps = { newOrders: number | null; role: Role; grants: readonly Grant[]; name: string | null; email: string | null };
 
-export function DashboardRail({ newOrders, role, name, email }: NavProps) {
+export function DashboardRail({ newOrders, role, grants, name, email }: NavProps) {
   const path = usePathname();
-  const items = ITEMS.filter((i) => !i.ownerOnly || role === "owner");
+  const items = visible({ role, grants });
   const row = `${NAV_TOUCH} ${FOCUS} flex w-20 flex-col items-center justify-center gap-1 rounded-[14px] text-[12.5px] font-semibold`;
   return (
     <aside className="sticky top-0 hidden h-dvh w-24 flex-none flex-col items-center gap-1 overflow-y-auto overscroll-contain bg-teal-deep px-2 pb-[calc(12px+env(safe-area-inset-bottom,0px))] pt-[calc(12px+env(safe-area-inset-top,0px))] lg:flex print:hidden">
@@ -116,14 +132,14 @@ export function DashboardRail({ newOrders, role, name, email }: NavProps) {
   );
 }
 
-export function DashboardTabBar({ newOrders, role }: Pick<NavProps, "newOrders" | "role">) {
+export function DashboardTabBar({ newOrders, role, grants }: Pick<NavProps, "newOrders" | "role" | "grants">) {
   const path = usePathname();
-  const owner = role === "owner";
-  const items = ITEMS.filter((i) => !i.ownerOnly || owner);
-  // Below 600 px the owner's Tables tab moves into More, so More looks selected there,
-  // while aria-current stays on the (hidden) Tables tab.
+  const items = visible({ role, grants }).filter((i) => !i.railOnly);
+  // With Settings in the bar (the owner, or staff with Close early), the Tables tab moves into More
+  // below 600 px, so More looks selected there, while aria-current stays on the (hidden) Tables tab.
+  const owner = items.some((i) => i.href === "/dashboard/settings");
   const onTables = path.startsWith("/dashboard/tables");
-  const moreOn = path === "/dashboard/more" || path === "/dashboard/account";
+  const moreOn = path === "/dashboard/more" || path === "/dashboard/account" || path.startsWith("/dashboard/history");
   const tab = `${NAV_TOUCH} ${FOCUS} flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-[14px] text-[12px] font-semibold`;
   return (
     <nav

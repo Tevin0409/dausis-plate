@@ -70,7 +70,8 @@ body {
   transform: none;
 }
 
-/* Checkout error note: fade in with 6 px translate when placing fails (spec-2.1-payments.md). */
+/* Checkout error note and the dashboard refusal line (ActionForm): fade in with 6 px translate
+   (spec-2.1-payments.md, spec-2.3 Motion). */
 .note-in {
   transition:
     opacity var(--dur-small) var(--ease-out),
@@ -152,6 +153,12 @@ html.savebar-pad {
   .dash:has(:is(input:not([type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="file"]), textarea, select):focus) .dash-tabbar {
     display: none;
   }
+}
+
+/* A page heading focused by the app after a stale refresh (refusal-note.tsx): no ring. It is not a
+   control, and the browser's default ring would show after the keypress that caused the refusal. */
+#main h1[tabindex="-1"]:focus {
+  outline: none;
 }
 
 /* Closed-early strip: enters from 8 px above when it's noticed, leaves the same way. Not on page load. */

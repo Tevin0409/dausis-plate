@@ -1,6 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { refusal } from "@/lib/supabase/refusal";
 import { createClient, getStaff } from "@/lib/supabase/server";
 import type { ActionResult } from "../action-result";
 
@@ -24,7 +25,8 @@ async function staffClient(): Promise<[Db, null] | [null, ActionResult]> {
 
 function failed(what: string, error: DbError, message: string): ActionResult {
   console.error(`[action] ${what} failed:`, error?.code ?? "", error?.message ?? "");
-  return { error: message };
+  const refused = refusal(error);
+  return refused ? { error: refused, stale: true } : { error: message };
 }
 
 const done = (): ActionResult => {

@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Enums } from "@/lib/database.types";
 import { addDays, weekdayName, weekStart } from "@/lib/format";
 import { deletePhotoSet, PHOTO_KEY, photoExists, publicPhotoUrl } from "@/lib/r2";
+import { refusal } from "@/lib/supabase/refusal";
 import { createClient, getStaff } from "@/lib/supabase/server";
 import type { ActionResult, OrderRefusal } from "./action-result";
 
@@ -29,7 +30,8 @@ async function staffClient(): Promise<[Db, null] | [null, ActionResult]> {
 
 function failed(what: string, error: DbError, message: string): ActionResult {
   console.error(`[action] ${what} failed:`, error?.code ?? "", error?.message ?? "");
-  return { error: message };
+  const refused = refusal(error);
+  return refused ? { error: refused, stale: true } : { error: message };
 }
 
 const FOREIGN_KEY_VIOLATION = "23503";
@@ -347,6 +349,26 @@ export async function removeFromRegulars(_prev: ActionResult, formData: FormData
   if (data.length === 0) return { error: "This dish no longer exists. Refresh the page." };
   revalidatePath("/dashboard/manage");
   revalidatePath("/dashboard/menu");
+  revalidatePath("/");
+  return null;
+}
+
+/** Puts a dish on the everyday menu or takes it off (the Everyday menu job, spec-2.3), from the dish page. */
+export async function setEverydayMenu(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
+  const parsed = z.object({ dishId: uuid, on: z.enum(["true", "false"]) }).safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return STALE_FORM;
+  const [supabase, denied] = await staffClient();
+  if (!supabase) return denied;
+  const { data, error } = await supabase
+    .from("dishes")
+    .update({ is_regular: parsed.data.on === "true" })
+    .eq("id", parsed.data.dishId)
+    .select("id");
+  if (error) return failed("setEverydayMenu", error, "Couldn’t change it. Try again.");
+  if (data.length === 0) return { error: "This dish no longer exists. Refresh the page." };
+  revalidatePath("/dashboard/manage");
+  revalidatePath("/dashboard/menu");
+  revalidatePath(`/dashboard/dishes/${parsed.data.dishId}`);
   revalidatePath("/");
   return null;
 }

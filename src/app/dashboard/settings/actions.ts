@@ -3,12 +3,13 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { nairobiToday } from "@/lib/format";
 import { createClient, getStaff } from "@/lib/supabase/server";
+import { refusal } from "@/lib/supabase/refusal";
 
 // Owner settings (spec-2.2). The database is the gate: every write here goes through RLS or an
 // RPC that checks public.has_permission(), so a staff session gets refused there too.
 // Messages are the spec's; details go to the server log only.
 
-export type SettingsResult = { ok: true; note?: string } | { ok: false; error: string } | null;
+export type SettingsResult = { ok: true; note?: string } | { ok: false; error: string; stale?: boolean } | null;
 
 type Db = Awaited<ReturnType<typeof createClient>>;
 
@@ -19,6 +20,24 @@ async function ownerClient(): Promise<Db | null> {
   } catch {
     return null;
   }
+}
+
+/** A client for anyone on the staff list. Close early is open to its grant holders (spec-2.3); the
+ *  RPC itself checks, so a stale page gets the database's refusal line rather than a vague failure. */
+async function staffClient(): Promise<Db | null> {
+  try {
+    return (await getStaff()) ? await createClient() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A refusal (42501) carries its own line and asks the page to refresh. */
+function refused(what: string, error: { code?: string; message: string }): SettingsResult | null {
+  const line = refusal(error);
+  if (!line) return null;
+  console.error(`[action] ${what} refused:`, error.message);
+  return { ok: false, error: line, stale: true };
 }
 
 function fail(what: string, error: { code?: string; message: string } | null, message: string): SettingsResult {
@@ -36,20 +55,20 @@ function refreshEverywhere() {
 
 export async function closeEarly(): Promise<SettingsResult> {
   const message = "Couldn’t close. Customers can still order. Try again.";
-  const db = await ownerClient();
+  const db = await staffClient();
   if (!db) return fail("closeEarly", null, message);
   const { error } = await db.rpc("close_early");
-  if (error) return fail("closeEarly", error, error.code === "P0001" ? error.message : message);
+  if (error) return refused("closeEarly", error) ?? fail("closeEarly", error, error.code === "P0001" ? error.message : message);
   refreshEverywhere();
   return { ok: true };
 }
 
 export async function reopenToday(): Promise<SettingsResult> {
   const message = "Couldn’t reopen. Customers still see closed. Try again.";
-  const db = await ownerClient();
+  const db = await staffClient();
   if (!db) return fail("reopenToday", null, message);
   const { error } = await db.rpc("reopen_today");
-  if (error) return fail("reopenToday", error, message);
+  if (error) return refused("reopenToday", error) ?? fail("reopenToday", error, message);
   refreshEverywhere();
   return { ok: true };
 }

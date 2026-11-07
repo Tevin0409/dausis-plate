@@ -15,5 +15,9 @@ export type OrderRefusal = {
   paymentStatus: Enums<"payment_status"> | null;
 };
 
-/** What a dashboard form action returns: null on success, or a message for the person who tapped. */
-export type ActionResult = { error: string; refused?: OrderRefusal } | null;
+/**
+ * What a dashboard form action returns: null on success, or a message for the person who tapped.
+ * `stale` marks a refusal for a job the person no longer holds (slice 2.3): the form shows the line,
+ * then refreshes the page so the control goes.
+ */
+export type ActionResult = { error: string; refused?: OrderRefusal; stale?: boolean } | null;

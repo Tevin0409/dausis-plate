@@ -10,6 +10,23 @@ export type Database = {
   };
   public: {
     Tables: {
+      change_log: {
+        Row: {
+          action: string; actor: string | null; actor_name: string; after: Json | null; area: Database["public"]["Enums"]["change_area"];
+          at: string; before: Json | null; id: number; subject_id: string | null; subject_label: string | null; tx: number;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      staff_grants: {
+        Row: { granted_at: string; granted_by: string | null; job: Database["public"]["Enums"]["staff_grant"]; user_id: string };
+        Insert: { granted_at?: string; granted_by?: string | null; job: Database["public"]["Enums"]["staff_grant"]; user_id: string };
+        Update: { granted_at?: string; granted_by?: string | null; job?: Database["public"]["Enums"]["staff_grant"]; user_id?: string };
+        Relationships: [
+          { foreignKeyName: "staff_grants_user_id_fkey"; columns: ["user_id"]; isOneToOne: false; referencedRelation: "staff"; referencedColumns: ["user_id"] },
+        ];
+      };
       delivery_zones: {
         Row: { active: boolean; fee_kes: number; id: string; name: string; sort_order: number };
         Insert: { active?: boolean; fee_kes: number; id?: string; name: string; sort_order?: number };
@@ -344,6 +361,8 @@ export type Database = {
     };
     Functions: {
       close_early: { Args: never; Returns: Json };
+      has_grant: { Args: { p_job: Database["public"]["Enums"]["staff_grant"] }; Returns: boolean };
+      history_people: { Args: never; Returns: { actor: string; actor_name: string; on_team: boolean }[] };
       has_permission: { Args: { p_permission: string }; Returns: boolean };
       kitchen_status: { Args: never; Returns: Json };
       regular_on_sale: { Args: { p_unavailable_on: string | null }; Returns: boolean };
@@ -367,12 +386,14 @@ export type Database = {
       set_entry_sold_out: { Args: { p_entry: string; p_sold_out: boolean }; Returns: undefined };
     };
     Enums: {
+      change_area: "menu" | "orders" | "tables" | "team" | "settings";
       dish_category: "mains" | "sides" | "breakfast" | "drinks";
       entry_kind: "day" | "week";
       order_mode: "dine_in" | "pickup" | "delivery";
       order_status: "new" | "preparing" | "ready" | "completed" | "cancelled";
       payment_method: "mpesa" | "card" | "on_handover" | "at_counter";
       payment_status: "pending" | "paid" | "failed" | "unpaid";
+      staff_grant: "everyday_menu" | "dishes_prices" | "tables_delivery" | "close_early";
       staff_role: "owner" | "staff";
     };
     CompositeTypes: {
