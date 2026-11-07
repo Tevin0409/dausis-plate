@@ -7,6 +7,7 @@ import { AutoRefresh } from "@/components/shop/auto-refresh";
 import { TillLine } from "@/components/shop/till-line";
 import { Narrow } from "@/components/shop/ui";
 import { formatKes, timeLabel } from "@/lib/format";
+import { closingTime } from "@/lib/kitchen";
 import { createClient } from "@/lib/supabase/server";
 import { must } from "@/lib/supabase/result";
 
@@ -92,7 +93,7 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
         <span className="mt-3.5 font-script text-[30px] leading-none">Asante, {o.customer_name}!</span>
         <span className="text-[15px] text-[#d7f0ee]">Order {o.code} · {where}</span>
         {o.status === "cancelled" && <span className="mt-3 text-lg font-semibold">This order was cancelled. Call us if that’s a surprise.</span>}
-        {o.pickup_at && o.mode === "pickup" && <span className="mt-3 text-lg">Collect at {timeLabel(o.pickup_at)}</span>}
+        {o.pickup_at && o.mode === "pickup" && <span className="mt-3 text-lg">Collect at {closingTime(o.pickup_at)}</span>}
       </section>
 
       <ol aria-label="Order progress" className="mx-5 mt-6 flex flex-col">

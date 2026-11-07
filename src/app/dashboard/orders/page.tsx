@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { LiveOrders } from "@/components/dashboard/live-orders";
 import type { Enums } from "@/lib/database.types";
-import { formatKes, minutesAgo, nairobiToday, timeLabel } from "@/lib/format";
+import { formatKes, minutesAgo, nairobiToday } from "@/lib/format";
+import { closingTime } from "@/lib/kitchen";
 import { BoardActionForm, BoardNotices } from "@/components/dashboard/board-notices";
 import { SubmitButton } from "@/components/dashboard/submit-button";
 import { createClient } from "@/lib/supabase/server";
@@ -88,7 +89,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
                     o.mode === "dine_in"
                       ? (o.table?.label ?? "Table")
                       : o.mode === "pickup"
-                        ? `Pickup · ${o.pickup_at ? timeLabel(o.pickup_at) : "ASAP"}`
+                        ? `Pickup · ${o.pickup_at ? closingTime(o.pickup_at) : "ASAP"}`
                         : `Delivery · ${o.zone?.name ?? ""}`;
                   const paid = o.payment_status === "paid";
                   return (

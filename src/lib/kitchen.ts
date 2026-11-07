@@ -35,7 +35,7 @@ const days = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:0
 const longDate = (day: string) =>
   new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long" }).format(new Date(`${day}T12:00:00Z`));
 
-/** "21:00", or "midnight" for a closing at 24:00. */
+/** "21:00", or "midnight" for a time at the end of the day (a closing or last orders at 24:00). */
 export const closingTime = (iso: string) => (timeLabel(iso) === "00:00" ? "midnight" : timeLabel(iso));
 
 /**
@@ -68,11 +68,11 @@ export function menuNotice(s: KitchenStatus, now: Date): { tone: "closed" | "qui
   if (s.state === "open") {
     if (!s.last_order_at) return null;
     const left = Date.parse(s.last_order_at) - now.getTime();
-    return left <= 30 * 60_000 ? { tone: "quiet", text: `Last orders at ${timeLabel(s.last_order_at)}` } : null;
+    return left <= 30 * 60_000 ? { tone: "quiet", text: `Last orders at ${closingTime(s.last_order_at)}` } : null;
   }
   const when = opensWhen(s);
   if (!when) return { tone: "closed", text: "Closed for now. Please check back soon." };
-  const lead = s.reason === "past_last_orders" && s.last_order_at ? `Last orders were at ${timeLabel(s.last_order_at)}.` : "Closed now.";
+  const lead = s.reason === "past_last_orders" && s.last_order_at ? `Last orders were at ${closingTime(s.last_order_at)}.` : "Closed now.";
   return { tone: "closed", text: `${lead} Opens ${when}. ${ORDER_WHEN_OPEN}` };
 }
 
@@ -98,10 +98,10 @@ export function statusStrip(s: KitchenStatus): string {
   const when = opensWhen(s);
   const opens = when ? `Opens ${when}` : "No opening day is set";
   if (s.state === "open" && s.last_order_at && s.closes_at) {
-    return `Open now · Last orders ${timeLabel(s.last_order_at)} · Closes ${closingTime(s.closes_at)}`;
+    return `Open now · Last orders ${closingTime(s.last_order_at)} · Closes ${closingTime(s.closes_at)}`;
   }
   if (s.reason === "closed_early" && s.closed_early_at) return `Closed early since ${timeLabel(s.closed_early_at)} · ${opens}`;
-  if (s.reason === "past_last_orders" && s.last_order_at) return `Last orders were at ${timeLabel(s.last_order_at)} · ${opens}`;
+  if (s.reason === "past_last_orders" && s.last_order_at) return `Last orders were at ${closingTime(s.last_order_at)} · ${opens}`;
   return `Closed now · ${opens}`;
 }
 

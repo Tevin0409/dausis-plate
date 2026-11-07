@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useId, useMemo, useState, useTransition } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { saveHours } from "./actions";
 import { btnLink, btnPrimary, btnQuiet, field, hint, tile, tileHeading } from "./ui";
 
@@ -54,6 +54,39 @@ export function HoursForm({ initial, lastOrders: initialLast, todayWeekday, nowM
     openNow && (!today.is_open || nowMinutes < minutes(today.opens) || (todayLast !== null && nowMinutes > todayLast));
   const allOff = days.every((d) => !d.is_open);
   const firstOpen = days.find((d) => d.is_open);
+  const anyMidnight = days.some((d) => d.is_open && d.closes === "00:00");
+  const barShown = dirty || result === "saved";
+
+  // Phone rows (build follow-up 1): which days have their fields open, and where focus goes next.
+  const [open, setOpen] = useState<Set<number>>(() => new Set());
+  const fieldRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const focusDay = useRef<number | null>(null);
+  const toggleDay = (weekday: number) => {
+    setOpen((s) => {
+      const next = new Set(s);
+      if (next.has(weekday)) next.delete(weekday);
+      else {
+        next.add(weekday);
+        focusDay.current = weekday;
+      }
+      return next;
+    });
+  };
+  useEffect(() => {
+    const w = focusDay.current;
+    if (w === null) return;
+    focusDay.current = null;
+    const box = fieldRefs.current[w];
+    box?.querySelector("input")?.focus({ preventScroll: true });
+    box?.scrollIntoView({ block: "nearest" });
+  }, [open]);
+
+  // While the save bar shows, focus and scrolling stop above it (build follow-up 2).
+  useEffect(() => {
+    if (!barShown) return;
+    document.documentElement.classList.add("savebar-pad");
+    return () => document.documentElement.classList.remove("savebar-pad");
+  }, [barShown]);
 
   // The browser's leave warning while there are unsaved changes.
   useEffect(() => {
@@ -116,16 +149,47 @@ export function HoursForm({ initial, lastOrders: initialLast, todayWeekday, nowM
         {days.map((d, i) => {
           const name = NAMES[d.weekday]!;
           const err = errors[i];
+          const was = saved.days[i]!;
+          const changed = d.is_open !== was.is_open || d.opens !== was.opens || d.closes !== was.closes;
+          // Below 600 a day is one line until opened; a changed day or one with an error stays open.
+          const shown = d.is_open && (open.has(d.weekday) || changed || Boolean(err));
+          const midnight = d.is_open && d.closes === "00:00";
           return (
             <li
               key={d.weekday}
-              className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-2 border-t border-sand py-3 first:border-t-0 first:pt-0 min-[600px]:grid-cols-[132px_minmax(0,1fr)_auto]"
+              className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-2 gap-y-2 border-t border-sand py-1 first:border-t-0 min-[600px]:grid-cols-[132px_minmax(0,1fr)_auto] min-[600px]:gap-x-3 min-[600px]:py-3 min-[600px]:first:pt-0"
             >
-              <span className="flex items-center gap-2 text-[15px] font-semibold">
+              <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[15px] font-semibold max-[359px]:text-[14px]">
                 {name}
                 {d.weekday === todayWeekday && <span className="rounded-full bg-teal-tint px-2 py-0.5 text-[13px] font-bold text-teal-deeper">Today</span>}
               </span>
-              <div className="col-span-2 row-start-2 min-[600px]:col-span-1 min-[600px]:col-start-2 min-[600px]:row-start-1">
+              {/* Phone: the day's hours as text; tapping opens its fields (spec-2.2 build follow-up 1). */}
+              {d.is_open ? (
+                <button
+                  type="button"
+                  aria-label={`Change ${name}’s hours`}
+                  aria-expanded={shown}
+                  aria-controls={`${id}-f${d.weekday}`}
+                  onClick={() => toggleDay(d.weekday)}
+                  className="press flex min-h-11 touch-manipulation flex-col items-end justify-center rounded-[var(--r-sm)] px-0.5 text-right text-[15px] tabular-nums max-[359px]:text-[14px] select-none [-webkit-tap-highlight-color:transparent] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-deep min-[600px]:hidden"
+                >
+                  <span className="whitespace-nowrap">
+                    {d.opens} – {d.closes === "00:00" ? "midnight" : d.closes}
+                  </span>
+                  {changed && <span className="whitespace-nowrap text-[13px] leading-tight text-ink-soft">Changed</span>}
+                </button>
+              ) : (
+                <span className="text-right text-[15px] text-ink-soft min-[600px]:hidden">
+                  Closed{changed && <span className="ml-2 text-sm">Changed</span>}
+                </span>
+              )}
+              <div
+                id={`${id}-f${d.weekday}`}
+                ref={(el) => {
+                  fieldRefs.current[d.weekday] = el;
+                }}
+                className={`col-span-3 row-start-2 pb-2 min-[600px]:col-span-1 min-[600px]:col-start-2 min-[600px]:row-start-1 min-[600px]:block min-[600px]:pb-0 ${shown ? "" : "hidden"}`}
+              >
                 {d.is_open ? (
                   <div className="grid grid-cols-2 gap-2.5">
                     <label className="flex min-w-0 flex-col gap-1 text-[13px] font-semibold text-ink-soft">
@@ -149,7 +213,7 @@ export function HoursForm({ initial, lastOrders: initialLast, todayWeekday, nowM
                         value={d.closes}
                         onChange={(e) => change(d.weekday, { closes: e.target.value })}
                         aria-invalid={err ? true : undefined}
-                        aria-describedby={err ? `${id}-e${d.weekday}` : `${id}-mid`}
+                        aria-describedby={err ? `${id}-e${d.weekday}` : midnight ? `${id}-m${d.weekday}` : anyMidnight ? undefined : `${id}-mid`}
                         className={field}
                         required
                       />
@@ -158,25 +222,33 @@ export function HoursForm({ initial, lastOrders: initialLast, todayWeekday, nowM
                 ) : (
                   <p className="flex min-h-12 items-center text-[15px] text-ink-soft min-[600px]:mt-5">Closed</p>
                 )}
-                {err && (
+                {err ? (
                   <p id={`${id}-e${d.weekday}`} className="note-in mt-1.5 text-sm font-semibold text-coral-ink">
                     {err}
                   </p>
+                ) : (
+                  midnight && (
+                    <p id={`${id}-m${d.weekday}`} className={`${hint} mt-1.5`}>
+                      00:00 means midnight, at the end of {name}.
+                    </p>
+                  )
                 )}
               </div>
               <Switch
                 checked={d.is_open}
                 label={`Open on ${name}`}
                 onChange={(on) => change(d.weekday, { is_open: on })}
-                className="col-start-2 row-start-1 min-[600px]:col-start-3"
+                className="col-start-3 row-start-1"
               />
             </li>
           );
         })}
       </ul>
-      <p id={`${id}-mid`} className={`${hint} mt-1`}>
-        For a closing at midnight, set 00:00.
-      </p>
+      {!anyMidnight && (
+        <p id={`${id}-mid`} className={`${hint} mt-1`}>
+          For a closing at midnight, set 00:00.
+        </p>
+      )}
 
       {firstOpen && (
         <button type="button" onClick={copyFirst} className={`${btnLink} -mx-2 mt-2`}>
@@ -199,7 +271,7 @@ export function HoursForm({ initial, lastOrders: initialLast, todayWeekday, nowM
       </p>
 
       {/* The save bar only exists while the form has changes, or to say how the last save went. */}
-      {(dirty || result === "saved") && (
+      {barShown && (
         <div
           role="status"
           className="sticky bottom-[calc(var(--tabbar-h,0px)+8px)] z-20 -mx-2 mt-5 flex flex-col gap-3 rounded-[var(--r-md)] bg-ink px-4 py-3 text-paper shadow-[var(--shadow-card)] min-[480px]:flex-row min-[480px]:items-center lg:bottom-3"
@@ -209,11 +281,11 @@ export function HoursForm({ initial, lastOrders: initialLast, todayWeekday, nowM
           ) : (
             <>
               <p className={`min-w-0 flex-1 text-[15px] ${result === "failed" ? "font-semibold text-blush" : ""}`}>{barText}</p>
-              <div className="grid grid-cols-2 gap-2.5 min-[480px]:flex">
+              <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-2.5 min-[480px]:flex">
                 <button type="button" onClick={cancel} disabled={pending} className={`${btnQuiet} min-h-11`}>
                   Cancel
                 </button>
-                <button type="button" onClick={save} disabled={pending || hasErrors} aria-disabled={hasErrors || undefined} className={`${btnPrimary} min-h-11 bg-teal-deep`}>
+                <button type="button" onClick={save} disabled={pending || hasErrors} aria-disabled={hasErrors || undefined} className={`${btnPrimary} min-h-11 whitespace-nowrap bg-teal-deep`}>
                   {pending ? "Saving…" : "Save hours"}
                 </button>
               </div>

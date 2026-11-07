@@ -133,6 +133,16 @@ body {
     --tabbar-h: 0px;
   }
 }
+/* While the hours save bar shows (spec-2.2 build follow-up 2), focus and scrollIntoView stop
+   above it: the tab bar (64 px + safe area below 1024) plus the bar itself (96 px). */
+html.savebar-pad {
+  scroll-padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 96px);
+}
+@media (min-width: 1024px) {
+  html.savebar-pad {
+    scroll-padding-bottom: 96px;
+  }
+}
 /* While a text field has focus on a touch screen, the tab bar goes at once, so the keyboard
    meets the content and the save bar drops to the keyboard's edge. */
 @media (pointer: coarse) {
