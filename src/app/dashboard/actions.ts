@@ -6,7 +6,7 @@ import type { Enums } from "@/lib/database.types";
 import { addDays, nairobiToday, weekStart } from "@/lib/format";
 import { deletePhotoSet, PHOTO_KEY, photoExists, publicPhotoUrl } from "@/lib/r2";
 import { createClient, getStaff } from "@/lib/supabase/server";
-import type { ActionResult } from "./action-result";
+import type { ActionResult, OrderRefusal } from "./action-result";
 
 // Form actions return null on success or { error } with a message for the person
 // who tapped (shown by ActionForm). Details go to the server log, never the UI.
@@ -248,6 +248,39 @@ export async function setRegularAvailable(_prev: ActionResult, formData: FormDat
 
 // ───────── orders ─────────
 
+/**
+ * The order RPCs refuse a stale or invalid move with P0001 and a message written for staff
+ * (e.g. "Someone else already moved this order"). Return it with the order as it is now, so the
+ * board's strip can say where the order went: the refresh remounts the ticket's form, which
+ * can't show it. Anything else is an unexpected failure with a generic retry message.
+ */
+async function orderRefused(
+  supabase: Db,
+  refusal: Pick<OrderRefusal, "orderId" | "kind" | "from">,
+  what: string,
+  error: { message: string; code?: string },
+  message: string,
+): Promise<ActionResult> {
+  if (error.code !== "P0001") return failed(what, error, message);
+  const { data, error: readError } = await supabase
+    .from("orders")
+    .select("code, customer_name, status, payment_status")
+    .eq("id", refusal.orderId)
+    .maybeSingle();
+  // Without the current state the strip falls back to the database's own message.
+  if (readError) console.error(`[action] ${what} refusal read failed:`, readError.code ?? "", readError.message);
+  return {
+    error: error.message,
+    refused: {
+      ...refusal,
+      code: data?.code ?? null,
+      customerName: data?.customer_name ?? null,
+      status: data?.status ?? null,
+      paymentStatus: data?.payment_status ?? null,
+    },
+  };
+}
+
 const NEXT_STATUS: Partial<Record<Enums<"order_status">, Enums<"order_status">>> = {
   new: "preparing",
   preparing: "ready",
@@ -262,11 +295,10 @@ export async function advanceOrder(_prev: ActionResult, formData: FormData): Pro
   if (!to) return STALE_FORM;
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
-  // Guarded on the current status so two tablets tapping at once can't skip a step.
-  const { data, error } = await supabase.from("orders").update({ status: to }).eq("id", v.orderId).eq("status", v.from).select("id");
+  // advance_order checks the current status, so two tablets tapping at once can't skip a step.
+  const { error } = await supabase.rpc("advance_order", { p_order: v.orderId, p_from: v.from, p_to: to });
   revalidatePath("/dashboard/orders");
-  if (error) return failed("advanceOrder", error, "Couldn’t move the order. Try again.");
-  if (data.length === 0) return { error: "Someone else already moved this order. The board is updated." };
+  if (error) return orderRefused(supabase, { orderId: v.orderId, kind: "advance", from: v.from }, "advanceOrder", error, "Couldn’t move the order. Try again.");
   return null;
 }
 
@@ -275,20 +307,24 @@ export async function markPaid(_prev: ActionResult, formData: FormData): Promise
   if (!parsed.success) return STALE_FORM;
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
-  const { error } = await supabase.from("orders").update({ payment_status: "paid" }).eq("id", parsed.data.orderId);
-  if (error) return failed("markPaid", error, "Couldn’t mark it paid. Try again.");
+  const { error } = await supabase.rpc("mark_order_paid", { p_order: parsed.data.orderId });
   revalidatePath("/dashboard/orders");
+  // mark_order_paid never refuses a stale tap (paying twice is harmless), so there is nothing for
+  // the board's strip; its only P0001 is "Order not found", shown under the button.
+  if (error) return error.code === "P0001" ? { error: error.message } : failed("markPaid", error, "Couldn’t mark it paid. Try again.");
   return null;
 }
 
 export async function cancelOrder(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const parsed = z.object({ orderId: uuid }).safeParse(Object.fromEntries(formData));
+  const parsed = z.object({ orderId: uuid, from: z.enum(["new"]) }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return STALE_FORM;
+  const v = parsed.data;
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
-  const { error } = await supabase.from("orders").update({ status: "cancelled" }).eq("id", parsed.data.orderId);
-  if (error) return failed("cancelOrder", error, "Couldn’t decline the order. Try again.");
+  // cancel_order checks the status the tap saw, so a Decline can't cancel an order another tablet moved on.
+  const { error } = await supabase.rpc("cancel_order", { p_order: v.orderId, p_from: v.from });
   revalidatePath("/dashboard/orders");
+  if (error) return orderRefused(supabase, { orderId: v.orderId, kind: "cancel", from: v.from }, "cancelOrder", error, "Couldn’t decline the order. Try again.");
   return null;
 }
 

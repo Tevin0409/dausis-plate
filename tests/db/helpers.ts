@@ -73,6 +73,7 @@ export function dineIn(f: Fixtures, items: Item[], extra: Record<string, unknown
     customer_name: "Test customer",
     customer_phone: "0712345678",
     payment_method: "on_handover",
+    idempotency_key: crypto.randomUUID(),
     items,
     ...extra,
   };
@@ -83,7 +84,7 @@ export function placeOrder(tx: Tx, payload: object) {
   return tx.savepoint((sp) =>
     asCaller(sp, "anon", null, async () => {
       const [row] = await sp`select * from public.place_order(${JSON.stringify(payload)}::text::jsonb)`;
-      return row as { public_token: string; code: string; total_kes: number };
+      return row as { public_token: string; code: string; total_kes: number; replayed: boolean };
     }),
   );
 }
@@ -91,6 +92,11 @@ export function placeOrder(tx: Tx, payload: object) {
 /** Runs `fn` as the signed-in owner (role authenticated, RLS applies). */
 export function asOwner(tx: Tx, f: Fixtures, fn: () => PromiseLike<Rows>): Promise<Rows> {
   return asCaller(tx, "authenticated", f.ownerId, fn);
+}
+
+/** Runs `fn` as an API caller in a savepoint, so an expected rejection leaves the transaction usable. */
+export function attempt(tx: Tx, role: "anon" | "authenticated", sub: string | null, fn: (sp: Q) => PromiseLike<Rows>): Promise<Rows> {
+  return tx.savepoint((sp) => asCaller(sp, role, sub, () => fn(sp)));
 }
 
 export async function platesSold(tx: Tx, entryId: string) {
