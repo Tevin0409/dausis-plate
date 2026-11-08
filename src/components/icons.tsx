@@ -67,3 +67,9 @@ export const SignOutIcon = ({ size = 18, className }: IconProps) => (
 export const DishesIcon = ({ size = 18, className }: IconProps) => (
   <svg {...base(size)} strokeWidth={2} className={className}><path d="M3 13h18a9 9 0 0 1-18 0zM12 4v2M8 6.5l.8 1.6M16 6.5l-.8 1.6" /></svg>
 );
+export const BikeIcon = ({ size = 18, className }: IconProps) => (
+  <svg {...base(size)} strokeWidth={2} className={className}><circle cx="6" cy="16" r="3.5" /><circle cx="18" cy="16" r="3.5" /><path d="M6 16l4-7h5l3 7M10 9 8.5 6H6M15 9l1.5-3H19" /></svg>
+);
+export const BagIcon = ({ size = 18, className }: IconProps) => (
+  <svg {...base(size)} strokeWidth={2} className={className}><path d="M5 8h14l-1 12H6zM9 8V6a3 3 0 0 1 6 0v2" /></svg>
+);

@@ -34,9 +34,15 @@ describe("sentences", () => {
     expect(text({ ...order, action: "order.cancel", before: { status: "new" } })).toBe("Wanjiku declined DP-0107 (Amina).");
     expect(text({ ...order, action: "order.cancel", before: { status: "preparing" } })).toBe("Wanjiku cancelled DP-0107 (Amina).");
     expect(text({ ...order, action: "order.paid" })).toBe("Wanjiku marked DP-0107 (Amina) paid.");
+    // Slice 2.4: reasons, undone moves and undone Mark paid.
+    expect(text({ ...order, action: "order.cancel", before: { status: "new" }, after: { status: "cancelled", reason: "sold_out" } })).toBe("Wanjiku declined DP-0107 (Amina): Sold out.");
+    expect(text({ ...order, action: "order.cancel", before: { status: "ready" }, after: { status: "cancelled", reason: "other", note: "Rider’s bike broke down." } })).toBe("Wanjiku cancelled DP-0107 (Amina): Rider’s bike broke down.");
+    expect(text({ ...order, action: "order.move_undo", before: { status: "ready" }, after: { status: "preparing" } })).toBe("Wanjiku undid moving DP-0107 (Amina) to Ready. It’s back in Cooking.");
+    expect(text({ ...order, action: "order.move", before: { status: "ready" }, after: { status: "on_the_way" } })).toBe("Wanjiku moved DP-0107 (Amina) to On the way.");
+    expect(text({ ...order, action: "order.paid_undo" })).toBe("Wanjiku undid marking DP-0107 (Amina) paid.");
     expect(text({ ...order, action: "order.move", before: { status: "new" }, after: { status: "preparing" } })).toBe("Wanjiku accepted DP-0107 (Amina).");
     expect(text({ ...order, action: "order.move", before: { status: "preparing" }, after: { status: "ready" } })).toBe("Wanjiku moved DP-0107 (Amina) to Ready.");
-    expect(text({ ...order, action: "order.move", before: { status: "ready" }, after: { status: "completed" } })).toBe("Wanjiku marked DP-0107 (Amina) completed.");
+    expect(text({ ...order, action: "order.move", before: { status: "ready" }, after: { status: "completed" } })).toBe("Wanjiku marked DP-0107 (Amina) done.");
     expect(text({ area: "tables", action: "table.new_code", subject_label: "Table 4" })).toBe("Wanjiku made a new QR code for Table 4. The old one no longer works.");
     expect(text({ area: "tables", action: "zone.fee", subject_label: "Kilimani", before: { fee: 150 }, after: { fee: 200 } })).toBe(
       "Wanjiku changed the Kilimani delivery fee from KSh 150 to KSh 200.",
@@ -67,7 +73,7 @@ describe("sentences", () => {
 
   test("nobody signed in reads as The app; an unknown action still makes a sentence", () => {
     expect(text({ actor: null, actor_name: "The app", area: "orders", action: "order.move", subject_label: "DP-0001 (Jo)", before: { status: "ready" }, after: { status: "completed" } })).toBe(
-      "The app marked DP-0001 (Jo) completed.",
+      "The app marked DP-0001 (Jo) done.",
     );
     expect(text({ action: "dish.something_new" })).toBe("Wanjiku changed Pilau.");
   });

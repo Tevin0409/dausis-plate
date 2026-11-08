@@ -30,7 +30,7 @@ const advance = (tx: TransactionSQL, f: Fixtures, id: string, from: string, to: 
 /** A Decline; `from` is the status the tap saw, which defaults to the order's current one. */
 const cancel = async (tx: TransactionSQL, f: Fixtures, id: string, from?: string) => {
   const seen = from ?? (await statusOf(tx, id));
-  return attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.cancel_order(${id}::uuid, ${seen}::public.order_status)`);
+  return attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.cancel_order(${id}::uuid, ${seen}::public.order_status, 'too_busy')`);
 };
 const markPaid = (tx: TransactionSQL, f: Fixtures, id: string) =>
   attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.mark_order_paid(${id}::uuid)`);
@@ -403,7 +403,7 @@ describe("who can write orders", () => {
           name === "advance_order"
             ? sp`select public.advance_order(${id}::uuid, 'new'::public.order_status, 'preparing'::public.order_status)`
             : name === "cancel_order"
-              ? sp`select public.cancel_order(${id}::uuid, 'new'::public.order_status)`
+              ? sp`select public.cancel_order(${id}::uuid, 'new'::public.order_status, 'too_busy')`
               : sp`select public.mark_order_paid(${id}::uuid)`;
         await expect(attempt(tx, "anon", null, call)).rejects.toThrow("permission denied");
         await expect(attempt(tx, "authenticated", crypto.randomUUID(), call)).rejects.toThrow("Not allowed");

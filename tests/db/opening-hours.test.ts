@@ -476,7 +476,7 @@ describe("get_order_status: the till line", () => {
       const paid = await place();
       const cancelled = await place();
       await attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.mark_order_paid(${paid.id}::uuid)`);
-      await attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.cancel_order(${cancelled.id}::uuid, 'new'::public.order_status)`);
+      await attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.cancel_order(${cancelled.id}::uuid, 'new'::public.order_status, 'too_busy')`);
       expect([await till(unpaid.token), await till(paid.token), await till(cancelled.token)]).toEqual(["123456", null, null]);
       await attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.set_till_number(null)`);
       expect(await till(unpaid.token)).toBeNull();

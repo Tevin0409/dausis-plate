@@ -123,7 +123,7 @@ describe("dashboard_stats: paid and not paid", () => {
       await place(tx, dineIn(f, [{ dish_id: f.regular.id, quantity: 2 }])); // 600, on handover
       const cancelled = await place(tx, dineIn(f, [{ dish_id: f.regular.id, quantity: 3 }])); // 900, cancelled
       await attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.mark_order_paid(${paid}::uuid)`);
-      await attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.cancel_order(${cancelled}::uuid, 'new'::public.order_status)`);
+      await attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.cancel_order(${cancelled}::uuid, 'new'::public.order_status, 'too_busy')`);
 
       const after = await stats(tx, f);
       expect(after.revenue_kes - before.revenue_kes).toBe(900);

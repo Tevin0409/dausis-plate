@@ -3,11 +3,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import type { Enums } from "@/lib/database.types";
+import { NOTE_MAX, NOTE_MIN, nextStatus } from "@/lib/board";
 import { addDays, weekdayName, weekStart } from "@/lib/format";
 import { deletePhotoSet, PHOTO_KEY, photoExists, publicPhotoUrl } from "@/lib/r2";
 import { refusal } from "@/lib/supabase/refusal";
 import { createClient, getStaff } from "@/lib/supabase/server";
-import type { ActionResult, OrderRefusal } from "./action-result";
+import type { ActionResult, BoardResult, OrderRefusal } from "./action-result";
 
 // Form actions return null on success or { error } with a message for the person
 // who tapped (shown by ActionForm). Details go to the server log, never the UI.
@@ -289,50 +290,97 @@ async function orderRefused(
   };
 }
 
-const NEXT_STATUS: Partial<Record<Enums<"order_status">, Enums<"order_status">>> = {
-  new: "preparing",
-  preparing: "ready",
-  ready: "completed",
-};
+const OPEN_STATUS = z.enum(["new", "preparing", "ready", "on_the_way"]);
+const MODE = z.enum(["dine_in", "pickup", "delivery"]);
 
-export async function advanceOrder(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const parsed = z.object({ orderId: uuid, from: z.enum(["new", "preparing", "ready"]) }).safeParse(Object.fromEntries(formData));
+export async function advanceOrder(_prev: ActionResult, formData: FormData): Promise<BoardResult> {
+  const parsed = z.object({ orderId: uuid, from: OPEN_STATUS, mode: MODE }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return STALE_FORM;
   const v = parsed.data;
-  const to = NEXT_STATUS[v.from];
+  // The order type only picks the button's step; the database checks it again (guard_order_status).
+  const to = nextStatus(v.from, v.mode);
   if (!to) return STALE_FORM;
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
   // advance_order checks the current status, so two tablets tapping at once can't skip a step.
-  const { error } = await supabase.rpc("advance_order", { p_order: v.orderId, p_from: v.from, p_to: to });
+  const { data, error } = await supabase.rpc("advance_order", { p_order: v.orderId, p_from: v.from, p_to: to });
   revalidatePath("/dashboard/orders");
   if (error) return orderRefused(supabase, { orderId: v.orderId, kind: "advance", from: v.from }, "advanceOrder", error, "Couldn’t move the order. Try again.");
+  return { version: data };
+}
+
+/**
+ * The strip's Undo (5 s on the tablet; the server allows 10 s). `version` is what the move
+ * returned: the database refuses the Undo if anything changed the order since (QA RQA24-01).
+ */
+export async function undoOrderMove(orderId: string, status: Enums<"order_status">, version: number): Promise<ActionResult> {
+  const parsed = z
+    .object({ orderId: uuid, status: z.enum(["preparing", "ready", "on_the_way", "completed"]), version: z.number().int() })
+    .safeParse({ orderId, status, version });
+  if (!parsed.success) return STALE_FORM;
+  const [supabase, denied] = await staffClient();
+  if (!supabase) return denied;
+  const { error } = await supabase.rpc("undo_order_move", { p_order: orderId, p_status: parsed.data.status, p_version: parsed.data.version });
+  revalidatePath("/dashboard/orders");
+  if (error) return orderRefused(supabase, { orderId, kind: "undo", from: parsed.data.status }, "undoOrderMove", error, "Couldn’t undo. Try again.");
   return null;
 }
 
-export async function markPaid(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
+export async function markPaid(_prev: ActionResult, formData: FormData): Promise<BoardResult> {
   const parsed = z.object({ orderId: uuid }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return STALE_FORM;
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
-  const { error } = await supabase.rpc("mark_order_paid", { p_order: parsed.data.orderId });
+  const { data, error } = await supabase.rpc("mark_order_paid", { p_order: parsed.data.orderId });
   revalidatePath("/dashboard/orders");
   // mark_order_paid never refuses a stale tap (paying twice is harmless), so there is nothing for
   // the board's strip; its only P0001 is "Order not found", shown under the button.
   if (error) return error.code === "P0001" ? { error: error.message } : failed("markPaid", error, "Couldn’t mark it paid. Try again.");
+  // null: it was already paid, so this tap changed nothing and has no Undo.
+  return { version: data };
+}
+
+/** Mark paid's in-place Undo. Refused after 10 s, or if anything changed the order since (RQA24-01). */
+export async function unmarkPaid(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
+  const parsed = z.object({ orderId: uuid, version: z.coerce.number().int() }).safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return STALE_FORM;
+  const [supabase, denied] = await staffClient();
+  if (!supabase) return denied;
+  const { error } = await supabase.rpc("unmark_order_paid", { p_order: parsed.data.orderId, p_version: parsed.data.version });
+  revalidatePath("/dashboard/orders");
+  if (error) return orderRefused(supabase, { orderId: parsed.data.orderId, kind: "unpaid", from: null }, "unmarkPaid", error, "Couldn’t undo. Try again.");
   return null;
 }
 
+const cancelForm = z
+  .object({
+    orderId: uuid,
+    from: OPEN_STATUS,
+    reason: z.enum(["sold_out", "too_busy", "cant_deliver", "customer_asked", "no_show", "other"]),
+    note: z.string().trim().max(NOTE_MAX).optional(),
+  })
+  .refine((v) => v.reason !== "other" || (v.note?.length ?? 0) >= NOTE_MIN, { path: ["note"] });
+
+/** Decline (in New) or Cancel order (after Accept), with a reason the customer sees. No undo. */
 export async function cancelOrder(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const parsed = z.object({ orderId: uuid, from: z.enum(["new"]) }).safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return STALE_FORM;
+  const parsed = cancelForm.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) {
+    // The form checks these first; this is for a request that skipped it.
+    return parsed.error.issues.some((i) => i.path[0] === "note") ? { error: "Say why in a few words." } : STALE_FORM;
+  }
   const v = parsed.data;
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
   // cancel_order checks the status the tap saw, so a Decline can't cancel an order another tablet moved on.
-  const { error } = await supabase.rpc("cancel_order", { p_order: v.orderId, p_from: v.from });
+  const { error } = await supabase.rpc("cancel_order", {
+    p_order: v.orderId,
+    p_from: v.from,
+    p_reason: v.reason,
+    p_note: v.reason === "other" ? (v.note ?? null) : null,
+  });
   revalidatePath("/dashboard/orders");
-  if (error) return orderRefused(supabase, { orderId: v.orderId, kind: "cancel", from: v.from }, "cancelOrder", error, "Couldn’t decline the order. Try again.");
+  const what = v.from === "new" ? "decline" : "cancel";
+  if (error) return orderRefused(supabase, { orderId: v.orderId, kind: "cancel", from: v.from }, "cancelOrder", error, `Couldn’t ${what} the order. Try again.`);
   return null;
 }
 

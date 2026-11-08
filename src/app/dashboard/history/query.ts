@@ -13,12 +13,12 @@ export function readFilters(params: { area?: string; who?: string }): Filters {
 }
 
 /**
- * One page of the record, newest first, keyset on id. All (no area) leaves out order moves (4B);
+ * One page of the record, newest first, keyset on id. All (no area) leaves out order moves and undone moves (4B);
  * Orders shows them. One extra row says whether "Show older" has anything to show.
  */
 export async function readHistory(db: Db, { area, who }: Filters, before: number | null) {
   let q = db.from("change_log").select(HISTORY_COLUMNS).order("id", { ascending: false }).limit(PAGE + 1);
-  q = area ? q.eq("area", area) : q.neq("action", "order.move");
+  q = area ? q.eq("area", area) : q.not("action", "in", "(order.move,order.move_undo)");
   if (who) q = q.eq("actor", who);
   if (before !== null) q = q.lt("id", before);
   const { data, error } = await q;

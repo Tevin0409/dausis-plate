@@ -170,7 +170,7 @@ describe("orders", () => {
       const order = await placeOrder(tx, dineIn(f, [{ dish_id: f.regular.id, quantity: 1 }]));
       const [{ id }] = await tx`select id from public.orders where public_token = ${order.public_token}`;
       await as(tx, f.ownerId, (q) => q`select public.advance_order(${id}, 'new', 'preparing')`);
-      await as(tx, f.ownerId, (q) => q`select public.cancel_order(${id}, 'preparing')`);
+      await as(tx, f.ownerId, (q) => q`select public.cancel_order(${id}, 'preparing', 'too_busy')`);
       expect(await actions(tx)).toEqual(["order.move", "order.cancel"]);
       expect((await lines(tx))[1]).toMatchObject({ before: { status: "preparing" }, after: { status: "cancelled" } });
     }));

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
+import { Switch } from "@/components/dashboard/switch";
 import { saveHours } from "./actions";
 import { btnLink, btnPrimary, btnQuiet, field, hint, tile, tileHeading } from "./ui";
 
@@ -238,7 +239,7 @@ export function HoursForm({ initial, lastOrders: initialLast, todayWeekday, nowM
                 checked={d.is_open}
                 label={`Open on ${name}`}
                 onChange={(on) => change(d.weekday, { is_open: on })}
-                className="col-start-3 row-start-1"
+                className="col-start-3 row-start-1 min-h-12 min-w-12 justify-center"
               />
             </li>
           );
@@ -294,23 +295,5 @@ export function HoursForm({ initial, lastOrders: initialLast, todayWeekday, nowM
         </div>
       )}
     </section>
-  );
-}
-
-/** The hours switch: only the knob moves (translateX 18 px); the track colour changes at once. */
-function Switch({ checked, label, onChange, className = "" }: { checked: boolean; label: string; onChange: (on: boolean) => void; className?: string }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => onChange(!checked)}
-      className={`switch press flex min-h-12 min-w-12 touch-manipulation items-center justify-center rounded-full select-none [-webkit-tap-highlight-color:transparent] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-deep ${className}`}
-    >
-      <span className={`switch-track flex h-[26px] w-11 items-center rounded-full p-[2px] ${checked ? "bg-teal-deep" : "bg-sand-deep"}`}>
-        <span className="switch-knob size-[22px] rounded-full bg-paper shadow-[0_1px_2px_rgb(26_32_44/0.2)]" />
-      </span>
-    </button>
   );
 }

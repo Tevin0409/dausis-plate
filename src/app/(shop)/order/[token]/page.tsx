@@ -6,6 +6,7 @@ import { CheckIcon, PhoneIcon } from "@/components/icons";
 import { AutoRefresh } from "@/components/shop/auto-refresh";
 import { TillLine } from "@/components/shop/till-line";
 import { Narrow } from "@/components/shop/ui";
+import { customerCancelText } from "@/lib/board";
 import { formatKes, timeLabel } from "@/lib/format";
 import { closingTime } from "@/lib/kitchen";
 import { createClient } from "@/lib/supabase/server";
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 const status = z.object({
   code: z.string(),
-  status: z.enum(["new", "preparing", "ready", "completed", "cancelled"]),
+  status: z.enum(["new", "preparing", "ready", "on_the_way", "completed", "cancelled"]),
   mode: z.enum(["dine_in", "pickup", "delivery"]),
   // mpesa and card stay readable: older orders may carry them.
   payment_method: z.enum(["mpesa", "card", "on_handover", "at_counter"]),
@@ -29,12 +30,18 @@ const status = z.object({
   total_kes: z.number(),
   created_at: z.string(),
   status_changed_at: z.string(),
+  // spec-2.4: why a declined or cancelled order was stopped, shown to the customer.
+  cancel_reason: z.enum(["sold_out", "too_busy", "cant_deliver", "customer_asked", "no_show", "other"]).nullable().optional(),
+  cancel_note: z.string().nullable().optional(),
+  declined: z.boolean().optional(),
   // Only while unpaid and not cancelled, and only if Mama has set one (get_order_status decides).
   till_number: z.string().nullable().optional(),
   items: z.array(z.object({ name: z.string(), option_label: z.string().nullable(), quantity: z.number(), unit_price_kes: z.number() })),
 });
 
-const STEPS = ["new", "preparing", "ready", "completed"] as const;
+// On the way is for delivery only (spec-2.4); the other types keep four steps.
+const ALL_STEPS = ["new", "preparing", "ready", "on_the_way", "completed"] as const;
+type Step = (typeof ALL_STEPS)[number];
 
 export default async function OrderStatusPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -52,15 +59,20 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
 
   const where =
     o.mode === "dine_in" ? `${o.table_label ?? "Your table"}` : o.mode === "pickup" ? "Pickup" : `Delivery to ${o.zone_name ?? "you"}`;
-  const readyLabel = o.mode === "delivery" ? "On the way" : o.mode === "pickup" ? "Ready to collect" : "On its way to your table";
-  const doneLabel = o.mode === "delivery" ? "Delivered" : "Enjoy!";
-  const labels: Record<(typeof STEPS)[number], string> = {
+  const STEPS = ALL_STEPS.filter((s) => s !== "on_the_way" || o.mode === "delivery");
+  // DESIGN.md: dine-in ends in Served, pickup in Collected, delivery in Delivered.
+  const labels: Record<Step, string> = {
     new: "Order received",
     preparing: "Mama is cooking",
-    ready: readyLabel,
-    completed: doneLabel,
+    ready: o.mode === "delivery" ? "Ready for the rider" : o.mode === "pickup" ? "Ready to collect" : "On its way to your table",
+    on_the_way: "On the way",
+    completed: o.mode === "delivery" ? "Delivered" : o.mode === "pickup" ? "Collected" : "Served",
   };
   const current = o.status === "cancelled" ? -1 : STEPS.indexOf(o.status);
+  const cancelled = o.status === "cancelled";
+  const cancelLine = cancelled
+    ? customerCancelText({ reason: o.cancel_reason ?? null, note: o.cancel_note ?? null, declined: !!o.declined })
+    : null;
   // spec-2.1-payments.md: every unpaid order that isn't at the counter (older mpesa or card
   // orders, pending or failed included) reads as on handover for its order type.
   const paymentChip =
@@ -92,7 +104,13 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
         {o.till_number && o.payment_status !== "paid" && o.status !== "cancelled" && <TillLine till={o.till_number} />}
         <span className="mt-3.5 font-script text-[30px] leading-none">Asante, {o.customer_name}!</span>
         <span className="text-[15px] text-[#d7f0ee]">Order {o.code} · {where}</span>
-        {o.status === "cancelled" && <span className="mt-3 text-lg font-semibold">This order was cancelled. Call us if that’s a surprise.</span>}
+        {cancelled && (
+          <div className="mt-3 flex flex-col gap-1">
+            <span className="text-lg font-semibold">{o.declined ? "We couldn’t take your order." : "Your order was cancelled."}</span>
+            {cancelLine && <span className="text-[15px] [overflow-wrap:anywhere]">{cancelLine}</span>}
+            {o.payment_status !== "paid" && <span className="text-[15px]">You haven’t been charged.</span>}
+          </div>
+        )}
         {o.pickup_at && o.mode === "pickup" && <span className="mt-3 text-lg">Collect at {closingTime(o.pickup_at)}</span>}
       </section>
 
@@ -140,7 +158,7 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
         <a href={`tel:${process.env.NEXT_PUBLIC_RESTAURANT_PHONE ?? ""}`} className="flex min-h-[52px] flex-1 items-center justify-center gap-2 rounded-2xl border-[1.5px] border-teal-deep bg-white font-semibold text-teal-deep">
           <PhoneIcon /> Call us
         </a>
-        <Link href="/" className="flex min-h-[52px] flex-1 items-center justify-center rounded-2xl bg-teal-deep font-semibold text-white">Back to menu</Link>
+        <Link href="/" className="flex min-h-[52px] flex-1 items-center justify-center rounded-2xl bg-teal-deep font-semibold text-white">{cancelled ? "Order again" : "Back to menu"}</Link>
       </div>
     </Narrow>
   );

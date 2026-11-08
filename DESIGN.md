@@ -123,6 +123,12 @@ components:
     backgroundColor: "{colors.amber-tint}"
     textColor: "{colors.amber-ink}"
     rounded: "{rounded.pill}"
+  switch-track-off:
+    backgroundColor: "{colors.field}"
+  switch-track-on:
+    backgroundColor: "{colors.teal-deep}"
+  switch-knob:
+    backgroundColor: "{colors.paper}"
 ---
 
 # Design System: Dausis Plate
@@ -172,7 +178,7 @@ The palette comes from `src/app/globals.css`, which stays the source. Contrast f
 - **Paper** (#ffffff): tiles, lists, tickets, inputs.
 - **Sand** (#ece5da): lines between rows, track backgrounds, quiet tags.
 - **Sand deep** (#d9d2c7): quiet button rings, disabled fill (ink soft on it is 5.01:1).
-- **Field** (#8c8478): input borders, 3.69:1 on white.
+- **Field** (#8c8478): input borders and the switch's off track, 3.69:1 on white, 3.46:1 on cream.
 - **Ink** (#1a202c): main text, 15.29:1 on cream. **Ink soft** (#4a5568): secondary text, 7.05:1 on cream.
 
 **Removed:** `mist`, `line` and `line-deep`, the cool greys in today's dashboard, and the hard-coded `#eef2f6` and `#f8fafc`. **Added:** `paper`, `field` and `on-teal-soft`.

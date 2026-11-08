@@ -3,6 +3,7 @@
 // and the subject, set in 600.
 
 import { addDays, dayLabel, formatKes, timeLabel, weekdayName } from "@/lib/format";
+import { REASON_LABEL, TITLES } from "@/lib/board";
 import type { Grant } from "@/lib/permissions";
 
 export const AREAS = ["menu", "orders", "tables", "team", "settings"] as const;
@@ -30,8 +31,8 @@ const obj = (v: unknown): Obj => (v && typeof v === "object" && !Array.isArray(v
 const num = (v: unknown) => (typeof v === "number" ? v : null);
 const str = (v: unknown) => (typeof v === "string" ? v : null);
 
-// The board's own column titles (orders/page.tsx COLUMNS).
-const COLUMN: Record<string, string> = { new: "New", preparing: "Preparing", ready: "Ready", completed: "Completed" };
+// The board's own column titles (spec-2.4: Cooking, On the way, Done).
+const COLUMN: Record<string, string> = TITLES;
 const CATEGORY: Record<string, string> = { mains: "Mains", sides: "Sides", breakfast: "Breakfast", drinks: "Drinks" };
 const JOB_LET: Record<Grant, string> = {
   everyday_menu: "change the everyday menu",
@@ -132,15 +133,23 @@ function rest(row: ChangeRow): Piece[] {
     case "order.move": {
       const to = str(a.status) ?? "";
       if (to === "preparing" && b.status === "new") return [t("accepted "), code, t(".")];
-      if (to === "completed") return [t("marked "), code, t(" completed.")];
+      if (to === "completed") return [t("marked "), code, t(" done.")];
       return [t("moved "), code, t(" to "), { text: COLUMN[to] ?? to, bold: true }, t(".")];
     }
-    case "order.cancel":
-      return b.status === "new" ? [t("declined "), code, t(".")] : [t("cancelled "), code, t(".")];
+    case "order.move_undo": {
+      const back = str(a.status) ?? "";
+      return [t("undid moving "), code, t(" to "), { text: COLUMN[str(b.status) ?? ""] ?? str(b.status) ?? "?", bold: true }, t(`. It’s back in ${COLUMN[back] ?? back}.`)];
+    }
+    case "order.cancel": {
+      const verb = b.status === "new" ? "declined " : "cancelled ";
+      const reason = str(a.reason);
+      const why = reason === "other" ? str(a.note) : reason ? (REASON_LABEL as Record<string, string>)[reason] : null;
+      return why ? [t(verb), code, t(`: ${why.replace(/[.\s]+$/, "")}.`)] : [t(verb), code, t(".")];
+    }
     case "order.paid":
       return [t("marked "), code, t(" paid.")];
     case "order.paid_undo":
-      return [t("undid paid on "), code, t(".")];
+      return [t("undid marking "), code, t(" paid.")];
 
     // ── tables and zones
     case "table.add":

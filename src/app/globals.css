@@ -42,6 +42,7 @@
   --shadow-card: 0 1px 2px rgba(26, 32, 44, 0.06), 0 4px 14px rgba(26, 32, 44, 0.05);
   --dur-press: 120ms;
   --dur-small: 180ms;
+  --dur-exit: 220ms;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
@@ -101,6 +102,7 @@ body {
 .board-notice[data-leaving] {
   opacity: 0;
   pointer-events: none;
+  transition: opacity var(--dur-exit) var(--ease-out);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -201,5 +203,56 @@ html.savebar-pad {
   }
   .switch-knob {
     transition: none;
+  }
+}
+
+/* Order board (spec-2.4 "Layouts"). From 600 the columns fill to the tab bar (below 1024) or the
+   viewport's foot and scroll on their own; --board-top is the grid's measured top (board-layout.tsx). */
+.board {
+  --board-bottom: calc(var(--tabbar-h, 0px) + 20px);
+  --fill: max(26rem, calc(100dvh - var(--board-top, 0px) - var(--board-bottom)));
+}
+@media (width >= 1024px) {
+  .board {
+    --board-bottom: 28px;
+  }
+}
+@media (width >= 600px) and (width < 1280px) {
+  .board {
+    height: var(--fill);
+    grid-template-rows: 60px minmax(0, 1fr);
+  }
+}
+@media (width >= 1280px) {
+  .board {
+    grid-template-rows: var(--fill) auto;
+  }
+}
+/* The board refreshes itself, so pull-to-refresh is off on this page only. */
+html:has(.board) {
+  overscroll-behavior-y: none;
+}
+
+/* A ticket arriving in a column: enter in the new place, 8 px (spec-2.4 Motion row 1). The class is
+   only on tickets that weren't in the last render, and it is dropped once it has run. */
+.ticket-in {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .ticket-in {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ticket-in {
+    transition: opacity var(--dur-small) var(--ease-out);
+  }
+  @starting-style {
+    .ticket-in {
+      transform: none;
+    }
   }
 }
