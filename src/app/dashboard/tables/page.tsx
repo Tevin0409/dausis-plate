@@ -1,195 +1,81 @@
-import Image from "next/image";
-import { RefusalNote } from "@/components/dashboard/refusal-note";
-import { headers } from "next/headers";
-import QRCode from "qrcode";
-import { ActionForm } from "@/components/dashboard/action-form";
-import { PrintButton } from "@/components/dashboard/print-button";
-import { SubmitButton } from "@/components/dashboard/submit-button";
-import { formatKes } from "@/lib/format";
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import QRCode from "qrcode";
+import { RefusalNote } from "@/components/dashboard/refusal-note";
+import { TablesView } from "@/components/dashboard/tables/tables-view";
+import { ZonesView } from "@/components/dashboard/tables/zones-view";
 import { can, OWNER_ONLY } from "@/lib/permissions";
 import { createClient, getStaff } from "@/lib/supabase/server";
 import { must } from "@/lib/supabase/result";
-import { addNamedTable, addTables, addZone, renameTable, resetTableCode, setTableActive, updateZone } from "./actions";
+import { siteOrigin } from "@/lib/site-origin";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Tables & delivery" };
 
-const field = "min-h-11 rounded-xl border border-line-deep px-3 text-[15px]";
-const smallBtn = "min-h-10 rounded-[10px] border border-line-deep bg-white px-3 text-sm font-semibold";
-// A failure message takes its own line under the form's controls.
-const rowError = "basis-full text-[13px] font-semibold text-coral-ink";
+type View = "tables" | "zones";
+type Db = Awaited<ReturnType<typeof createClient>>;
 
-async function siteOrigin() {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL;
-  if (configured && /^https?:\/\//.test(configured) && !configured.includes("localhost")) return configured.replace(/\/$/, "");
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
-  const proto = h.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  return `${proto}://${host}`;
-}
-
-export default async function TablesPage() {
+/** spec-2.6 "Tables & delivery": Tables · Delivery zones (`?view=zones`); Print this card uses `?only=<id>`. */
+export default async function TablesPage({ searchParams }: { searchParams: Promise<{ view?: string; only?: string }> }) {
   const staff = await getStaff();
   if (!staff) notFound();
+  const q = await searchParams;
+  const view: View = q.view === "zones" ? "zones" : "tables";
   // Without Tables and delivery, the QR cards and Print stay; everything that changes them goes (spec-2.3).
   const edits = can(staff, "tables_delivery");
   const supabase = await createClient();
-  const origin = await siteOrigin();
-  const [tablesResult, zonesResult] = await Promise.all([
-    supabase.from("dining_tables").select("id, label, qr_token, active").order("label"),
-    supabase.from("delivery_zones").select("id, name, fee_kes, active").order("sort_order"),
-  ]);
-  // A failed read throws to error.tsx (with Try again) instead of looking like "no tables yet".
-  const tables = must(tablesResult, "tables");
-  const zones = must(zonesResult, "delivery areas");
 
-  const sorted = tables.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
-  const withQr = await Promise.all(
-    sorted.map(async (t) => {
-      const url = `${origin}/t/${t.qr_token}`;
-      const svg = await QRCode.toString(url, { type: "svg", margin: 0, errorCorrectionLevel: "M", color: { dark: "#1a202c", light: "#0000" } });
-      return { ...t, url, svg };
-    }),
-  );
-  const active = withQr.filter((t) => t.active);
+  const segments: [View, string][] = [
+    ["tables", "Tables"],
+    ["zones", "Delivery zones"],
+  ];
 
   return (
-    <div className="flex max-w-[1080px] flex-col gap-8 print:max-w-none">
-      <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
-        <div>
+    <div className="flex w-full max-w-[1080px] flex-col gap-5 print:max-w-none">
+      <header className="flex flex-col gap-4 print:hidden">
+        <div className="min-w-0">
           <h1 className="font-display text-[34px] leading-tight">Tables &amp; delivery</h1>
           <RefusalNote className="mt-1" />
-          <p className="mt-1 max-w-xl text-[15px] text-ink-soft">
-            Each table gets its own QR code. Guests scan it, the menu opens with their table already chosen, and the order arrives on the board as dine-in.
-          </p>
         </div>
-        {active.length > 0 && <PrintButton label={`Print ${active.length} QR cards`} />}
-        {!edits && <p className="basis-full text-sm text-ink-soft">{OWNER_ONLY.tables_delivery}</p>}
-      </header>
-
-      {edits && (
-      <section aria-label="Add tables" className="flex flex-wrap items-end gap-6 rounded-[20px] border border-line bg-white p-5 print:hidden">
-        <ActionForm action={addTables} className="flex flex-wrap items-end gap-2" errorClassName={rowError}>
-          <label className="flex flex-col gap-1.5 text-sm font-semibold">
-            Add numbered tables
-            <input name="count" type="number" min={1} max={50} defaultValue={sorted.length ? 1 : 10} className={`${field} w-24`} />
-          </label>
-          <SubmitButton pendingLabel="Adding…" className="min-h-11 rounded-xl bg-teal-deep px-4 text-sm font-bold text-white">
-            Add
-          </SubmitButton>
-        </ActionForm>
-        <ActionForm action={addNamedTable} className="flex flex-wrap items-end gap-2" errorClassName={rowError}>
-          <label className="flex flex-col gap-1.5 text-sm font-semibold">
-            Or a named spot
-            <input name="label" required maxLength={40} placeholder="e.g. Terrace 1, Bar" className={`${field} w-52`} />
-          </label>
-          <SubmitButton pendingLabel="Adding…" className="min-h-11 rounded-xl border-[1.5px] border-teal-deep bg-white px-4 text-sm font-bold text-teal-deep">
-            Add
-          </SubmitButton>
-        </ActionForm>
-      </section>
-      )}
-
-      {withQr.length === 0 ? (
-        <p className="rounded-2xl bg-blush px-5 py-4 text-[15px] text-coral-ink print:hidden">
-          {edits ? "No tables yet. Add them above to get their QR codes." : "No tables yet."}
-        </p>
-      ) : (
-        <section aria-label="Tables" className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4 print:grid-cols-2 print:gap-6">
-          {withQr.map((t) => (
-            <article
-              key={t.id}
-              className={`flex flex-col items-center gap-3 rounded-[22px] border border-line bg-white p-5 text-center break-inside-avoid print:rounded-none print:border-2 print:border-dashed print:p-8 ${
-                t.active ? "" : "opacity-50 print:hidden"
+        <nav aria-label="Tables and delivery views" className="grid max-w-[420px] grid-cols-2 gap-1 rounded-[14px] bg-sand p-1">
+          {segments.map(([v, text]) => (
+            <Link
+              key={v}
+              href={v === "tables" ? "/dashboard/tables" : "/dashboard/tables?view=zones"}
+              aria-current={view === v ? "page" : undefined}
+              className={`press flex min-h-11 items-center justify-center rounded-[10px] px-2 text-center text-sm font-semibold leading-tight touch-manipulation select-none [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-teal-deep ${
+                view === v ? "bg-paper text-teal-deep shadow-[0_1px_2px_rgb(26_32_44/0.08)]" : "text-ink-soft hover:text-ink"
               }`}
             >
-              <div className="flex items-center gap-2">
-                <Image src="/brand/dausis-plate-icon.svg" alt="" width={28} height={28} />
-                <span className="font-display text-lg">Dausis Plate</span>
-              </div>
-              <span className="font-display text-3xl">{t.label}</span>
-              <div className="w-44 print:w-56 [&>svg]:h-auto [&>svg]:w-full" role="img" aria-label={`QR code for ${t.label}`} dangerouslySetInnerHTML={{ __html: t.svg }} />
-              <span className="text-[15px] font-semibold">Scan to see the menu &amp; order</span>
-              <span className="hidden font-script text-xl text-coral-text print:block">Mama’s Flavour.</span>
-
-              <div className="mt-1 flex w-full flex-col gap-2 border-t border-line pt-3 print:hidden">
-                <a href={t.url} target="_blank" rel="noreferrer" className="truncate text-xs text-teal-deep underline">{t.url.replace(/^https?:\/\//, "")}</a>
-                {edits && (
-                <>
-                <ActionForm action={renameTable} className="flex flex-wrap gap-1.5" errorClassName={rowError}>
-                  <input type="hidden" name="id" value={t.id} />
-                  <input name="label" defaultValue={t.label} aria-label={`Rename ${t.label}`} maxLength={40} className={`${field} min-w-0 flex-1`} />
-                  <SubmitButton className={smallBtn}>Rename</SubmitButton>
-                </ActionForm>
-                <div className="flex justify-center gap-1.5">
-                  <ActionForm action={setTableActive} className="flex flex-col items-center gap-1">
-                    <input type="hidden" name="id" value={t.id} />
-                    <input type="hidden" name="active" value={t.active ? "false" : "true"} />
-                    <SubmitButton className={smallBtn}>{t.active ? "Turn off" : "Turn on"}</SubmitButton>
-                  </ActionForm>
-                  <ActionForm action={resetTableCode} className="flex flex-col items-center gap-1">
-                    <input type="hidden" name="id" value={t.id} />
-                    <SubmitButton className={`${smallBtn} text-coral-ink`} aria-label={`New QR code for ${t.label}; the printed one stops working`}>
-                      New code
-                    </SubmitButton>
-                  </ActionForm>
-                </div>
-                </>
-                )}
-              </div>
-            </article>
+              {text}
+            </Link>
           ))}
-        </section>
-      )}
+        </nav>
+        {!edits && <p className="text-sm text-ink-soft">{OWNER_ONLY.tables_delivery}</p>}
+      </header>
 
-      <section aria-label="Delivery areas" className="flex flex-col gap-4 rounded-[20px] border border-line bg-white p-5 print:hidden">
-        <div>
-          <h2 className="text-[17px] font-bold">Delivery areas</h2>
-          <p className="text-sm text-ink-soft">Customers pick one at checkout and its fee is added to the order. Delivery can’t be chosen until at least one area is on.</p>
-        </div>
-        {!edits &&
-          zones.map((z) => (
-            <p key={z.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-3 text-[15px]">
-              <span className={`min-w-32 flex-1 font-semibold [overflow-wrap:anywhere] ${z.active ? "" : "text-ink-soft line-through"}`}>{z.name}</span>
-              <span className="tabular-nums">{formatKes(z.fee_kes)}</span>
-              <span className="text-sm text-ink-soft">{z.active ? "Delivering" : "Paused"}</span>
-            </p>
-          ))}
-        {edits && zones.map((z) => (
-          <ActionForm key={z.id} action={updateZone} className="flex flex-wrap items-center gap-3 border-t border-line pt-3" errorClassName={rowError}>
-            <input type="hidden" name="id" value={z.id} />
-            <span className={`min-w-32 flex-1 font-semibold ${z.active ? "" : "text-ink-soft line-through"}`}>{z.name}</span>
-            <label className="flex items-center gap-2 text-sm">
-              Fee (KSh)
-              <input name="fee_kes" type="number" min={0} defaultValue={z.fee_kes} className={`${field} w-24`} />
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <select name="active" defaultValue={z.active ? "true" : "false"} className={field}>
-                <option value="true">Delivering</option>
-                <option value="false">Paused</option>
-              </select>
-            </label>
-            <SubmitButton className={smallBtn}>Save</SubmitButton>
-            <span className="sr-only">Currently {formatKes(z.fee_kes)}</span>
-          </ActionForm>
-        ))}
-        {edits && (
-        <ActionForm action={addZone} className="flex flex-wrap items-end gap-2 border-t border-line pt-3" errorClassName={rowError}>
-          <label className="flex flex-col gap-1.5 text-sm font-semibold">
-            Area
-            <input name="name" required maxLength={40} placeholder="e.g. Kilimani" className={`${field} w-48`} />
-          </label>
-          <label className="flex flex-col gap-1.5 text-sm font-semibold">
-            Fee (KSh)
-            <input name="fee_kes" type="number" min={0} required placeholder="150" className={`${field} w-28`} />
-          </label>
-          <SubmitButton pendingLabel="Adding…" className="min-h-11 rounded-xl bg-teal-deep px-4 text-sm font-bold text-white">
-            Add area
-          </SubmitButton>
-        </ActionForm>
-        )}
-      </section>
+      {view === "tables" ? <Tables supabase={supabase} edits={edits} only={q.only ?? null} /> : <Zones supabase={supabase} edits={edits} />}
     </div>
   );
+}
+
+async function Tables({ supabase, edits, only }: { supabase: Db; edits: boolean; only: string | null }) {
+  const origin = await siteOrigin();
+  // A failed read throws to error.tsx (with Try again) instead of looking like "no tables yet".
+  const tables = must(await supabase.from("dining_tables").select("id, label, qr_token, active"), "tables");
+  tables.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  const cards = await Promise.all(
+    tables.map(async (t) => {
+      const url = `${origin}/t/${t.qr_token}`;
+      const svg = await QRCode.toString(url, { type: "svg", margin: 0, errorCorrectionLevel: "M", color: { dark: "#1a202c", light: "#0000" } });
+      return { id: t.id, label: t.label, url, svg, active: t.active };
+    }),
+  );
+  const onlyId = only && cards.some((c) => c.id === only) ? only : null;
+  return <TablesView tables={cards} edits={edits} only={onlyId} />;
+}
+
+async function Zones({ supabase, edits }: { supabase: Db; edits: boolean }) {
+  const zones = must(await supabase.from("delivery_zones").select("id, name, fee_kes, min_order_kes, active").order("sort_order"), "delivery zones");
+  return <ZonesView zones={zones} edits={edits} />;
 }

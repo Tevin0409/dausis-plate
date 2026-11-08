@@ -102,7 +102,12 @@ function rest(row: ChangeRow): Piece[] {
     case "dish.order":
       return [t("moved "), s, t(" in the menu’s order.")];
     case "dish.options":
-      return [t("changed the options for "), s, t(".")];
+      return [t("changed "), s, t("’s options.")];
+    // Slice 2.6: a choice or extra out for today.
+    case "option.out":
+      return [t("marked "), { text: str(a.option) ?? "an option", bold: true }, t(" out today on "), s, t(".")];
+    case "option.in":
+      return [t("put "), { text: str(a.option) ?? "an option", bold: true }, t(" back on "), s, t(".")];
 
     // ── menu: the planner
     case "entry.add": {
@@ -185,6 +190,8 @@ function rest(row: ChangeRow): Piece[] {
       return [t("renamed the "), { text: str(b.name) ?? "a", bold: true }, t(" delivery zone to "), s, t(".")];
     case "zone.fee":
       return [t("changed the "), s, t(` delivery fee from ${kes(b.fee)} to ${kes(a.fee)}.`)];
+    case "zone.minimum":
+      return num(a.minimum) ? [t("changed "), s, t(`’s minimum to ${kes(a.minimum)}.`)] : [t("removed "), s, t("’s minimum.")];
     case "zone.on":
       return [t("started delivering to "), s, t(" again.")];
     case "zone.off":
@@ -198,7 +205,17 @@ function rest(row: ChangeRow): Piece[] {
     case "staff.role":
       return [t("made "), s, t(a.role === "owner" ? " an owner." : " staff.")];
     case "staff.password_reset":
+    case "staff.reset":
       return [t("reset "), s, t("’s password.")];
+    // Slice 2.6: invites and names.
+    case "staff.invite":
+      return [t("invited "), s, t(a.role === "owner" ? " as an owner." : ".")];
+    case "staff.cancel_invite":
+      return [t("cancelled "), s, t("’s invite.")];
+    case "staff.rename":
+      return str(b.name) && str(b.name) !== s.text
+        ? [t("renamed "), { text: str(b.name)!, bold: true }, t(" to "), s, t(".")]
+        : [t("renamed "), s, t(".")];
     case "grant.on":
       return [t("let "), s, t(` ${JOB_LET[str(a.job) as Grant] ?? "do a new job"}.`)];
     case "grant.off":
@@ -233,6 +250,8 @@ function rest(row: ChangeRow): Piece[] {
       if (!now) return [t(`removed the till number${was ? ` ${was}` : ""}.`)];
       return [t(was ? `changed the till number from ${was} to ${now}.` : `set the till number to ${now}.`)];
     }
+    case "settings.phone":
+      return [t(str(a.phone) ? (str(b.phone) ? "changed the kitchen phone." : "added the kitchen phone.") : "removed the kitchen phone.")];
     case "kitchen.close_early":
       return [t(`closed the kitchen early${str(a.at) ? ` at ${timeLabel(str(a.at)!)}` : ""}.`)];
     case "kitchen.reopen":

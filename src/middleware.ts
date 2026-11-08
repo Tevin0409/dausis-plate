@@ -23,7 +23,9 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user && request.nextUrl.pathname.startsWith("/dashboard")) {
+  // Set your password (/account/set-password) needs a session too: the link or sign-in gives it one.
+  const path = request.nextUrl.pathname;
+  if (!user && (path.startsWith("/dashboard") || path.startsWith("/account"))) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", request.nextUrl.pathname);
@@ -33,5 +35,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/login", "/auth/:path*", "/api/uploads"],
+  matcher: ["/dashboard/:path*", "/account/:path*", "/login/:path*", "/auth/:path*", "/api/uploads"],
 };

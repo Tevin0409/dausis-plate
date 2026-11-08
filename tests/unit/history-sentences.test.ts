@@ -82,6 +82,30 @@ describe("sentences", () => {
     );
   });
 
+  test("slice 2.6 lines", () => {
+    const fish = { subject_label: "Fish curry" };
+    expect(text({ ...fish, action: "option.out", after: { option: "Chapati", kind: "choice" } })).toBe("Wanjiku marked Chapati out today on Fish curry.");
+    expect(text({ ...fish, action: "option.in", after: { option: "Chapati", kind: "choice" } })).toBe("Wanjiku put Chapati back on Fish curry.");
+    expect(text({ action: "dish.options" })).toBe("Wanjiku changed Pilau’s options.");
+    expect(text({ action: "dish.restore" })).toBe("Wanjiku restored Pilau.");
+    const zone = { area: "tables" as const, subject_label: "Kilimani" };
+    expect(text({ ...zone, action: "zone.minimum", before: { minimum: 0 }, after: { minimum: 800 } })).toBe("Wanjiku changed Kilimani’s minimum to KSh 800.");
+    expect(text({ ...zone, action: "zone.minimum", before: { minimum: 800 }, after: { minimum: 0 } })).toBe("Wanjiku removed Kilimani’s minimum.");
+    expect(text({ ...zone, action: "zone.rename", subject_label: "Kilimani & Yaya", before: { name: "Kilimani" } })).toBe(
+      "Wanjiku renamed the Kilimani delivery zone to Kilimani & Yaya.",
+    );
+    const team = { area: "team" as const, actor_name: "Mama", subject_label: "Otieno" };
+    expect(text({ ...team, action: "staff.invite", after: { role: "staff" } })).toBe("Mama invited Otieno.");
+    expect(text({ ...team, action: "staff.invite", after: { role: "owner" } })).toBe("Mama invited Otieno as an owner.");
+    expect(text({ ...team, action: "staff.cancel_invite" })).toBe("Mama cancelled Otieno’s invite.");
+    expect(text({ ...team, action: "staff.rename", before: { name: "Otis" }, after: { name: "Otieno" } })).toBe("Mama renamed Otis to Otieno.");
+    expect(text({ ...team, action: "staff.reset" })).toBe("Mama reset Otieno’s password.");
+    const settings = { area: "settings" as const, subject_label: null, actor_name: "Mama" };
+    expect(text({ ...settings, action: "settings.phone", before: { phone: "+254712345678" }, after: { phone: "+254700000000" } })).toBe("Mama changed the kitchen phone.");
+    expect(text({ ...settings, action: "settings.phone", before: { phone: null }, after: { phone: "+254700000000" } })).toBe("Mama added the kitchen phone.");
+    expect(text({ ...settings, action: "settings.phone", before: { phone: "+254700000000" }, after: { phone: null } })).toBe("Mama removed the kitchen phone.");
+  });
+
   test("nobody signed in reads as The app; an unknown action still makes a sentence", () => {
     expect(text({ actor: null, actor_name: "The app", area: "orders", action: "order.move", subject_label: "DP-0001 (Jo)", before: { status: "ready" }, after: { status: "completed" } })).toBe(
       "The app marked DP-0001 (Jo) done.",

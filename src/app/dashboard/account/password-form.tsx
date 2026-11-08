@@ -1,46 +1,132 @@
 "use client";
-import { useState } from "react";
-import { getBrowserClient } from "@/lib/supabase/client";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
+import { PasswordInput } from "@/components/auth/password-input";
+import { errorLine, hint, labelText, primary } from "@/components/ui-classes";
+import { AUTH, MIN_PASSWORD } from "@/lib/auth-messages";
+import { changePassword, type ChangePasswordResult } from "./actions";
 
-const input = "min-h-12 rounded-xl border border-line-deep px-3.5 text-base font-normal";
+type Field = "current" | "password" | "again";
+type Problem = Extract<ChangePasswordResult, { ok: false }>;
 
-export function PasswordForm() {
+/**
+ * Change password, or Set a password for someone who has only used email links (spec-2.6 Account).
+ * `unsure`: the page couldn't tell, so the current field shows with a hint for links-only people.
+ */
+export function PasswordForm({ email, hasPassword, unsure }: { email: string | null; hasPassword: boolean; unsure: boolean }) {
+  const router = useRouter();
+  const [current, setCurrent] = useState("");
   const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
-  const [error, setError] = useState<string | null>(null);
+  const [again, setAgain] = useState("");
+  const [problem, setProblem] = useState<Problem | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    if (password.length < 8) return setError("Use at least 8 characters.");
-    if (password !== confirm) return setError("The two passwords don’t match.");
-    setState("saving");
-    const { error: err } = await getBrowserClient().auth.updateUser({ password });
-    if (err) {
-      setState("idle");
-      setError(err.code === "weak_password" ? "That password is too easy to guess. Try a longer one." : err.code === "same_password" ? "That’s already your password." : "Couldn’t save the password. Try again.");
-      return;
-    }
-    setPassword("");
-    setConfirm("");
-    setState("saved");
+  function show(p: Problem) {
+    setProblem(p);
+    if (p.field !== "form") document.getElementById(`pw-${p.field}`)?.focus();
   }
 
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (pending) return;
+    if (hasPassword && !current) return show({ ok: false, field: "current", error: AUTH.noCurrent });
+    if (password.length < MIN_PASSWORD) return show({ ok: false, field: "password", error: AUTH.short });
+    if (password !== again) return show({ ok: false, field: "again", error: AUTH.mismatch });
+    setProblem(null);
+    setDone(null);
+    startTransition(async () => {
+      const r = await changePassword({ current: hasPassword ? current : null, password, again });
+      if (!r.ok) return show(r);
+      setCurrent("");
+      setPassword("");
+      setAgain("");
+      setDone(hasPassword ? "Password changed." : "Password saved.");
+      // Someone who just set their first password now sees "Password" with a current field.
+      if (!hasPassword) router.refresh();
+    });
+  }
+
+  const err = (f: Field) => (problem?.field === f ? problem.error : null);
+  const line = (f: Field) =>
+    err(f) && (
+      <p id={`pw-${f}-err`} role="alert" className={errorLine}>
+        {err(f)}
+      </p>
+    );
+  const described = (f: Field, extra?: string) => [err(f) ? `pw-${f}-err` : null, extra].filter(Boolean).join(" ") || undefined;
+  const edit = (set: (v: string) => void) => (v: string) => (set(v), setProblem(null), setDone(null));
+
   return (
-    <form onSubmit={submit} className="flex flex-col gap-3">
-      <label className="flex flex-col gap-1.5 text-sm font-semibold">
-        New password
-        <input type="password" autoComplete="new-password" minLength={8} required value={password} onChange={(e) => setPassword(e.target.value)} className={input} />
-      </label>
-      <label className="flex flex-col gap-1.5 text-sm font-semibold">
-        Type it again
-        <input type="password" autoComplete="new-password" minLength={8} required value={confirm} onChange={(e) => setConfirm(e.target.value)} className={input} />
-      </label>
-      {error && <p role="alert" className="rounded-xl bg-blush px-4 py-3 text-sm text-coral-ink">{error}</p>}
-      {state === "saved" && <p role="status" className="rounded-xl bg-teal-tint px-4 py-3 text-sm text-teal-deeper">Password saved. Next time, sign in with your email and this password.</p>}
-      <button type="submit" disabled={state === "saving"} className="min-h-12 self-start rounded-xl bg-teal-deep px-6 font-bold text-white disabled:opacity-60">
-        {state === "saving" ? "Saving…" : "Save password"}
+    <form onSubmit={submit} noValidate className="flex flex-col gap-5">
+      {email && <input type="email" name="username" autoComplete="username" value={email} readOnly hidden />}
+      {hasPassword && (
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="pw-current" className={labelText}>
+            Current password
+          </label>
+          <PasswordInput
+            id="pw-current"
+            value={current}
+            onChange={edit(setCurrent)}
+            autoComplete="current-password"
+            enterKeyHint="next"
+            invalid={!!err("current")}
+            describedBy={described("current", unsure ? "pw-current-hint" : undefined)}
+          />
+          {unsure && (
+            <p id="pw-current-hint" className={hint}>
+              Signed in with email links only? Use Forgot password on the sign-in page.
+            </p>
+          )}
+          {line("current")}
+        </div>
+      )}
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="pw-password" className={labelText}>
+          New password
+        </label>
+        <PasswordInput
+          id="pw-password"
+          value={password}
+          onChange={edit(setPassword)}
+          autoComplete="new-password"
+          enterKeyHint="next"
+          invalid={!!err("password")}
+          describedBy={described("password", "pw-password-hint")}
+        />
+        <p id="pw-password-hint" className={hint}>
+          At least 8 characters.
+        </p>
+        {line("password")}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="pw-again" className={labelText}>
+          Type it again
+        </label>
+        <PasswordInput
+          id="pw-again"
+          value={again}
+          onChange={edit(setAgain)}
+          autoComplete="new-password"
+          enterKeyHint="done"
+          invalid={!!err("again")}
+          describedBy={described("again")}
+        />
+        {line("again")}
+      </div>
+      {problem?.field === "form" && (
+        <p role="alert" className={errorLine}>
+          {problem.error}
+        </p>
+      )}
+      {done && (
+        <p role="status" className="note-in rounded-[var(--r-sm)] bg-teal-tint px-4 py-3 text-[15px] text-teal-deeper">
+          {done}
+        </p>
+      )}
+      <button type="submit" disabled={pending} className={`${primary} w-full min-[600px]:w-auto min-[600px]:self-start`}>
+        {pending ? "Saving…" : hasPassword ? "Change password" : "Set a password"}
       </button>
     </form>
   );

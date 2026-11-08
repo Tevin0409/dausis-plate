@@ -61,6 +61,9 @@ export const MoreIcon = ({ size = 18, className }: IconProps) => (
 export const AccountIcon = ({ size = 18, className }: IconProps) => (
   <svg {...base(size)} strokeWidth={2} className={className}><circle cx="12" cy="8" r="4" /><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" /></svg>
 );
+export const PeopleIcon = ({ size = 18, className }: IconProps) => (
+  <svg {...base(size)} strokeWidth={2} className={className}><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c1-3.6 3.6-5.5 6.5-5.5s5.5 1.9 6.5 5.5" /><path d="M15.5 4.8a3.5 3.5 0 0 1 0 6.4M17.5 14.8c2 .7 3.3 2.4 4 5.2" /></svg>
+);
 export const SignOutIcon = ({ size = 18, className }: IconProps) => (
   <svg {...base(size)} strokeWidth={2} className={className}><path d="M14 4H5v16h9M10 12h10M17 8l4 4-4 4" /></svg>
 );
@@ -72,4 +75,13 @@ export const BikeIcon = ({ size = 18, className }: IconProps) => (
 );
 export const BagIcon = ({ size = 18, className }: IconProps) => (
   <svg {...base(size)} strokeWidth={2} className={className}><path d="M5 8h14l-1 12H6zM9 8V6a3 3 0 0 1 6 0v2" /></svg>
+);
+export const UpIcon = ({ size = 18, className }: IconProps) => (
+  <svg {...base(size)} className={className}><path d="M6 15l6-6 6 6" /></svg>
+);
+export const DownIcon = ({ size = 18, className }: IconProps) => (
+  <svg {...base(size)} className={className}><path d="M6 9l6 6 6-6" /></svg>
+);
+export const CloseIcon = ({ size = 18, className }: IconProps) => (
+  <svg {...base(size)} className={className}><path d="M6 6l12 12M18 6L6 18" /></svg>
 );

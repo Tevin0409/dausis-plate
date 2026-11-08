@@ -1,19 +1,16 @@
 import Link from "next/link";
-import { RefusalNote } from "@/components/dashboard/refusal-note";
-import { z } from "zod";
-import { PlusIcon } from "@/components/icons";
-import { formatKes, nairobiToday, weekdayName } from "@/lib/format";
 import { notFound } from "next/navigation";
+import { z } from "zod";
+import { RefusalNote } from "@/components/dashboard/refusal-note";
+import { AddDish, AllList, ArchivedList, DoneNote, EverydayList, type DishRowData } from "@/components/dashboard/dishes/dish-list";
+import { formatKes, nairobiToday, weekdayName } from "@/lib/format";
 import { regularOnSale } from "@/lib/kitchen";
-import { ActionForm } from "@/components/dashboard/action-form";
-import { SubmitButton } from "@/components/dashboard/submit-button";
 import { can, OWNER_ONLY } from "@/lib/permissions";
 import { createClient, getStaff } from "@/lib/supabase/server";
 import { must } from "@/lib/supabase/result";
-import { deleteDish, removeFromRegulars, setRegularAvailable } from "../actions";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Menu & sales" };
+export const metadata = { title: "Dishes" };
 
 const counts = z.record(z.string(), z.number()).catch({});
 const stats = z.object({
@@ -28,127 +25,89 @@ const stats = z.object({
 });
 
 const HOURS = Array.from({ length: 11 }, (_, i) => 10 + i);
-const CATEGORY = { mains: "Mains", sides: "Sides", breakfast: "Breakfast", drinks: "Drinks" } as const;
+type View = "everyday" | "all" | "archived";
 
-export default async function ManagePage() {
-  const staff = await getStaff();
+type Props = { searchParams: Promise<{ view?: string; done?: string; dish?: string; name?: string }> };
+
+export default async function ManagePage({ searchParams }: Props) {
+  const [q, staff] = await Promise.all([searchParams, getStaff()]);
   if (!staff) notFound();
   const owner = staff.role === "owner";
-  // Sales figures are the owner's (spec-2.3); staff never ask for them.
+  // Archived is the owner's; anyone else asking for it gets the everyday menu.
+  const view: View = q.view === "all" ? "all" : q.view === "archived" && owner ? "archived" : "everyday";
   const today = nairobiToday();
   const supabase = await createClient();
-  const [statsResult, regularsResult] = await Promise.all([
-    owner ? supabase.rpc("dashboard_stats", { p_day: today }) : null,
-    supabase
-      .from("dishes")
-      .select("id, name, category, price_kes, unavailable_on")
-      .eq("is_regular", true)
-      .eq("archived", false)
-      .order("category")
-      .order("sort_order"),
-  ]);
-  const regulars = must(regularsResult, "regular dishes").map((d) => ({ ...d, onSale: regularOnSale(d.unavailable_on, today) }));
+
+  const base = supabase.from("dishes").select("id, name, category, price_kes, photo_thumb_url, photo_url, is_regular, unavailable_on, archived_at");
+  const query =
+    view === "everyday"
+      ? base.eq("is_regular", true).eq("archived", false).order("sort_order").order("name")
+      : view === "all"
+        ? base.eq("archived", false).order("name")
+        : base.eq("archived", true).order("archived_at", { ascending: false, nullsFirst: false }).order("name");
+  // Sales figures are the owner's (spec-2.3); staff never ask for them.
+  const [statsResult, dishesResult] = await Promise.all([owner && view === "everyday" ? supabase.rpc("dashboard_stats", { p_day: today }) : null, query]);
+  const dishes: DishRowData[] = must(dishesResult, "the dishes").map((d) => ({
+    id: d.id,
+    name: d.name,
+    category: d.category,
+    price_kes: d.price_kes,
+    photo: d.photo_thumb_url ?? d.photo_url,
+    is_regular: d.is_regular,
+    onSale: regularOnSale(d.unavailable_on, today),
+    archivedOn: view === "archived" && d.archived_at ? nairobiDayOf(d.archived_at) : null,
+  }));
+  if (view === "all") dishes.sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
   const edits = can(staff, "dishes_prices");
   const everyday = can(staff, "everyday_menu");
-  const actions = edits || everyday || owner;
+  const doneKind: "deleted" | "archived" | null = q.done === "deleted" ? "deleted" : q.done === "archived" ? "archived" : null;
+  const done = doneKind && q.dish && q.name ? { done: doneKind, dishId: q.dish, name: q.name.slice(0, 80) } : null;
+
+  const segments: [View, string][] = [["everyday", "Everyday menu"], ["all", "All dishes"], ...(owner ? [["archived", "Archived"] as [View, string]] : [])];
 
   return (
-    <div className="flex max-w-[1040px] flex-col gap-5">
-      {statsResult ? (
-        <Sales st={readStats(statsResult)} today={today} />
-      ) : (
-        <header>
-          <h1 className="font-display text-[34px]">Dishes</h1>
-          <RefusalNote className="mt-1" />
-        </header>
-      )}
-
-      <section aria-label="Always on the menu" className="overflow-hidden rounded-[18px] border border-line bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-          <h2 className="text-base font-bold">Always on the menu <span className="font-medium text-ink-soft">· {regulars.length} items</span></h2>
-          {/* A new everyday dish is both jobs at once: adding a dish and putting it on the everyday menu. */}
-          {edits && everyday && (
-            <Link href="/dashboard/dishes/new?regular=1" className="flex min-h-10 items-center gap-1.5 rounded-[10px] bg-teal-deep px-4 text-sm font-bold text-white">
-              <PlusIcon size={16} /> Add item
+    <div className="flex w-full max-w-[880px] flex-col gap-5">
+      <header className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="font-display text-[34px] leading-tight">Dishes</h1>
+            <RefusalNote className="mt-1" />
+          </div>
+          {edits && <AddDish href={view === "everyday" && everyday ? "/dashboard/dishes/new?regular=1" : "/dashboard/dishes/new"} />}
+        </div>
+        <nav aria-label="Dish views" className={`grid gap-1 rounded-[14px] bg-sand p-1 ${segments.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+          {segments.map(([v, text]) => (
+            <Link
+              key={v}
+              href={v === "everyday" ? "/dashboard/manage" : `/dashboard/manage?view=${v}`}
+              aria-current={view === v ? "page" : undefined}
+              className={`press flex min-h-11 items-center justify-center rounded-[10px] px-2 text-center text-sm font-semibold leading-tight touch-manipulation select-none [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-teal-deep ${
+                view === v ? "bg-paper text-teal-deep shadow-[0_1px_2px_rgb(26_32_44/0.08)]" : "text-ink-soft hover:text-ink"
+              }`}
+            >
+              {text}
             </Link>
-          )}
-        </div>
-        <div className="relative overflow-x-auto">
-          <table className={`w-full border-collapse text-[15px] ${actions ? "min-w-[760px]" : "min-w-[560px]"}`}>
-            <thead>
-              <tr className="bg-[#f8fafc] text-left text-[13px] text-ink-soft">
-                <th scope="col" className="px-5 py-2.5 font-semibold">Item</th>
-                <th scope="col" className="px-3 py-2.5 font-semibold">Category</th>
-                <th scope="col" className="px-3 py-2.5 font-semibold">Price</th>
-                <th scope="col" className="px-3 py-2.5 font-semibold">On sale today</th>
-                {actions && <th scope="col" className="px-5 py-2.5"><span className="sr-only">Actions</span></th>}
-              </tr>
-            </thead>
-            <tbody>
-              {regulars.map((d) => (
-                <tr key={d.id} className="border-t border-line">
-                  <td className="px-5 py-2.5 font-semibold [overflow-wrap:anywhere]">{d.name}</td>
-                  <td className="px-3 py-2.5 text-ink-soft">{CATEGORY[d.category]}</td>
-                  <td className="whitespace-nowrap px-3 py-2.5">{formatKes(d.price_kes)}</td>
-                  <td className="px-3 py-1.5">
-                    <ActionForm action={setRegularAvailable} className="flex flex-col items-start gap-1">
-                      <input type="hidden" name="dishId" value={d.id} />
-                      <input type="hidden" name="available" value={d.onSale ? "false" : "true"} />
-                      <SubmitButton
-                        pendingLabel="Saving…"
-                        aria-label={`${d.name}: ${d.onSale ? "on sale, tap to mark sold out" : "sold out, tap to put back on sale"}`}
-                        className={`min-h-11 rounded-full px-3.5 text-sm font-semibold ${
-                          d.onSale ? "bg-teal-tint text-teal-deeper" : "bg-blush text-coral-ink"
-                        }`}
-                      >
-                        {d.onSale ? "On sale" : "Sold out"}
-                      </SubmitButton>
-                      {/* About the dish, so it says tomorrow whether or not tomorrow is open (spec-2.2). */}
-                      {!d.onSale && <span className="text-[13px] text-ink-soft">Back on sale tomorrow.</span>}
-                    </ActionForm>
-                  </td>
-                  {actions && (
-                    <td className="px-5 py-1.5 text-right">
-                      <div className="flex items-start justify-end gap-1.5">
-                        {edits && (
-                          <Link href={`/dashboard/dishes/${d.id}`} className="inline-flex min-h-10 items-center rounded-[10px] border border-line-deep px-3.5 text-sm font-semibold text-teal-deep">
-                            Edit
-                          </Link>
-                        )}
-                        {everyday && (
-                          <ActionForm action={removeFromRegulars} className="flex flex-col items-end gap-1">
-                            <input type="hidden" name="dishId" value={d.id} />
-                            <SubmitButton pendingLabel="Saving…" aria-label={`Take ${d.name} off the everyday menu`} className="min-h-10 whitespace-nowrap rounded-[10px] border border-line-deep bg-white px-3 text-sm font-semibold text-ink-soft">
-                              Take off menu
-                            </SubmitButton>
-                          </ActionForm>
-                        )}
-                        {owner && (
-                          <ActionForm action={deleteDish} className="flex flex-col items-end gap-1">
-                            <input type="hidden" name="dishId" value={d.id} />
-                            <SubmitButton
-                              confirm={`Delete ${d.name}? It will disappear from the menu and the dish library.`}
-                              pendingLabel="Deleting…"
-                              aria-label={`Delete ${d.name}`}
-                              className="min-h-10 rounded-[10px] border border-line-deep bg-white px-3 text-sm font-semibold text-coral-ink"
-                            >
-                              Delete
-                            </SubmitButton>
-                          </ActionForm>
-                        )}
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-      {!everyday && <p className="text-sm text-ink-soft">{OWNER_ONLY.everyday_menu}</p>}
+          ))}
+        </nav>
+      </header>
+
+      {done && <DoneNote key={`${done.done}-${done.dishId}`} {...done} />}
+      {statsResult && <Sales st={readStats(statsResult)} today={today} />}
+
+      {view === "everyday" && (
+        <>
+          <EverydayList dishes={dishes} canAdd={edits} />
+          {!everyday && <p className="text-sm text-ink-soft">{OWNER_ONLY.everyday_menu}</p>}
+        </>
+      )}
+      {view === "all" && <AllList dishes={dishes} />}
+      {view === "archived" && <ArchivedList dishes={dishes} />}
     </div>
   );
 }
+
+const nairobiDayOf = (iso: string) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Nairobi", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
 
 function readStats(result: Parameters<typeof must>[0]) {
   const s = stats.safeParse(must(result, "today’s sales"));
@@ -168,7 +127,7 @@ function Sales({ st, today }: { st: z.infer<typeof stats>; today: string }) {
   const best = st.rotating[0];
   const maxHour = Math.max(1, ...HOURS.map((h) => st.by_hour[String(h)] ?? 0));
 
-  const tile = "flex flex-col gap-1 rounded-[18px] border border-line bg-white p-[18px]";
+  const tile = "flex min-w-0 flex-col gap-1 rounded-[18px] bg-cream p-[18px] ring-1 ring-sand";
   const big = "font-display text-[34px] leading-tight";
   // "KSh" and the figure never split (formatKes), so a seven-figure day steps down to
   // display-lg (28 px) to stay inside a 200 px tile; six figures and below keep 34 px.
@@ -179,13 +138,8 @@ function Sales({ st, today }: { st: z.infer<typeof stats>; today: string }) {
 
   return (
     <>
-      <header>
-        <h1 className="font-display text-[34px]">Menu &amp; sales</h1>
-        <RefusalNote className="mt-1" />
-        <span className="text-sm text-ink-soft">Today so far</span>
-      </header>
-
-      <section aria-label="Today’s numbers" className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-3.5">
+      <h2 className="-mb-2 text-sm font-semibold text-ink-soft">Today so far</h2>
+      <section aria-label="Today’s numbers" className="grid grid-cols-2 gap-3 min-[1280px]:grid-cols-4">
         <div className={tile}>
           <span className="text-sm font-semibold text-ink-soft">Total ordered</span>
           {money(st.revenue_kes)}
@@ -197,8 +151,8 @@ function Sales({ st, today }: { st: z.infer<typeof stats>; today: string }) {
             {st.by_mode.delivery ?? 0} delivery · {st.by_mode.pickup ?? 0} pickup · {st.by_mode.dine_in ?? 0} dine-in
           </span>
         </div>
-        <div className="flex flex-col gap-2 rounded-[18px] bg-blush p-[18px]">
-          <span className="text-sm font-semibold text-coral-ink">{weekdayName(today)}’s menu</span>
+        <div className={tile}>
+          <span className="text-sm font-semibold text-ink-soft">{weekdayName(today)}’s menu</span>
           <span className={big}>
             {sold} {total > 0 && <span className="font-sans text-base text-ink-soft">of {total} plates sold</span>}
           </span>
@@ -214,7 +168,7 @@ function Sales({ st, today }: { st: z.infer<typeof stats>; today: string }) {
         </div>
       </section>
 
-      <section aria-label="Orders by hour" className="flex flex-col gap-3.5 rounded-[18px] border border-line bg-white p-5">
+      <section aria-label="Orders by hour" className="flex min-w-0 flex-col gap-3.5 rounded-[18px] bg-cream p-5 ring-1 ring-sand">
         <h2 className="text-base font-bold">Orders by hour</h2>
         <div
           role="img"

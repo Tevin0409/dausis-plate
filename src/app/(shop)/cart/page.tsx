@@ -1,4 +1,5 @@
 "use client";
+import { extrasLine } from "@/lib/cart-lines";
 import Link from "next/link";
 import { ArrowIcon } from "@/components/icons";
 import { useCart } from "@/components/shop/cart-provider";
@@ -28,7 +29,7 @@ export default function CartPage() {
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   {l.rotating && <span className="text-[11px] font-bold uppercase tracking-wider text-coral-text">Today’s menu</span>}
                   <span className="text-[15px] font-semibold">{l.name}</span>
-                  {l.optionLabel && <span className="text-[13px] text-ink-soft">{l.optionLabel}</span>}
+                  {extrasLine(l.optionLabel, l.extras) && <span className="text-[13px] text-ink-soft [overflow-wrap:anywhere]">{extrasLine(l.optionLabel, l.extras)}</span>}
                   {l.note && <span className="text-[13px] text-ink-soft">Note: {l.note}</span>}
                   <span className="mt-0.5 text-[15px] font-bold">{formatKes(l.unitPriceKes * l.quantity)}</span>
                 </div>

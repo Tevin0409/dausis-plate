@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { formatKenyanPhone } from "@/lib/kitchen-phone";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { z } from "zod";
@@ -36,7 +37,17 @@ const status = z.object({
   declined: z.boolean().optional(),
   // Only while unpaid and not cancelled, and only if Mama has set one (get_order_status decides).
   till_number: z.string().nullable().optional(),
-  items: z.array(z.object({ name: z.string(), option_label: z.string().nullable(), quantity: z.number(), unit_price_kes: z.number() })),
+  // spec-2.6: the kitchen phone (null when Mama hasn't set one) and each line's extras.
+  phone: z.string().nullable().optional(),
+  items: z.array(
+    z.object({
+      name: z.string(),
+      option_label: z.string().nullable(),
+      quantity: z.number(),
+      unit_price_kes: z.number(),
+      extras: z.array(z.object({ label: z.string(), price_kes: z.number() })).nullable().optional(),
+    }),
+  ),
 });
 
 // On the way is for delivery only (spec-2.4); the other types keep four steps.
@@ -114,6 +125,15 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
         {o.pickup_at && o.mode === "pickup" && <span className="mt-3 text-lg">Collect at {closingTime(o.pickup_at)}</span>}
       </section>
 
+      {o.phone && (
+        <p className="mx-5 mt-4 flex flex-wrap items-center gap-x-1.5 text-[15px] text-ink-soft">
+          Questions about your order?
+          <a href={`tel:${o.phone}`} className="press inline-flex min-h-11 items-center gap-1.5 font-semibold text-teal-deep underline-offset-2 hover:underline">
+            <PhoneIcon /> Call the kitchen · <span className="whitespace-nowrap tabular-nums">{formatKenyanPhone(o.phone)}</span>
+          </a>
+        </p>
+      )}
+
       <ol aria-label="Order progress" className="mx-5 mt-6 flex flex-col">
         {STEPS.map((s, i) => {
           const done = i < current || o.status === "completed";
@@ -143,8 +163,12 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
       <section aria-label="Order summary" className="mx-5 mt-5 flex flex-col gap-2 rounded-[18px] border border-sand bg-white px-4 py-3.5 text-sm">
         {o.items.map((it, i) => (
           <div key={i} className="flex justify-between gap-3">
-            <span>{it.quantity} × {it.name}{it.option_label ? ` (${it.option_label})` : ""}</span>
-            <span>{formatKes(it.unit_price_kes * it.quantity)}</span>
+            <span className="min-w-0 [overflow-wrap:anywhere]">
+              {it.quantity} × {it.name}
+              {it.option_label ? ` (${it.option_label})` : ""}
+              {it.extras && it.extras.length > 0 ? ` ${it.extras.map((x) => `+ ${x.label}`).join(", ")}` : ""}
+            </span>
+            <span className="shrink-0 whitespace-nowrap">{formatKes(it.unit_price_kes * it.quantity)}</span>
           </div>
         ))}
         {o.delivery_fee_kes > 0 && (
@@ -155,9 +179,6 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
       </section>
 
       <div className="mx-5 mt-6 flex gap-2.5">
-        <a href={`tel:${process.env.NEXT_PUBLIC_RESTAURANT_PHONE ?? ""}`} className="flex min-h-[52px] flex-1 items-center justify-center gap-2 rounded-2xl border-[1.5px] border-teal-deep bg-white font-semibold text-teal-deep">
-          <PhoneIcon /> Call us
-        </a>
         <Link href="/" className="flex min-h-[52px] flex-1 items-center justify-center rounded-2xl bg-teal-deep font-semibold text-white">{cancelled ? "Order again" : "Back to menu"}</Link>
       </div>
     </Narrow>

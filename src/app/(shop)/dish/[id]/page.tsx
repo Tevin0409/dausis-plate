@@ -23,12 +23,29 @@ export default async function DishPage({ params, searchParams }: Props) {
 
   const [dishResult, optionsResult, todaysResult, kitchen] = await Promise.all([
     supabase.from("dishes").select("id, name, description, price_kes, photo_url, is_regular, unavailable_on").eq("id", id).maybeSingle(),
-    supabase.from("dish_options").select("id, label, price_delta_kes, is_default").eq("dish_id", id).order("sort_order"),
+    supabase
+      .from("dish_options")
+      .select("id, label, price_delta_kes, is_default, kind, out_on")
+      .eq("dish_id", id)
+      .eq("archived", false)
+      .order("sort_order"),
     entryId ? supabase.from("todays_menu").select("*").eq("entry_id", entryId).returns<TodaysMenuRow[]>().maybeSingle() : Promise.resolve({ data: null, error: null }),
     getKitchen(),
   ]);
   const dish = must(dishResult, "the dish");
-  const options = must(optionsResult, "dish options");
+  const day = nairobiToday();
+  const options = must(optionsResult, "dish options").map((o) => ({
+    id: o.id,
+    label: o.label,
+    priceKes: o.price_delta_kes,
+    isDefault: o.is_default,
+    kind: o.kind,
+    outToday: o.out_on === day,
+  }));
+  const choices = options.filter((o) => o.kind === "choice");
+  const extras = options.filter((o) => o.kind === "extra");
+  // Every choice out today: the dish can't be ordered (todays_menu says so for a planned dish).
+  const choicesAllOut = choices.length > 0 && choices.every((c) => c.outToday);
   const todays = must(todaysResult, "today’s menu");
   if (!dish) notFound();
 
@@ -37,12 +54,14 @@ export default async function DishPage({ params, searchParams }: Props) {
 
   let unavailable: string | null = null;
   if (rotating) {
-    if (rotating.sold_out) unavailable = "Sold out for today";
+    if (rotating.sold_out || choicesAllOut) unavailable = "Sold out for today";
     else if (!rotating.open_now) unavailable = `Orders open ${hhmm(rotating.show_from)}–${hhmm(rotating.show_until)}`;
   } else if (!dish.is_regular) {
     unavailable = "Not on today’s menu";
   } else if (!regularOnSale(dish.unavailable_on, kitchen.status.today)) {
     unavailable = backOnSale(kitchen.status);
+  } else if (choicesAllOut) {
+    unavailable = "Sold out for today";
   }
 
   const src = dish.photo_url;
@@ -81,7 +100,8 @@ export default async function DishPage({ params, searchParams }: Props) {
           menuEntryId={rotating?.entry_id ?? null}
           name={dish.name}
           basePriceKes={price}
-          options={options}
+          choices={choices}
+          extras={extras}
           unavailable={unavailable}
           rotating={Boolean(rotating)}
         />

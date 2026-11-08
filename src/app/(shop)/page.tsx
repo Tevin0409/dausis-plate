@@ -34,7 +34,8 @@ export default async function MenuPage() {
       .eq("archived", false)
       .order("category")
       .order("sort_order"),
-    supabase.from("dish_options").select("dish_id"),
+    // Any choice or extra that isn't archived sends "+" to the dish page (spec-2.6).
+    supabase.from("dish_options").select("dish_id").eq("archived", false),
     getKitchen(),
   ]);
 

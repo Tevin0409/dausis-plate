@@ -1,4 +1,5 @@
 "use client";
+import { extrasLine } from "@/lib/cart-lines";
 import Link from "next/link";
 import { formatKes } from "@/lib/format";
 import { useCart } from "./cart-provider";
@@ -24,7 +25,7 @@ export function OrderPanel() {
               <li key={l.key} className={`flex items-start gap-3 py-3.5 ${i > 0 ? "border-t border-sand" : ""}`}>
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="text-[15px] font-semibold leading-snug">{l.name}</span>
-                  {l.optionLabel && <span className="text-[13px] text-ink-soft">{l.optionLabel}</span>}
+                  {extrasLine(l.optionLabel, l.extras) && <span className="text-[13px] text-ink-soft [overflow-wrap:anywhere]">{extrasLine(l.optionLabel, l.extras)}</span>}
                   {l.note && <span className="text-[13px] text-ink-soft">“{l.note}”</span>}
                   <span className="text-sm font-bold">{formatKes(l.unitPriceKes * l.quantity)}</span>
                 </div>

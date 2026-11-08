@@ -7,6 +7,7 @@ const item = z.object({
   dishId: z.string().uuid(),
   menuEntryId: z.string().uuid().nullable(),
   optionId: z.string().uuid().nullable(),
+  extraIds: z.array(z.string().uuid()).max(8).default([]),
   quantity: z.number().int().min(1).max(20),
   note: z.string().max(200),
 });
@@ -39,6 +40,9 @@ export type CheckoutResult =
   | { ok: true; token: string }
   | { ok: false; error: string; reason?: "kitchen_closed" | "pickup_time" };
 
+const TABLE_GONE = "Scan the QR code on your table again";
+const TABLE_CHANGED = "This table’s QR has changed. Scan the code on the table again.";
+
 /** place_order's stable refusal codes (its DETAIL), so checkout can rebuild the button or the pickup times. */
 const REASONS = new Set(["kitchen_closed", "pickup_time"] as const);
 const reasonOf = (details: string | undefined) =>
@@ -69,6 +73,7 @@ export async function placeOrder(raw: CheckoutInput): Promise<CheckoutResult> {
         dish_id: i.dishId,
         menu_entry_id: i.menuEntryId,
         option_id: i.optionId,
+        extra_ids: i.extraIds,
         quantity: i.quantity,
         note: i.note,
       })),
@@ -77,6 +82,8 @@ export async function placeOrder(raw: CheckoutInput): Promise<CheckoutResult> {
 
   if (error) {
     // P0001 = messages written for customers inside place_order.
+    // A new code or a table turned off mid-order (spec-2.6 States): say why, not just "scan again".
+    if (error.code === "P0001" && error.message === TABLE_GONE) return { ok: false, error: TABLE_CHANGED };
     if (error.code === "P0001") return { ok: false, error: error.message, reason: reasonOf(error.details) };
     return { ok: false, error: "Something went wrong placing your order. Try again." };
   }

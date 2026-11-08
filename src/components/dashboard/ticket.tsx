@@ -23,7 +23,7 @@ export type BoardOrder = {
   customer_phone: string;
   table: { label: string } | null;
   zone: { name: string } | null;
-  items: { name: string; option_label: string | null; quantity: number; note: string | null }[];
+  items: { name: string; option_label: string | null; quantity: number; note: string | null; extras?: { label: string; sort_order: number }[] | null }[];
 };
 
 // Launch has two ways to pay (spec-2.1-payments.md); older mpesa or card orders read as on handover.
@@ -79,6 +79,12 @@ export function Ticket({ o, now }: { o: BoardOrder; now: Date }) {
               {it.quantity} × {it.name}
             </span>
             {it.option_label && <span className="block text-sm font-medium text-ink-soft">{it.option_label}</span>}
+            {/* spec-2.6: extras at the item's size, so the kitchen can't miss them. */}
+            {it.extras && it.extras.length > 0 && (
+              <span className="block text-base font-semibold [overflow-wrap:anywhere]">
+                {[...it.extras].sort((a, b) => a.sort_order - b.sort_order).map((x) => `+ ${x.label}`).join(", ")}
+              </span>
+            )}
             {it.note && <span className="block text-sm font-semibold text-amber-ink [overflow-wrap:anywhere]">{it.note}</span>}
           </li>
         ))}

@@ -52,7 +52,7 @@ export async function seedFixtures(tx: Tx) {
     insert into public.dishes (name, price_kes, updated_at)
     values ('Test rotating', 500, '2020-01-01') returning *`;
   const [option] = await tx`
-    insert into public.dish_options (dish_id, label, price_delta_kes) values (${rotating.id}, 'Extra kachumbari', 50) returning *`;
+    insert into public.dish_options (dish_id, kind, label, price_delta_kes) values (${rotating.id}, 'extra', 'Extra kachumbari', 50) returning *`;
   // Open all day, with its own price (450) and 3 plates.
   const [openEntry] = await tx`
     insert into public.menu_entries (dish_id, kind, starts_on, ends_on, price_kes, plates_per_day, show_from, show_until)
@@ -72,7 +72,7 @@ export async function seedFixtures(tx: Tx) {
   return { ownerId: owner.id as string, regular, rotating, late, option, openEntry, closedEntry, table };
 }
 
-type Item = { dish_id: string; quantity: number; menu_entry_id?: string; option_id?: string } & Record<string, unknown>;
+type Item = { dish_id: string; quantity: number; menu_entry_id?: string; option_id?: string; extra_ids?: string[] | null } & Record<string, unknown>;
 
 export function dineIn(f: Fixtures, items: Item[], extra: Record<string, unknown> = {}) {
   return {

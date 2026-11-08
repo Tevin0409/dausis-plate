@@ -2,6 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { nairobiToday } from "@/lib/format";
+import { KITCHEN_PHONE_ERROR, normaliseKitchenPhone } from "@/lib/kitchen-phone";
 import { createClient, getStaff } from "@/lib/supabase/server";
 import { refusal } from "@/lib/supabase/refusal";
 
@@ -163,4 +164,19 @@ export async function saveTill(till: string): Promise<SettingsResult> {
   if (error) return fail("saveTill", error, error.code === "P0001" ? error.message : message);
   refreshEverywhere();
   return { ok: true };
+}
+
+// ───────── kitchen phone (spec-2.6 "Settings: phone") ─────────
+
+/** Saves the kitchen phone as +254 and 9 digits, or clears it. Returns the saved form as `note`. */
+export async function saveKitchenPhone(input: string): Promise<SettingsResult> {
+  const message = "Couldn’t save. The kitchen phone hasn’t changed. Try again.";
+  const phone = normaliseKitchenPhone(input);
+  if (phone === null) return { ok: false, error: KITCHEN_PHONE_ERROR };
+  const db = await ownerClient();
+  if (!db) return fail("saveKitchenPhone", null, message);
+  const { error } = await db.rpc("set_kitchen_phone", { p_phone: phone });
+  if (error) return refused("saveKitchenPhone", error) ?? fail("saveKitchenPhone", error, error.code === "P0001" ? error.message : message);
+  refreshEverywhere();
+  return { ok: true, note: phone };
 }

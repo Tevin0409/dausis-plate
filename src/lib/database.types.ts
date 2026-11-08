@@ -28,9 +28,9 @@ export type Database = {
         ];
       };
       delivery_zones: {
-        Row: { active: boolean; fee_kes: number; id: string; name: string; sort_order: number };
-        Insert: { active?: boolean; fee_kes: number; id?: string; name: string; sort_order?: number };
-        Update: { active?: boolean; fee_kes?: number; id?: string; name?: string; sort_order?: number };
+        Row: { active: boolean; fee_kes: number; id: string; min_order_kes: number; name: string; sort_order: number };
+        Insert: { active?: boolean; fee_kes: number; id?: string; min_order_kes?: number; name: string; sort_order?: number };
+        Update: { active?: boolean; fee_kes?: number; id?: string; min_order_kes?: number; name?: string; sort_order?: number };
         Relationships: [];
       };
       dining_tables: {
@@ -40,9 +40,18 @@ export type Database = {
         Relationships: [];
       };
       dish_options: {
-        Row: { dish_id: string; id: string; is_default: boolean; label: string; price_delta_kes: number; sort_order: number };
-        Insert: { dish_id: string; id?: string; is_default?: boolean; label: string; price_delta_kes?: number; sort_order?: number };
-        Update: { dish_id?: string; id?: string; is_default?: boolean; label?: string; price_delta_kes?: number; sort_order?: number };
+        Row: {
+          archived: boolean; dish_id: string; id: string; is_default: boolean; kind: "choice" | "extra"; label: string;
+          out_on: string | null; price_delta_kes: number; sort_order: number;
+        };
+        Insert: {
+          archived?: boolean; dish_id: string; id?: string; is_default?: boolean; kind?: "choice" | "extra"; label: string;
+          out_on?: string | null; price_delta_kes?: number; sort_order?: number;
+        };
+        Update: {
+          archived?: boolean; dish_id?: string; id?: string; is_default?: boolean; kind?: "choice" | "extra"; label?: string;
+          out_on?: string | null; price_delta_kes?: number; sort_order?: number;
+        };
         Relationships: [
           { foreignKeyName: "dish_options_dish_id_fkey"; columns: ["dish_id"]; isOneToOne: false; referencedRelation: "dishes"; referencedColumns: ["id"] },
           { foreignKeyName: "dish_options_dish_id_fkey"; columns: ["dish_id"]; isOneToOne: false; referencedRelation: "todays_menu"; referencedColumns: ["dish_id"] },
@@ -51,6 +60,7 @@ export type Database = {
       dishes: {
         Row: {
           archived: boolean;
+          archived_at: string | null;
           category: Database["public"]["Enums"]["dish_category"];
           created_at: string;
           description: string;
@@ -68,6 +78,7 @@ export type Database = {
         };
         Insert: {
           archived?: boolean;
+          archived_at?: string | null;
           category?: Database["public"]["Enums"]["dish_category"];
           created_at?: string;
           description?: string;
@@ -85,6 +96,7 @@ export type Database = {
         };
         Update: {
           archived?: boolean;
+          archived_at?: string | null;
           category?: Database["public"]["Enums"]["dish_category"];
           created_at?: string;
           description?: string;
@@ -171,6 +183,15 @@ export type Database = {
         Update: { created_at?: string; created_by?: string | null; day?: string; entry_id?: string };
         Relationships: [
           { foreignKeyName: "menu_entry_off_days_entry_id_fkey"; columns: ["entry_id"]; isOneToOne: false; referencedRelation: "menu_entries"; referencedColumns: ["id"] },
+        ];
+      };
+      order_item_extras: {
+        Row: { id: string; label: string; option_id: string; order_item_id: string; price_kes: number; sort_order: number };
+        Insert: never;
+        Update: never;
+        Relationships: [
+          { foreignKeyName: "order_item_extras_order_item_id_fkey"; columns: ["order_item_id"]; isOneToOne: false; referencedRelation: "order_items"; referencedColumns: ["id"] },
+          { foreignKeyName: "order_item_extras_option_id_fkey"; columns: ["option_id"]; isOneToOne: false; referencedRelation: "dish_options"; referencedColumns: ["id"] },
         ];
       };
       order_items: {
@@ -341,16 +362,26 @@ export type Database = {
           closed_early_at: string | null;
           closed_early_by: string | null;
           till_number: string | null;
+          phone: string | null;
           updated_at: string;
         };
-        Insert: { id?: boolean; last_orders_minutes?: number; closed_early_on?: string | null; closed_early_at?: string | null; closed_early_by?: string | null; till_number?: string | null; updated_at?: string };
-        Update: { id?: boolean; last_orders_minutes?: number; closed_early_on?: string | null; closed_early_at?: string | null; closed_early_by?: string | null; till_number?: string | null; updated_at?: string };
+        Insert: { id?: boolean; last_orders_minutes?: number; closed_early_on?: string | null; closed_early_at?: string | null; closed_early_by?: string | null; till_number?: string | null; phone?: string | null; updated_at?: string };
+        Update: { id?: boolean; last_orders_minutes?: number; closed_early_on?: string | null; closed_early_at?: string | null; closed_early_by?: string | null; till_number?: string | null; phone?: string | null; updated_at?: string };
         Relationships: [];
       };
       staff: {
-        Row: { created_at: string; display_name: string | null; role: Database["public"]["Enums"]["staff_role"]; user_id: string };
-        Insert: { created_at?: string; display_name?: string | null; role?: Database["public"]["Enums"]["staff_role"]; user_id: string };
-        Update: { created_at?: string; display_name?: string | null; role?: Database["public"]["Enums"]["staff_role"]; user_id?: string };
+        Row: {
+          created_at: string; display_name: string | null; invited_at: string | null; must_change_password: boolean;
+          role: Database["public"]["Enums"]["staff_role"]; user_id: string;
+        };
+        Insert: {
+          created_at?: string; display_name?: string | null; invited_at?: string | null; must_change_password?: boolean;
+          role?: Database["public"]["Enums"]["staff_role"]; user_id: string;
+        };
+        Update: {
+          created_at?: string; display_name?: string | null; invited_at?: string | null; must_change_password?: boolean;
+          role?: Database["public"]["Enums"]["staff_role"]; user_id?: string;
+        };
         Relationships: [];
       };
     };
@@ -422,6 +453,18 @@ export type Database = {
       restore_menu_entry: { Args: { p_undo: Json }; Returns: string };
       dashboard_stats: { Args: { p_day: string }; Returns: Json };
       delete_dish: { Args: { p_dish: string }; Returns: Json };
+      dish_has_orders: { Args: { p_dish: string }; Returns: boolean };
+      restore_dish: { Args: { p_dish: string }; Returns: Json };
+      save_dish_options: { Args: { p_dish: string; p_options: Json }; Returns: Json };
+      set_option_out: { Args: { p_option: string; p_out: boolean }; Returns: Json };
+      choices_all_out: { Args: { p_dish: string }; Returns: boolean };
+      set_kitchen_phone: { Args: { p_phone: string }; Returns: string | null };
+      team_set_role: { Args: { p_user: string; p_role: Database["public"]["Enums"]["staff_role"] }; Returns: undefined };
+      team_set_name: { Args: { p_user: string; p_name: string }; Returns: undefined };
+      team_remove: { Args: { p_user: string; p_invite?: boolean }; Returns: undefined };
+      team_log_reset: { Args: { p_user: string }; Returns: undefined };
+      clear_must_change_password: { Args: never; Returns: undefined };
+      has_password: { Args: never; Returns: boolean };
       get_order_status: { Args: { p_token: string }; Returns: Json };
       is_owner: { Args: never; Returns: boolean };
       is_staff: { Args: never; Returns: boolean };

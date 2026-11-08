@@ -4,11 +4,12 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { placeOrder } from "@/app/(shop)/checkout/actions";
 import { formatKes } from "@/lib/format";
 import { justClosedNote } from "@/lib/kitchen";
+import { minimumBlockLine, minimumShortfall, zoneOptionLabel } from "@/lib/zone-minimum";
 import { useCart } from "./cart-provider";
 import { ClosedButton, KitchenNotice, useKitchen, usePickupSlots } from "./kitchen-provider";
 import { BottomBar } from "./ui";
 
-type Zone = { id: string; name: string; fee_kes: number };
+type Zone = { id: string; name: string; fee_kes: number; min_order_kes: number };
 type Mode = "dine_in" | "pickup" | "delivery";
 type Pay = "on_handover" | "at_counter";
 
@@ -84,6 +85,8 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
   const zone = zones.find((z) => z.id === zoneId);
   const fee = mode === "delivery" ? (zone?.fee_kes ?? 0) : 0;
   const total = subtotalKes + fee;
+  // The zone's minimum counts the food only, before the fee (spec-2.6, Q1 A). place_order checks it again.
+  const short = mode === "delivery" && zone ? minimumShortfall(subtotalKes, { name: zone.name, feeKes: zone.fee_kes, minOrderKes: zone.min_order_kes }) : 0;
 
   const payOptions: { id: Pay; label: string; line: string }[] =
     mode === "dine_in"
@@ -100,9 +103,9 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!kitchen.open) return;
+    if (!kitchen.open || short > 0) return;
     setError(null);
-    const items = lines.map((l) => ({ dishId: l.dishId, menuEntryId: l.menuEntryId, optionId: l.optionId, quantity: l.quantity, note: l.note }));
+    const items = lines.map((l) => ({ dishId: l.dishId, menuEntryId: l.menuEntryId, optionId: l.optionId, extraIds: l.extras.map((x) => x.id), quantity: l.quantity, note: l.note }));
     const cart = JSON.stringify(items);
     if (attempt.current?.cart !== cart) attempt.current = attemptFor(cart);
     const idempotencyKey = attempt.current.key;
@@ -233,7 +236,7 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
               <select value={zoneId} onChange={(e) => setZoneId(e.target.value)} className={input} required>
                 {zones.map((z) => (
                   <option key={z.id} value={z.id}>
-                    {z.name} · {formatKes(z.fee_kes)}
+                    {zoneOptionLabel({ name: z.name, feeKes: z.fee_kes, minOrderKes: z.min_order_kes })}
                   </option>
                 ))}
               </select>
@@ -312,13 +315,19 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
         <p ref={errorRef} role="alert" className="note-in mx-5 mt-4 rounded-xl bg-blush px-4 py-3 text-[15px] [overflow-wrap:anywhere] text-coral-ink">{error}</p>
       )}
 
+      {kitchen.open && short > 0 && zone && (
+        <p role="status" className="mx-5 mt-4 rounded-xl bg-amber-tint px-4 py-3 text-[15px] font-semibold [overflow-wrap:anywhere] text-amber-ink">
+          {minimumBlockLine(short, zone.name)}
+        </p>
+      )}
+
       {!kitchen.open && <KitchenNotice className="mx-5 mt-4" />}
 
       <BottomBar inlineOnDesktop="padded">
         {kitchen.open ? (
           <button
             type="submit"
-            disabled={pending}
+            disabled={pending || short > 0}
             className={`press ${MAIN_BUTTON} bg-teal-deep text-white disabled:opacity-60`}
           >
             {pending ? "Sending to Mama…" : `Place order · ${formatKes(total)}`}

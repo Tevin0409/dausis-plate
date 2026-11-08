@@ -24,7 +24,8 @@ export function PlannerSheet({
   onClose: () => void;
   labelledBy: string;
   children: React.ReactNode;
-  footer: React.ReactNode;
+  /** The pinned action row; leave it out for a panel whose parts save on their own. */
+  footer?: React.ReactNode;
 }) {
   const [mounted, setMounted] = useState(open);
   const [phase, setPhase] = useState<"in" | "out">("in");
@@ -149,7 +150,7 @@ export function PlannerSheet({
 
   if (!mounted) return null;
   return (
-    <div ref={host} className="planner-host fixed inset-0 z-50 h-dvh" data-phase={phase} onKeyDown={onKeyDown}>
+    <div ref={host} className="planner-host fixed inset-0 z-50 h-dvh print:hidden" data-phase={phase} onKeyDown={onKeyDown}>
       <div ref={scrim} className="planner-scrim absolute inset-0" onClick={onClose} aria-hidden="true" />
       <div
         ref={panel}
@@ -169,9 +170,13 @@ export function PlannerSheet({
           <span className="h-[5px] w-10 rounded-full bg-sand-deep" />
         </div>
         <div className="planner-body min-h-0 flex-1 overflow-y-auto px-5 pb-5 min-[600px]:px-6 min-[600px]:pt-6">{children}</div>
-        <div className="shrink-0 border-t border-sand bg-cream px-5 pt-3 pb-[calc(12px+env(safe-area-inset-bottom,0px))] min-[600px]:px-6 min-[600px]:pb-4">
-          {footer}
-        </div>
+        {footer != null ? (
+          <div className="shrink-0 border-t border-sand bg-cream px-5 pt-3 pb-[calc(12px+env(safe-area-inset-bottom,0px))] min-[600px]:px-6 min-[600px]:pb-4">
+            {footer}
+          </div>
+        ) : (
+          <div aria-hidden="true" className="shrink-0 pb-[env(safe-area-inset-bottom,0px)]" />
+        )}
       </div>
     </div>
   );

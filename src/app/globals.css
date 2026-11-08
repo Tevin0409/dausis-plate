@@ -64,7 +64,9 @@ body {
 
 /* Press / tap feedback (DESIGN.md motion table). */
 .press {
-  transition: transform var(--dur-press) var(--ease-out);
+  transition:
+    transform var(--dur-press) var(--ease-out),
+    opacity var(--dur-press) var(--ease-out);
 }
 .press:active {
   transform: scale(0.97);
@@ -108,8 +110,10 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* Reduced motion: the press still answers, by dimming instead of shrinking. */
   .press:active {
     transform: none;
+    opacity: 0.8;
   }
   .board-notice {
     transition: opacity var(--dur-small) var(--ease-out);
@@ -297,6 +301,12 @@ html:has(.board) {
 }
 .planner-body {
   overscroll-behavior: contain;
+}
+/* A sheet open while printing (Print this card) sets html overflow hidden; the sheet itself is print:hidden. */
+@media print {
+  html {
+    overflow: visible !important;
+  }
 }
 
 /* A dish just added or copied: enter in the new place, 8 px. Copied dishes enter together. */

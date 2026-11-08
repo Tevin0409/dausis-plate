@@ -7,6 +7,7 @@ import { NOTE_MAX, NOTE_MIN, nextStatus } from "@/lib/board";
 import { addDays, weekdayName, weekStart } from "@/lib/format";
 import { clashMessage, dow, REFUSAL_FIELD } from "@/lib/planner";
 import { deletePhotoSet, PHOTO_KEY, photoExists, publicPhotoUrl } from "@/lib/r2";
+import { optionProblem, OPTION_MESSAGES, type OptionInput } from "@/lib/dish-options";
 import { refusal } from "@/lib/supabase/refusal";
 import { createClient, getStaff } from "@/lib/supabase/server";
 import type { ActionResult, BoardResult, OrderRefusal, PlannerResult, Undo } from "./action-result";
@@ -67,7 +68,48 @@ const dishForm = z.object({
   plates_per_day: z.coerce.number().int().min(0).max(MAX_PLATES_PER_DAY).optional(),
   show_from: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   show_until: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  // Slice 2.6: the choices and extras, as JSON from the editor's OptionsEditor. Absent means
+  // the form had no options editor (nothing to change).
+  options: z.string().max(20000).optional(),
 });
+
+const optionsJson = z
+  .array(
+    z.object({
+      id: uuid.optional(),
+      kind: z.enum(["choice", "extra"]),
+      label: z.string().max(200),
+      extra: z.number().nullable(),
+      isDefault: z.boolean(),
+    }),
+  )
+  .max(32);
+
+/** The editor's options, or the message to show when they can't be saved as they are. */
+function readOptions(json: string | undefined): { rows: OptionInput[] | null } | { error: string } {
+  if (json === undefined) return { rows: null };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(json);
+  } catch {
+    return { error: OPTION_MESSAGES.shape };
+  }
+  const parsed = optionsJson.safeParse(raw);
+  if (!parsed.success) return { error: OPTION_MESSAGES.shape };
+  const problem = optionProblem(parsed.data);
+  return problem ? { error: problem.message } : { rows: parsed.data };
+}
+
+/** save_dish_options; its P0001 refusals are written for the person saving. */
+async function saveOptions(supabase: Db, dishId: string, rows: OptionInput[]): Promise<ActionResult> {
+  const { error } = await supabase.rpc("save_dish_options", { p_dish: dishId, p_options: rows as unknown as Json });
+  if (!error) return null;
+  if (error.code === "P0001") {
+    console.error("[action] save_dish_options refused:", error.message);
+    return { error: error.message === "That dish isn't there any more." ? "This dish no longer exists. Go back and refresh." : error.message };
+  }
+  return failed("saveDish options", error, "Couldn’t save the dish. Nothing has changed. Try again.");
+}
 
 export async function saveDish(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
   const parsed = dishForm.safeParse(Object.fromEntries(formData));
@@ -78,6 +120,8 @@ export async function saveDish(_prev: ActionResult, formData: FormData): Promise
     return { error: "Check the name, price and times, then save again." };
   }
   const v = parsed.data;
+  const options = readOptions(v.options);
+  if ("error" in options) return { error: options.error };
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
   const row: {
@@ -85,7 +129,7 @@ export async function saveDish(_prev: ActionResult, formData: FormData): Promise
     description: string;
     price_kes: number;
     category: Enums<"dish_category">;
-    is_regular: boolean;
+    is_regular?: boolean;
     photo_key?: string;
     photo_url?: string;
     photo_thumb_url?: string;
@@ -94,8 +138,10 @@ export async function saveDish(_prev: ActionResult, formData: FormData): Promise
     description: v.description,
     price_kes: v.price_kes,
     category: v.category,
-    is_regular: v.is_regular === "on",
   };
+  // An existing dish's place on the everyday menu is its own switch (slice 2.6), saved at once;
+  // only a new dish takes it from the form.
+  if (!v.id) row.is_regular = v.is_regular === "on";
 
   // A new photo was uploaded: make sure both files really are in R2 before pointing the dish at them.
   if (v.photo_key && v.photo_thumb_key) {
@@ -111,6 +157,11 @@ export async function saveDish(_prev: ActionResult, formData: FormData): Promise
   let created = false;
   if (v.id) {
     dishId = v.id;
+    // Options first: they are the likelier refusal (stale ids), and then nothing has changed.
+    if (options.rows) {
+      const refused = await saveOptions(supabase, dishId, options.rows);
+      if (refused) return refused;
+    }
     const { data: before } = await supabase.from("dishes").select("photo_key").eq("id", dishId).maybeSingle();
     const { data, error } = await supabase.from("dishes").update(row).eq("id", dishId).select("id");
     if (error) return failed("saveDish update", error, "Couldn’t save the dish. Try again.");
@@ -120,9 +171,20 @@ export async function saveDish(_prev: ActionResult, formData: FormData): Promise
     if (!v.new_id) return { error: "Reload the page and try again." };
     dishId = v.new_id;
     const { error } = await supabase.from("dishes").insert({ ...row, id: dishId });
-    // 23505 = this form was already submitted once and the dish exists: don't create anything twice.
-    if (error && error.code !== "23505") return failed("saveDish insert", error, "Couldn’t save the dish. Try again.");
-    created = !error;
+    // 23505 = this form was already submitted once and the dish exists (an earlier try whose
+    // options were refused): don't create anything twice, save what was typed over it.
+    if (error?.code === UNIQUE_VIOLATION) {
+      const words = { ...row };
+      delete words.is_regular;
+      const { error: again } = await supabase.from("dishes").update(words).eq("id", dishId);
+      if (again) return failed("saveDish retry", again, "Couldn’t save the dish. Try again.");
+    } else if (error) return failed("saveDish insert", error, "Couldn’t save the dish. Try again.");
+    // The retry still adds it to the planned day: the try before stopped before that step.
+    created = true;
+    if (options.rows && options.rows.length > 0) {
+      const refused = await saveOptions(supabase, dishId, options.rows);
+      if (refused) return refused;
+    }
   }
 
   if (v.add_day && v.add_kind && (created || v.id)) {
@@ -136,9 +198,12 @@ export async function saveDish(_prev: ActionResult, formData: FormData): Promise
     redirect(`/dashboard/menu?day=${v.add_day}`);
   }
   revalidatePath("/dashboard/manage");
+  revalidatePath(`/dashboard/dishes/${dishId}`);
   revalidatePath("/");
   if (v.add_day) redirect(`/dashboard/menu?day=${v.add_day}`);
-  redirect(row.is_regular ? "/dashboard/manage" : "/dashboard/menu");
+  // An edit stays on the editor, whose save bar says when it saved; a new dish goes to the list.
+  if (v.id) return null;
+  redirect(row.is_regular ? "/dashboard/manage" : "/dashboard/manage?view=all");
 }
 
 // ───────── rotating menu ─────────
@@ -356,18 +421,34 @@ async function addNewDishToMenu(
 
 // ───────── regular menu ─────────
 
-export async function setRegularAvailable(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const parsed = z.object({ dishId: uuid, available: z.enum(["true", "false"]) }).safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return STALE_FORM;
+/** On sale today (spec-2.2): off stores today's date, so the dish is back tomorrow with no job running. */
+export async function setOnSaleToday(dishId: string, onSale: boolean): Promise<ActionResult> {
+  if (!uuid.safeParse(dishId).success || typeof onSale !== "boolean") return STALE_FORM;
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
-  // "Sold out" stores today's date, so the dish is back tomorrow with no job running (spec-2.2).
-  const { error } = await supabase.rpc("set_regular_on_sale", { p_dish: parsed.data.dishId, p_on_sale: parsed.data.available === "true" });
-  if (error?.code === "P0001") return failed("setRegularAvailable", error, error.message);
-  if (error) return failed("setRegularAvailable", error, "Couldn’t change it. Try again.");
+  const { error } = await supabase.rpc("set_regular_on_sale", { p_dish: dishId, p_on_sale: onSale });
+  if (error?.code === "P0001") return failed("setOnSaleToday", error, error.message);
+  if (error) return failed("setOnSaleToday", error, "Couldn’t change it. Try again.");
   revalidatePath("/dashboard/manage");
   revalidatePath("/");
   return null;
+}
+
+/** Slice 2.6 (Q3 B): a choice or extra out for today, for anyone on the team. Saved at once. */
+export async function setOptionOut(
+  optionId: string,
+  out: boolean,
+): Promise<{ error: string; stale?: boolean } | { out: boolean; allChoicesOut: boolean }> {
+  if (!uuid.safeParse(optionId).success || typeof out !== "boolean") return STALE_FORM!;
+  const [supabase, denied] = await staffClient();
+  if (!supabase) return denied!;
+  const { data, error } = await supabase.rpc("set_option_out", { p_option: optionId, p_out: out });
+  if (error?.code === "P0001") return { error: error.message };
+  if (error) return failed("setOptionOut", error, "Couldn’t change it. Try again.")!;
+  const done = z.object({ out: z.boolean(), all_choices_out: z.boolean() }).safeParse(data);
+  if (!done.success) return failed("setOptionOut result", { message: done.error.message }, "Couldn’t tell whether it changed. Refresh the page to check.")!;
+  revalidatePath("/");
+  return { out: done.data.out, allChoicesOut: done.data.all_choices_out };
 }
 
 // ───────── orders ─────────
@@ -501,39 +582,29 @@ export async function cancelOrder(_prev: ActionResult, formData: FormData): Prom
 
 // ───────── removing dishes ─────────
 
-/** Takes a regular dish off the everyday menu; it stays in the dish library for rotating days. */
-export async function removeFromRegulars(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const parsed = z.object({ dishId: uuid }).safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return STALE_FORM;
+/** On the everyday menu, or off it (the Everyday menu job, spec-2.3), from the dish editor's switch. */
+export async function setEveryday(dishId: string, on: boolean): Promise<ActionResult> {
+  if (!uuid.safeParse(dishId).success || typeof on !== "boolean") return STALE_FORM;
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
-  const { data, error } = await supabase.from("dishes").update({ is_regular: false }).eq("id", parsed.data.dishId).select("id");
-  if (error) return failed("removeFromRegulars", error, "Couldn’t take it off the menu. Try again.");
+  const { data, error } = await supabase.from("dishes").update({ is_regular: on }).eq("id", dishId).select("id");
+  if (error) return failed("setEveryday", error, "Couldn’t change it. Try again.");
   if (data.length === 0) return { error: "This dish no longer exists. Refresh the page." };
   revalidatePath("/dashboard/manage");
   revalidatePath("/dashboard/menu");
+  revalidatePath(`/dashboard/dishes/${dishId}`);
   revalidatePath("/");
   return null;
 }
 
-/** Puts a dish on the everyday menu or takes it off (the Everyday menu job, spec-2.3), from the dish page. */
-export async function setEverydayMenu(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const parsed = z.object({ dishId: uuid, on: z.enum(["true", "false"]) }).safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return STALE_FORM;
+/** Whether Delete will archive (past orders) or remove for good, so the confirmation's words are right. */
+export async function dishHasOrders(dishId: string): Promise<{ error: string; stale?: boolean } | { hasOrders: boolean }> {
+  if (!uuid.safeParse(dishId).success) return STALE_FORM!;
   const [supabase, denied] = await staffClient();
-  if (!supabase) return denied;
-  const { data, error } = await supabase
-    .from("dishes")
-    .update({ is_regular: parsed.data.on === "true" })
-    .eq("id", parsed.data.dishId)
-    .select("id");
-  if (error) return failed("setEverydayMenu", error, "Couldn’t change it. Try again.");
-  if (data.length === 0) return { error: "This dish no longer exists. Refresh the page." };
-  revalidatePath("/dashboard/manage");
-  revalidatePath("/dashboard/menu");
-  revalidatePath(`/dashboard/dishes/${parsed.data.dishId}`);
-  revalidatePath("/");
-  return null;
+  if (!supabase) return denied!;
+  const { data, error } = await supabase.rpc("dish_has_orders", { p_dish: dishId });
+  if (error || typeof data !== "boolean") return failed("dishHasOrders", error, "Couldn’t check the dish. Try again.")!;
+  return { hasOrders: data };
 }
 
 const deleteResult = z.object({
@@ -545,14 +616,10 @@ const deleteResult = z.object({
  * Deletes a dish everywhere, in one database transaction (delete_dish). A dish that was never
  * ordered is removed for good (with its photo); one with past orders is archived instead so
  * receipts and sales history stay intact. Either way it leaves the menu, the planner and the library.
- * Any failure changes nothing, so the message can say so.
+ * Any failure changes nothing, so the message can say so. Afterwards Dishes says which it was.
  */
-export async function deleteDish(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const parsed = z
-    .object({ dishId: uuid, after: z.enum(["/dashboard/menu", "/dashboard/manage"]).optional() })
-    .safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return STALE_FORM;
-  const { dishId, after } = parsed.data;
+export async function deleteDish(dishId: string, name: string, regular: boolean): Promise<ActionResult> {
+  if (!uuid.safeParse(dishId).success) return STALE_FORM;
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
   const { data, error } = await supabase.rpc("delete_dish", { p_dish: dishId });
@@ -566,8 +633,24 @@ export async function deleteDish(_prev: ActionResult, formData: FormData): Promi
   revalidatePath("/dashboard/manage");
   revalidatePath("/dashboard/menu");
   revalidatePath("/");
-  if (after) redirect(after);
-  return null;
+  const q = new URLSearchParams({ done: done.data.result, dish: dishId, name: name.slice(0, 80) });
+  if (!regular) q.set("view", "all");
+  redirect(`/dashboard/manage?${q}`);
+}
+
+/** Slice 2.6: an archived dish back in the dish list, on no menu (restore_dish). */
+export async function restoreDish(dishId: string): Promise<{ error: string; stale?: boolean } | { name: string }> {
+  if (!uuid.safeParse(dishId).success) return STALE_FORM!;
+  const [supabase, denied] = await staffClient();
+  if (!supabase) return denied!;
+  const { data, error } = await supabase.rpc("restore_dish", { p_dish: dishId });
+  if (error) return failed("restoreDish", error, "Couldn’t restore the dish. Try again.")!;
+  const done = z.object({ result: z.enum(["restored", "missing"]), name: z.string().nullable() }).safeParse(data);
+  if (!done.success) return failed("restoreDish result", { message: done.error.message }, "Couldn’t tell whether it was restored. Refresh the page to check.")!;
+  if (done.data.result === "missing") return { error: "That dish isn’t archived any more. Refresh the page." };
+  revalidatePath("/dashboard/manage");
+  revalidatePath("/dashboard/menu");
+  return { name: done.data.name ?? "The dish" };
 }
 
 // ───────── planner panel: the dish library ─────────

@@ -23,6 +23,12 @@ select id, o.label, o.delta, o.is_default, o.ord
 from public.dishes,
   (values ('Spiced pilau', 0, true, 1), ('Two chapatis', 30, false, 2), ('Ugali', 0, false, 3)) as o(label, delta, is_default, ord)
 where name = 'Coconut Fish Curry & Pilau';
+-- Slice 2.6: extras the customer can add (any number, one of each per plate).
+insert into public.dish_options (dish_id, kind, label, price_delta_kes, is_default, sort_order)
+select id, 'extra', o.label, o.delta, false, o.ord
+from public.dishes,
+  (values ('Avocado', 50, 4), ('Extra kachumbari', 30, 5)) as o(label, delta, ord)
+where name = 'Coconut Fish Curry & Pilau';
 
 insert into public.menu_entries (dish_id, kind, starts_on, ends_on, plates_per_day, sort_order)
 select id, 'day', public.nairobi_today(), public.nairobi_today(), 40, 1 from public.dishes where name = 'Coconut Fish Curry & Pilau';

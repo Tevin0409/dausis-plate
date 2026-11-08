@@ -29,7 +29,7 @@ export async function getStaff() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return null;
-  const { data, error } = await supabase.from("staff").select("role, display_name").eq("user_id", user.id).maybeSingle();
+  const { data, error } = await supabase.from("staff").select("role, display_name, must_change_password, invited_at").eq("user_id", user.id).maybeSingle();
   if (error) {
     // Not "not on the staff list": the lookup itself failed.
     console.error("[db] loading staff failed:", error.code ?? "", error.message);
@@ -46,5 +46,5 @@ export async function getStaff() {
     }
     grants = rows.map((r) => r.job);
   }
-  return { id: user.id, email: user.email ?? null, role: data.role, name: data.display_name, grants };
+  return { id: user.id, email: user.email ?? null, role: data.role, name: data.display_name, grants, mustChangePassword: data.must_change_password, invited: data.invited_at !== null };
 }

@@ -1,8 +1,12 @@
 import type { Viewport } from "next";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
+import { AuthShell } from "@/components/auth/auth-shell";
 import { ClosedEarlyStrip } from "@/components/dashboard/closed-early-strip";
 import { DashboardRail, DashboardTabBar } from "@/components/dashboard/nav";
 import { RefusalNoteProvider } from "@/components/dashboard/refusal-note";
+import { SavedNote } from "@/components/dashboard/saved-note";
+import { primary } from "@/components/ui-classes";
 import type { KitchenStatus } from "@/lib/kitchen";
 import { getKitchen } from "@/lib/kitchen-server";
 import { can } from "@/lib/permissions";
@@ -20,20 +24,25 @@ export default async function DashboardLayout({ children }: { children: React.Re
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) redirect("/login");
+    // spec-2.6 "Not on the team": also what a removed person sees on their next request.
     return (
-      <main className="flex min-h-dvh items-center justify-center bg-mist px-4">
-        <div className="max-w-sm rounded-3xl border border-line bg-white p-7">
-          <h1 className="font-display text-2xl">Not on the staff list yet</h1>
-          <p className="mt-2 text-[15px] text-ink-soft">
-            {user.email} is signed in but hasn’t been added as staff. Ask the owner to add you.
-          </p>
-          <form action={signOut} className="mt-4">
-            <button className="font-semibold text-teal-deep">Sign out</button>
-          </form>
+      <AuthShell>
+        <div className="flex flex-col gap-2">
+          <h1 className="text-[17px] leading-snug text-ink">
+            <b className="font-semibold [overflow-wrap:anywhere]">{user.email}</b> isn’t on the Dausis Plate team.
+          </h1>
+          <p className="text-[15px] text-ink-soft">If that’s a mistake, ask the owner to add this email.</p>
         </div>
-      </main>
+        <form action={signOut}>
+          <button type="submit" className={`${primary} w-full`}>
+            Sign out
+          </button>
+        </form>
+      </AuthShell>
     );
   }
+  // A temporary password from the owner: Set your password first; the dashboard waits (Q5 A).
+  if (staff.mustChangePassword) redirect("/account/set-password");
 
   const [{ count, error: countError }, kitchen] = await Promise.all([
     (await createClient()).from("orders").select("id", { count: "exact", head: true }).eq("status", "new"),
@@ -59,6 +68,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
         className="min-w-0 flex-1 px-4 pb-4 pt-[calc(16px+env(safe-area-inset-top,0px))] outline-none min-[600px]:px-5 min-[600px]:pb-5 min-[600px]:pt-[calc(20px+env(safe-area-inset-top,0px))] lg:px-7 lg:pb-7 lg:pt-[calc(28px+env(safe-area-inset-top,0px))] print:block print:p-0"
       >
         <ClosedEarlyStrip closedEarly={kitchen?.reason === "closed_early"} owner={can(staff, "close_early")} />
+        <Suspense fallback={null}>
+          <SavedNote />
+        </Suspense>
         <RefusalNoteProvider>{children}</RefusalNoteProvider>
       </main>
       <DashboardTabBar newOrders={newOrders} role={staff.role} grants={staff.grants} />

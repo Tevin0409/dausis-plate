@@ -10,6 +10,8 @@ import { CloseEarlyCard } from "./close-early-card";
 import { ClosedDates } from "./closed-dates";
 import { HoursForm, type Day } from "./hours-form";
 import { TillCard } from "./till-card";
+import { PhoneCard } from "./phone-card";
+import { formatKenyanPhone } from "@/lib/kitchen-phone";
 import { hint, tile, tileHeading } from "./ui";
 
 export const dynamic = "force-dynamic";
@@ -38,7 +40,7 @@ export default async function SettingsPage() {
   const [hoursResult, datesResult, settingsResult, pickupsResult] = await Promise.all([
     supabase.from("opening_hours").select("weekday, is_open, opens, closes"),
     supabase.from("closed_dates").select("day, note").gt("day", today).order("day"),
-    supabase.from("kitchen_settings").select("till_number, last_orders_minutes").maybeSingle(),
+    supabase.from("kitchen_settings").select("till_number, last_orders_minutes, phone").maybeSingle(),
     supabase
       .from("orders")
       .select("id", { count: "exact", head: true })
@@ -73,7 +75,7 @@ export default async function SettingsPage() {
       </p>
       {!owner && (
         <p className={`${hint} mt-2 text-[15px]`}>
-          {closes ? "Only the owner can change the hours, closed dates and till number." : "Only the owner can change these."}
+          {closes ? "Only the owner can change the hours, closed dates, till number and kitchen phone." : "Only the owner can change these."}
         </p>
       )}
 
@@ -94,6 +96,16 @@ export default async function SettingsPage() {
               <section className={tile}>
                 <h2 className={tileHeading}>M-Pesa till number</h2>
                 <p className="mt-2 text-base font-semibold tabular-nums">{settings?.till_number ?? "Not set"}</p>
+              </section>
+            )}
+          </div>
+          <div className="order-5 xl:order-none">
+            {owner ? (
+              <PhoneCard initial={settings?.phone ?? null} />
+            ) : (
+              <section className={tile}>
+                <h2 className={tileHeading}>Kitchen phone</h2>
+                <p className="mt-2 text-base font-semibold tabular-nums">{settings?.phone ? formatKenyanPhone(settings.phone) : "Not set"}</p>
               </section>
             )}
           </div>

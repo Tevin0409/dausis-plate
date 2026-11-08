@@ -1,4 +1,5 @@
 "use client";
+import { type CartExtra, cartLineKey, readStoredLine } from "@/lib/cart-lines";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 export type CartLine = {
@@ -8,7 +9,9 @@ export type CartLine = {
   optionId: string | null;
   name: string;
   optionLabel: string | null;
-  /** Display only. The database reprices every order. */
+  /** Ticked extras, in the dish's order (spec-2.6). Carts saved before 2.6 load with []. */
+  extras: CartExtra[];
+  /** Display only, extras included. The database reprices every order. */
   unitPriceKes: number;
   quantity: number;
   note: string;
@@ -22,7 +25,7 @@ type CartContext = {
   count: number;
   subtotalKes: number;
   table: DineInTable | null;
-  add: (line: Omit<CartLine, "key" | "quantity"> & { quantity?: number }) => void;
+  add: (line: Omit<CartLine, "key" | "quantity" | "extras"> & { quantity?: number; extras?: CartExtra[] }) => void;
   setQuantity: (key: string, quantity: number) => void;
   clear: () => void;
 };
@@ -30,14 +33,6 @@ type CartContext = {
 const Ctx = createContext<CartContext | null>(null);
 const STORAGE_KEY = "dp-cart-v1";
 
-const lineKey = (l: Pick<CartLine, "dishId" | "menuEntryId" | "optionId" | "note">) =>
-  [l.dishId, l.menuEntryId ?? "-", l.optionId ?? "-", l.note.trim()].join("|");
-
-function isCartLine(v: unknown): v is CartLine {
-  if (typeof v !== "object" || v === null) return false;
-  const o = v as Record<string, unknown>;
-  return typeof o.key === "string" && typeof o.dishId === "string" && typeof o.quantity === "number";
-}
 
 export function CartProvider({ children, table }: { children: React.ReactNode; table: DineInTable | null }) {
   const [lines, setLines] = useState<CartLine[]>([]);
@@ -47,7 +42,7 @@ export function CartProvider({ children, table }: { children: React.ReactNode; t
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const parsed: unknown = JSON.parse(raw);
-      if (Array.isArray(parsed)) setLines(parsed.filter(isCartLine));
+      if (Array.isArray(parsed)) setLines(parsed.map((v) => readStoredLine<CartLine>(v)).filter((l): l is CartLine => l !== null));
     } catch {
       // Storage unavailable (private mode): the cart just lives in memory.
     }
@@ -62,12 +57,13 @@ export function CartProvider({ children, table }: { children: React.ReactNode; t
   }, [lines]);
 
   const add = useCallback<CartContext["add"]>((line) => {
-    const key = lineKey(line);
+    const extras = line.extras ?? [];
+    const key = cartLineKey({ ...line, extras });
     const qty = line.quantity ?? 1;
     setLines((prev) => {
       const found = prev.find((l) => l.key === key);
       if (found) return prev.map((l) => (l.key === key ? { ...l, quantity: Math.min(20, l.quantity + qty) } : l));
-      return [...prev, { ...line, key, quantity: qty }];
+      return [...prev, { ...line, extras, key, quantity: qty }];
     });
   }, []);
 
