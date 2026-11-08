@@ -38,7 +38,8 @@ describe("delete_dish", () => {
       const f = await seedFixtures(tx);
       await tx`
         insert into public.menu_entries (dish_id, kind, starts_on, ends_on, show_from, show_until)
-        values (${f.rotating.id}, 'day', public.nairobi_today() - 7, public.nairobi_today() - 7, '11:00', '20:00')`;
+        values (${f.rotating.id}, 'day', public.nairobi_today() - 7, public.nairobi_today() - 7, '11:00', '20:00'),
+               (${f.rotating.id}, 'day', public.nairobi_today() + 3, public.nairobi_today() + 3, '11:00', '20:00')`;
       await placeOrder(tx, dineIn(f, [{ dish_id: f.rotating.id, menu_entry_id: f.openEntry.id, quantity: 1 }]));
       expect(await deleteDish(tx, f.ownerId, f.rotating.id)).toEqual({ result: "archived" });
       expect(await state(tx, f.rotating.id)).toEqual({
@@ -50,6 +51,9 @@ describe("delete_dish", () => {
   test("if deleting the dish fails, its menu entries stay: nothing is half-removed", () =>
     inTx(async (tx) => {
       const f = await seedFixtures(tx);
+      await tx`
+        insert into public.menu_entries (dish_id, kind, starts_on, ends_on, show_from, show_until)
+        values (${f.rotating.id}, 'day', public.nairobi_today() + 3, public.nairobi_today() + 3, '11:00', '20:00')`;
       const before = await state(tx, f.rotating.id);
       // Stands in for any failure of the final delete (dropped connection, lock timeout, ...).
       await tx`create function public.test_fail_dish_delete() returns trigger language plpgsql as $$ begin raise exception 'simulated failure'; end $$`;

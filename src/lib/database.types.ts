@@ -165,6 +165,14 @@ export type Database = {
           { foreignKeyName: "menu_entry_days_entry_id_fkey"; columns: ["entry_id"]; isOneToOne: false; referencedRelation: "todays_menu"; referencedColumns: ["entry_id"] },
         ];
       };
+      menu_entry_off_days: {
+        Row: { created_at: string; created_by: string | null; day: string; entry_id: string };
+        Insert: { created_at?: string; created_by?: string | null; day: string; entry_id: string };
+        Update: { created_at?: string; created_by?: string | null; day?: string; entry_id?: string };
+        Relationships: [
+          { foreignKeyName: "menu_entry_off_days_entry_id_fkey"; columns: ["entry_id"]; isOneToOne: false; referencedRelation: "menu_entries"; referencedColumns: ["id"] },
+        ];
+      };
       order_items: {
         Row: {
           dish_id: string;
@@ -392,7 +400,26 @@ export type Database = {
       };
       undo_order_move: { Args: { p_order: string; p_status: Database["public"]["Enums"]["order_status"]; p_version: number }; Returns: undefined };
       unmark_order_paid: { Args: { p_order: string; p_version: number }; Returns: undefined };
-      copy_menu_day: { Args: { p_from: string; p_to: string }; Returns: number };
+      copy_menu_day: { Args: { p_from: string; p_to: string }; Returns: Json };
+      copy_menu_week_preview: { Args: { p_week_start: string }; Returns: Json };
+      add_menu_entry: {
+        Args: {
+          p_dish: string;
+          p_kind: Database["public"]["Enums"]["entry_kind"];
+          p_days: string[];
+          p_from: string;
+          p_until: string;
+          p_plates: number | null;
+          p_price: number | null;
+        };
+        Returns: string;
+      };
+      update_menu_entry: {
+        Args: { p_entry: string; p_from: string; p_until: string; p_plates: number | null; p_price: number | null; p_days?: string[] | null };
+        Returns: Json;
+      };
+      remove_menu_entry: { Args: { p_entry: string; p_day?: string | null }; Returns: Json };
+      restore_menu_entry: { Args: { p_undo: Json }; Returns: string };
       dashboard_stats: { Args: { p_day: string }; Returns: Json };
       delete_dish: { Args: { p_dish: string }; Returns: Json };
       get_order_status: { Args: { p_token: string }; Returns: Json };

@@ -60,8 +60,8 @@ describe("place_order", () => {
     inTx(async (tx) => {
       const f = await seedFixtures(tx);
       await expect(
-        placeOrder(tx, dineIn(f, [{ dish_id: f.rotating.id, menu_entry_id: f.closedEntry.id, quantity: 1 }])),
-      ).rejects.toThrow("Test rotating is not on the menu right now");
+        placeOrder(tx, dineIn(f, [{ dish_id: f.late.id, menu_entry_id: f.closedEntry.id, quantity: 1 }])),
+      ).rejects.toThrow("Test late is not on the menu right now");
       expect(await platesSold(tx, f.closedEntry.id)).toBe(0);
     }));
 });

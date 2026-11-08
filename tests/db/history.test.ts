@@ -140,10 +140,11 @@ describe("menu", () => {
         values (${f.regular.id}, 'day', public.nairobi_today(), public.nairobi_today(), 20)`;
       const o = await person(tx, "staff", "Otieno");
       const [r = {}] = await as(tx, o, (q) => q`select public.copy_menu_day(public.nairobi_today(), public.nairobi_today() + 1) n`);
-      expect(r.n).toBeGreaterThanOrEqual(2); // the seed may plan more dishes for today
+      const copied = (r.n as { copied: number }).copied; // 2.5: copy_menu_day returns what it did
+      expect(copied).toBeGreaterThanOrEqual(2); // the seed may plan more dishes for today
       const l = await lines(tx);
       expect(picked(l, [{ action: "menu.copy_day", actor_name: "Otieno" }])).toEqual([{ action: "menu.copy_day", actor_name: "Otieno" }]);
-      expect((l[0]?.after as { count: number }).count).toBe(r.n);
+      expect((l[0]?.after as { count: number }).count).toBe(copied);
     }));
 });
 

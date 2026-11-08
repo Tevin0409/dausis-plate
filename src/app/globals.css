@@ -43,7 +43,9 @@
   --dur-press: 120ms;
   --dur-small: 180ms;
   --dur-exit: 220ms;
+  --dur-sheet: 280ms;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 body {
@@ -252,6 +254,101 @@ html:has(.board) {
   }
   @starting-style {
     .ticket-in {
+      transform: none;
+    }
+  }
+}
+
+/* Menu planner (spec-2.5). The panel: a sheet from below under 600 px, a 420 px side panel from the
+   right at 600 and up. It arrives with sheet + drawer and leaves the same way with exit + ease-out;
+   the scrim fades with it. A drag on the grabber sets the transform inline (planner/sheet.tsx). */
+.planner-scrim {
+  background: rgb(0 40 38 / 0.35);
+  transition: opacity var(--dur-sheet) var(--ease-out);
+}
+.planner-panel {
+  transition: transform var(--dur-sheet) var(--ease-drawer);
+}
+@starting-style {
+  .planner-scrim {
+    opacity: 0;
+  }
+  .planner-panel {
+    transform: translateY(100%);
+  }
+}
+.planner-host[data-phase="out"] .planner-scrim {
+  opacity: 0;
+  transition-duration: var(--dur-exit);
+}
+.planner-host[data-phase="out"] .planner-panel {
+  transform: translateY(100%);
+  transition: transform var(--dur-exit) var(--ease-out);
+}
+@media (width >= 600px) {
+  @starting-style {
+    .planner-panel {
+      transform: translateX(100%);
+    }
+  }
+  .planner-host[data-phase="out"] .planner-panel {
+    transform: translateX(100%);
+  }
+}
+.planner-body {
+  overscroll-behavior: contain;
+}
+
+/* A dish just added or copied: enter in the new place, 8 px. Copied dishes enter together. */
+.dish-in {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .dish-in {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* Weekly closed days: hatched sand. */
+.closed-hatch {
+  background-color: var(--color-sand);
+  background-image: repeating-linear-gradient(135deg, rgb(26 32 44 / 0.06) 0 8px, transparent 8px 16px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .planner-panel,
+  .planner-host[data-phase="out"] .planner-panel {
+    transform: none;
+    transition: opacity var(--dur-sheet) var(--ease-out);
+  }
+  .planner-host[data-phase="out"] .planner-panel {
+    opacity: 0;
+    transition-duration: var(--dur-exit);
+  }
+  @starting-style {
+    .planner-panel {
+      transform: none;
+      opacity: 0;
+    }
+  }
+  @media (width >= 600px) {
+    @starting-style {
+      .planner-panel {
+        transform: none;
+      }
+    }
+    .planner-host[data-phase="out"] .planner-panel {
+      transform: none;
+    }
+  }
+  .dish-in {
+    transition: opacity var(--dur-small) var(--ease-out);
+  }
+  @starting-style {
+    .dish-in {
       transform: none;
     }
   }

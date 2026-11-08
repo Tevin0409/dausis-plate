@@ -30,6 +30,17 @@ describe("sentences", () => {
     expect(text({ action: "menu.copy_day", subject_label: null, after: { from: "2026-11-02", to: "2026-11-03", count: 6 } })).toBe(
       "Wanjiku copied Monday’s menu to Tuesday (6 dishes).",
     );
+    // Slice 2.5: the planner's lines.
+    expect(text({ action: "entry.add", after: { kind: "week", starts_on: "2026-11-02", ends_on: "2026-11-06", days: ["2026-11-02", "2026-11-03", "2026-11-04", "2026-11-06"], plates: 25, price: null } })).toBe(
+      "Wanjiku added Pilau for the week (Mon–Wed, Fri), 25 plates a day.",
+    );
+    expect(text({ action: "entry.off_day", after: { day: "2026-11-04", entry: "x" } })).toBe("Wanjiku removed Pilau from Wednesday (all-week dish).");
+    expect(text({ action: "entry.day_back", after: { day: "2026-11-04", entry: "x" } })).toBe("Wanjiku put Pilau back on Wednesday (all-week dish).");
+    expect(text({ action: "entry.restore", after: { kind: "day", starts_on: "2026-11-06", day: "2026-11-06" } })).toBe("Wanjiku undid removing Pilau from Friday.");
+    expect(text({ action: "entry.remove", before: { kind: "day", starts_on: "2026-11-06", ends_on: "2026-11-06", day: "2026-11-06" } })).toBe("Wanjiku removed Pilau from Friday.");
+    expect(text({ action: "entry.remove", before: { kind: "week", starts_on: "2026-11-02", ends_on: "2026-11-08", day: "2026-11-04" } })).toBe(
+      "Wanjiku removed Pilau from the rest of the week, from Wednesday.",
+    );
     const order = { area: "orders" as const, subject_label: "DP-0107 (Amina)" };
     expect(text({ ...order, action: "order.cancel", before: { status: "new" } })).toBe("Wanjiku declined DP-0107 (Amina).");
     expect(text({ ...order, action: "order.cancel", before: { status: "preparing" } })).toBe("Wanjiku cancelled DP-0107 (Amina).");

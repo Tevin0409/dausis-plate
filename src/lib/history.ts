@@ -5,6 +5,7 @@
 import { addDays, dayLabel, formatKes, timeLabel, weekdayName } from "@/lib/format";
 import { REASON_LABEL, TITLES } from "@/lib/board";
 import type { Grant } from "@/lib/permissions";
+import { daysLabel } from "@/lib/planner";
 
 export const AREAS = ["menu", "orders", "tables", "team", "settings"] as const;
 export type Area = (typeof AREAS)[number];
@@ -106,10 +107,20 @@ function rest(row: ChangeRow): Piece[] {
     // ── menu: the planner
     case "entry.add": {
       const price = num(a.price) === null ? "" : `, at ${kes(a.price)}`;
+      // Slice 2.5: a week dish names its days, "for the week (Mon–Wed, Fri)".
+      const days = Array.isArray(a.days) ? a.days.filter(isDay) : [];
+      if (a.kind === "week" && days.length > 0) return [t("added "), s, t(` for the week (${daysLabel(days)}), ${plates(a.plates)} a day${price}.`)];
       return [t("added "), s, t(` to ${entryDays(a)}, ${plates(a.plates)}${price}.`)];
     }
     case "entry.remove":
+      if (b.kind === "week" && isDay(b.day)) return [t("removed "), s, t(` from the rest of the week, from ${weekday(b.day)}.`)];
       return [t("removed "), s, t(` from ${entryDays(b)}.`)];
+    case "entry.off_day":
+      return [t("removed "), s, t(` from ${weekday(a.day)} (all-week dish).`)];
+    case "entry.day_back":
+      return [t("put "), s, t(` back on ${weekday(a.day)} (all-week dish).`)];
+    case "entry.restore":
+      return [t("undid removing "), s, t(` from ${weekday(a.day)}.`)];
     case "entry.end_early":
       return [t("ended "), s, t(" early for today.")];
     case "entry.price":

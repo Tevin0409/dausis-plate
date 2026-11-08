@@ -2,13 +2,14 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import type { Enums } from "@/lib/database.types";
+import type { Enums, Json } from "@/lib/database.types";
 import { NOTE_MAX, NOTE_MIN, nextStatus } from "@/lib/board";
 import { addDays, weekdayName, weekStart } from "@/lib/format";
+import { clashMessage, dow, REFUSAL_FIELD } from "@/lib/planner";
 import { deletePhotoSet, PHOTO_KEY, photoExists, publicPhotoUrl } from "@/lib/r2";
 import { refusal } from "@/lib/supabase/refusal";
 import { createClient, getStaff } from "@/lib/supabase/server";
-import type { ActionResult, BoardResult, OrderRefusal } from "./action-result";
+import type { ActionResult, BoardResult, OrderRefusal, PlannerResult, Undo } from "./action-result";
 
 // Form actions return null on success or { error } with a message for the person
 // who tapped (shown by ActionForm). Details go to the server log, never the UI.
@@ -35,7 +36,6 @@ function failed(what: string, error: DbError, message: string): ActionResult {
   return refused ? { error: refused, stale: true } : { error: message };
 }
 
-const FOREIGN_KEY_VIOLATION = "23503";
 const UNIQUE_VIOLATION = "23505";
 
 const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -126,10 +126,10 @@ export async function saveDish(_prev: ActionResult, formData: FormData): Promise
   }
 
   if (v.add_day && v.add_kind && (created || v.id)) {
-    const added = await insertEntry(supabase, dishId, v.add_day, v.add_kind, {
-      plates_per_day: v.plates_per_day ? v.plates_per_day : null,
-      show_from: v.show_from ?? "11:00",
-      show_until: v.show_until ?? "20:00",
+    const added = await addNewDishToMenu(supabase, dishId, v.name, v.add_day, v.add_kind, {
+      plates: v.plates_per_day ? v.plates_per_day : null,
+      from: v.show_from ?? "11:00",
+      until: v.show_until ?? "20:00",
     });
     revalidatePath("/dashboard/menu");
     if (added) return added;
@@ -143,100 +143,215 @@ export async function saveDish(_prev: ActionResult, formData: FormData): Promise
 
 // ───────── rotating menu ─────────
 
-async function insertEntry(
-  supabase: Db,
-  dishId: string,
-  day: string,
-  kind: Enums<"entry_kind">,
-  opts: { plates_per_day: number | null; show_from: string; show_until: string },
-): Promise<ActionResult> {
-  const ends_on = kind === "day" ? day : addDays(weekStart(day), 6);
-  const { error } = await supabase.from("menu_entries").insert({ dish_id: dishId, kind, starts_on: day, ends_on, ...opts });
-  // 23505 = menu_entries_one_per_day: it's already planned for that day, so retrying can't help.
-  if (error?.code === UNIQUE_VIOLATION) return { error: `This dish is already on ${weekdayName(day)}’s menu.` };
-  if (error) return failed("insertEntry", error, "Couldn’t add the dish to the menu. Try again.");
-  const { error: served } = await supabase.from("dishes").update({ last_served_on: day }).eq("id", dishId);
-  if (served) return failed("insertEntry last_served_on", served, "Added to the menu, but the dish library date didn’t update.");
-  return null;
+// Slice 2.5: the planner's actions. They are called from the planner panel with plain values (not
+// forms) and return what the panel needs: an error under the right field, the removal's Undo, or a
+// copy's result for the note. The rules live in the database (add_menu_entry and the rest).
+
+type PgError = { message: string; code?: string; details?: string | null; hint?: string | null } | null;
+
+const SAVE_FAILED = "Couldn’t save. Nothing has changed. Try again.";
+const isIso = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+function plannerFailed(what: string, error: PgError, ctx: { name: string; day: string | null; mine: "day" | "week" }, message = SAVE_FAILED): PlannerResult {
+  console.error(`[action] ${what} failed:`, error?.code ?? "", error?.message ?? "", error?.details ?? "");
+  const refused = refusal(error);
+  if (refused) return { ok: false, error: refused, field: "form", stale: true };
+  if (error?.code === UNIQUE_VIOLATION) {
+    // raise_clash puts the date in detail and the other entry's kind in hint; the bare unique index doesn't.
+    const day = isIso(error.details) ? error.details : ctx.day;
+    const text = day ? clashMessage(ctx.name, day, ctx.mine, error.hint ?? null) : `${ctx.name} is already on that day’s menu.`;
+    return { ok: false, error: text, field: ctx.mine === "week" ? "days" : "dish" };
+  }
+  const code = error?.code === "P0001" ? (error.details ?? "") : "";
+  if (code === "gone") {
+    const on = ctx.day ? ` ${weekdayName(ctx.day)}` : " the menu";
+    return { ok: false, error: `${ctx.name} was taken off${on} meanwhile.`, field: "form", gone: true };
+  }
+  if (REFUSAL_FIELD[code] && error) return { ok: false, error: error.message, field: REFUSAL_FIELD[code] };
+  return { ok: false, error: message, field: "form" };
 }
 
-/** "+ Tue" in the dish library: reuse the dish's last plate count and hours. */
-export async function addFromLibrary(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const parsed = z.object({ dishId: uuid, day: isoDay, kind: z.enum(["day", "week"]) }).safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return STALE_FORM;
+const time = z.string().regex(/^\d{2}:\d{2}$/);
+const plates = z.number().int().min(1).max(MAX_PLATES_PER_DAY).nullable();
+const price = z.number().int().min(0).max(100000).nullable();
+
+const addInput = z.object({
+  dishId: uuid,
+  dishName: z.string().max(200),
+  kind: z.enum(["day", "week"]),
+  days: z.array(isoDay).max(7),
+  from: time,
+  until: time,
+  plates,
+  price,
+});
+
+/** "+ Day" and "+ Week": adds nothing until the panel's Add. */
+export async function addEntry(input: z.input<typeof addInput>): Promise<PlannerResult> {
+  const parsed = addInput.safeParse(input);
+  if (!parsed.success) return { ok: false, error: STALE_FORM!.error, field: "form" };
   const v = parsed.data;
   const [supabase, denied] = await staffClient();
-  if (!supabase) return denied;
-  const { data: last, error } = await supabase
-    .from("menu_entries")
-    .select("plates_per_day, show_from, show_until")
-    .eq("dish_id", v.dishId)
-    .order("starts_on", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) return failed("addFromLibrary last entry", error, "Couldn’t add the dish to the menu. Try again.");
-  const added = await insertEntry(supabase, v.dishId, v.day, v.kind, {
-    plates_per_day: last?.plates_per_day ?? null,
-    show_from: last?.show_from?.slice(0, 5) ?? "11:00",
-    show_until: last?.show_until?.slice(0, 5) ?? "20:00",
+  if (!supabase) return { ok: false, error: denied!.error, field: "form" };
+  const { data, error } = await supabase.rpc("add_menu_entry", {
+    p_dish: v.dishId,
+    p_kind: v.kind,
+    p_days: v.days,
+    p_from: v.from,
+    p_until: v.until,
+    p_plates: v.plates,
+    p_price: v.price,
   });
+  if (error) return plannerFailed("addEntry", error, { name: v.dishName, day: v.days[0] ?? null, mine: v.kind }, "Couldn’t add it. Nothing has changed. Try again.");
   revalidatePath("/dashboard/menu");
   revalidatePath("/");
-  return added;
+  return { ok: true, entryId: data };
 }
 
-export async function copyDay(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const parsed = z.object({ from: isoDay, to: isoDay }).safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return STALE_FORM;
+const updateInput = z.object({
+  entryId: uuid,
+  dishName: z.string().max(200),
+  kind: z.enum(["day", "week"]),
+  day: isoDay,
+  from: time,
+  until: time,
+  plates,
+  price,
+  days: z.array(isoDay).max(7).nullable(),
+});
+
+/** Save in the panel. A week dish's unticked days become days off; no day left removes it. */
+export async function updateEntry(input: z.input<typeof updateInput>): Promise<PlannerResult> {
+  const parsed = updateInput.safeParse(input);
+  if (!parsed.success) return { ok: false, error: STALE_FORM!.error, field: "form" };
+  const v = parsed.data;
   const [supabase, denied] = await staffClient();
-  if (!supabase) return denied;
-  const { error } = await supabase.rpc("copy_menu_day", { p_from: parsed.data.from, p_to: parsed.data.to });
-  if (error) return failed("copyDay", error, "Couldn’t copy the menu. Try again.");
+  if (!supabase) return { ok: false, error: denied!.error, field: "form" };
+  const { data, error } = await supabase.rpc("update_menu_entry", {
+    p_entry: v.entryId,
+    p_from: v.from,
+    p_until: v.until,
+    p_plates: v.plates,
+    p_price: v.price,
+    p_days: v.kind === "week" ? v.days : null,
+  });
+  if (error) return plannerFailed("updateEntry", error, { name: v.dishName, day: v.day, mine: v.kind });
   revalidatePath("/dashboard/menu");
   revalidatePath("/");
-  return null;
+  // Unticking every remaining day removed it: hand back the Undo as a removal would.
+  return data ? { ok: true, undo: data as Undo } : { ok: true };
 }
 
-export async function setSoldOut(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const parsed = z.object({ entryId: uuid, soldOut: z.enum(["true", "false"]) }).safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return STALE_FORM;
+const removeInput = z.object({ entryId: uuid, dishName: z.string().max(200), kind: z.enum(["day", "week"]), day: isoDay.nullable() });
+
+/** "Remove from Tuesday" (a day dish, or one day of a week dish) or "Remove from the rest of the week". */
+export async function removeEntry(input: z.input<typeof removeInput>): Promise<PlannerResult> {
+  const parsed = removeInput.safeParse(input);
+  if (!parsed.success) return { ok: false, error: STALE_FORM!.error, field: "form" };
+  const v = parsed.data;
   const [supabase, denied] = await staffClient();
-  if (!supabase) return denied;
-  const { error } = await supabase.rpc("set_entry_sold_out", { p_entry: parsed.data.entryId, p_sold_out: parsed.data.soldOut === "true" });
-  if (error) return failed("setSoldOut", error, "Couldn’t change sold out. Try again.");
+  if (!supabase) return { ok: false, error: denied!.error, field: "form" };
+  const { data, error } = await supabase.rpc("remove_menu_entry", { p_entry: v.entryId, p_day: v.kind === "week" ? v.day : null });
+  if (error) return plannerFailed("removeEntry", error, { name: v.dishName, day: v.day, mine: v.kind }, "Couldn’t remove it. Nothing has changed. Try again.");
   revalidatePath("/dashboard/menu");
   revalidatePath("/");
-  return null;
+  return { ok: true, undo: data as Undo };
 }
 
-export async function endEntryEarly(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const parsed = z.object({ entryId: uuid }).safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return STALE_FORM;
-  const [supabase, denied] = await staffClient();
-  if (!supabase) return denied;
-  const { error } = await supabase.from("menu_entries").update({ ended_early_at: new Date().toISOString() }).eq("id", parsed.data.entryId);
-  if (error) return failed("endEntryEarly", error, "Couldn’t end it early. Try again.");
-  revalidatePath("/dashboard/menu");
-  revalidatePath("/");
-  return null;
-}
+const undoInput = z.object({
+  dishName: z.string().max(200),
+  kind: z.enum(["day", "week"]),
+  undo: z.object({ did: z.enum(["deleted", "unpublished", "off_day", "ended"]), entry: uuid, day: isoDay, token: uuid }).passthrough(),
+});
 
-/** Removes a planned dish. Entries that already have orders are unpublished instead, to keep history. */
-export async function removeEntry(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  const parsed = z.object({ entryId: uuid }).safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return STALE_FORM;
+/** Undo on "Pilau removed · Undo": reverses exactly what the removal did. */
+export async function restoreEntry(input: z.input<typeof undoInput>): Promise<PlannerResult> {
+  const parsed = undoInput.safeParse(input);
+  if (!parsed.success) return { ok: false, error: STALE_FORM!.error, field: "form" };
+  const v = parsed.data;
   const [supabase, denied] = await staffClient();
-  if (!supabase) return denied;
-  const { error } = await supabase.from("menu_entries").delete().eq("id", parsed.data.entryId);
+  if (!supabase) return { ok: false, error: denied!.error, field: "form" };
+  // Only the token: the database reverses its own record of the removal (RQA25-01).
+  const { error } = await supabase.rpc("restore_menu_entry", { p_undo: { token: v.undo.token } as Json });
   if (error) {
-    // Only an entry that orders still point at falls back to unpublishing.
-    if (error.code !== FOREIGN_KEY_VIOLATION) return failed("removeEntry delete", error, "Couldn’t remove it. Try again.");
-    const { error: hide } = await supabase.from("menu_entries").update({ published: false }).eq("id", parsed.data.entryId);
-    if (hide) return failed("removeEntry unpublish", hide, "Couldn’t remove it. Try again.");
+    // Back on that day another way meanwhile: the plain "already on" line, whatever the kinds.
+    const r = plannerFailed("restoreEntry", error, { name: v.dishName, day: v.undo.day, mine: "day" }, "Couldn’t undo. Try again.");
+    return r.ok ? r : { ...r, gone: r.gone || error.code === UNIQUE_VIOLATION };
   }
   revalidatePath("/dashboard/menu");
   revalidatePath("/");
-  return null;
+  return { ok: true };
+}
+
+export type CopyResult = {
+  copied: number;
+  archived: string[];
+  outside_hours: { name: string; from: string; until: string }[];
+  /** The copied dishes that had a one-day price, with the price each has now; kept is Q1 C's answer. */
+  prices: { kept: boolean; dishes: { name: string; price: number }[] };
+};
+
+/** "Copy Monday · 3" / "Copy last Tuesday · 5": the result is the note in the day. */
+export async function copyDay(input: { from: string; to: string }): Promise<PlannerResult> {
+  const parsed = z.object({ from: isoDay, to: isoDay }).safeParse(input);
+  if (!parsed.success) return { ok: false, error: STALE_FORM!.error, field: "form" };
+  const [supabase, denied] = await staffClient();
+  if (!supabase) return { ok: false, error: denied!.error, field: "form" };
+  const { data, error } = await supabase.rpc("copy_menu_day", { p_from: parsed.data.from, p_to: parsed.data.to });
+  if (error) {
+    console.error("[action] copyDay failed:", error.code ?? "", error.message);
+    const refused = refusal(error);
+    if (refused) return { ok: false, error: refused, field: "form", stale: true };
+    return { ok: false, error: `Couldn’t copy ${weekdayName(parsed.data.from)}. Nothing was added. Try again.`, field: "form" };
+  }
+  revalidatePath("/dashboard/menu");
+  revalidatePath("/");
+  return { ok: true, copy: data as CopyResult };
+}
+
+/** The panel's "Sold out today" switch. */
+export async function setEntrySoldOut(input: { entryId: string; dishName: string; soldOut: boolean }): Promise<PlannerResult> {
+  const parsed = z.object({ entryId: uuid, dishName: z.string().max(200), soldOut: z.boolean() }).safeParse(input);
+  if (!parsed.success) return { ok: false, error: STALE_FORM!.error, field: "form" };
+  const [supabase, denied] = await staffClient();
+  if (!supabase) return { ok: false, error: denied!.error, field: "form" };
+  const { error } = await supabase.rpc("set_entry_sold_out", { p_entry: parsed.data.entryId, p_sold_out: parsed.data.soldOut });
+  if (error) return plannerFailed("setEntrySoldOut", error, { name: parsed.data.dishName, day: null, mine: "day" }, "Couldn’t change sold out. Try again.");
+  revalidatePath("/dashboard/menu");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/** A new dish's "add to the menu" (dish form): the day, or that day to Sunday on its open days. */
+async function addNewDishToMenu(
+  supabase: Db,
+  dishId: string,
+  dishName: string,
+  day: string,
+  kind: Enums<"entry_kind">,
+  opts: { plates: number | null; from: string; until: string },
+): Promise<ActionResult> {
+  let days = [day];
+  if (kind === "week") {
+    const { data: hours, error } = await supabase.from("opening_hours").select("weekday, is_open");
+    if (error) return failed("addNewDishToMenu hours", error, "Saved the dish, but couldn’t add it to the menu. Add it from the planner.");
+    const closed = new Set(hours.filter((h) => !h.is_open).map((h) => h.weekday));
+    const sunday = addDays(weekStart(day), 6);
+    days = [];
+    for (let d = day; d <= sunday; d = addDays(d, 1)) if (!closed.has(dow(d))) days.push(d);
+  }
+  const { error } = await supabase.rpc("add_menu_entry", {
+    p_dish: dishId,
+    p_kind: kind,
+    p_days: days,
+    p_from: opts.from,
+    p_until: opts.until,
+    p_plates: opts.plates,
+    p_price: null,
+  });
+  if (!error) return null;
+  const r = plannerFailed("addNewDishToMenu", error, { name: dishName, day, mine: kind }, "Saved the dish, but couldn’t add it to the menu. Add it from the planner.");
+  return r.ok ? null : { error: r.error, stale: r.stale };
 }
 
 // ───────── regular menu ─────────
@@ -453,4 +568,76 @@ export async function deleteDish(_prev: ActionResult, formData: FormData): Promi
   revalidatePath("/");
   if (after) redirect(after);
   return null;
+}
+
+// ───────── planner panel: the dish library ─────────
+
+export type LibraryDish = {
+  id: string;
+  name: string;
+  price: number;
+  photo: string | null;
+  lastServedOn: string | null;
+  /** The first day from..until it's already on (by any entry, days off counted), or null. */
+  onDay: string | null;
+  last: { from: string; until: string; plates: number | null } | null;
+};
+
+/** The panel's dish list: up to 8, most recently served first, not archived, not everyday dishes. */
+export async function searchDishes(input: { q: string; from: string; until: string }): Promise<{ ok: true; dishes: LibraryDish[] } | { ok: false }> {
+  const parsed = z.object({ q: z.string().max(80), from: isoDay, until: isoDay }).safeParse(input);
+  if (!parsed.success) return { ok: false };
+  const { q, from, until } = parsed.data;
+  const [supabase] = await staffClient();
+  if (!supabase) return { ok: false };
+  let query = supabase
+    .from("dishes")
+    .select("id, name, price_kes, photo_thumb_url, last_served_on")
+    .eq("archived", false)
+    .eq("is_regular", false)
+    .order("last_served_on", { ascending: false, nullsFirst: false })
+    .order("name")
+    .limit(8);
+  // ilike wildcards in what was typed are matched literally.
+  const term = q.trim().replace(/[\\%_]/g, (c) => `\\${c}`);
+  if (term) query = query.ilike("name", `%${term}%`);
+  const { data: dishes, error } = await query;
+  if (error) {
+    console.error("[action] searchDishes failed:", error.code ?? "", error.message);
+    return { ok: false };
+  }
+  if (dishes.length === 0) return { ok: true, dishes: [] };
+  const ids = dishes.map((d) => d.id);
+  const { data: entries, error: entriesError } = await supabase
+    .from("menu_entries")
+    .select("id, dish_id, starts_on, ends_on, published, ended_early_at, plates_per_day, show_from, show_until, off:menu_entry_off_days(day)")
+    .in("dish_id", ids)
+    .order("starts_on", { ascending: false });
+  if (entriesError) {
+    console.error("[action] searchDishes entries failed:", entriesError.code ?? "", entriesError.message);
+    return { ok: false };
+  }
+  return {
+    ok: true,
+    dishes: dishes.map((d) => {
+      const mine = entries.filter((e) => e.dish_id === d.id);
+      let onDay: string | null = null;
+      for (let day = from; day <= until && !onDay; day = addDays(day, 1)) {
+        const live = mine.some(
+          (e) => e.published && !e.ended_early_at && e.starts_on <= day && day <= e.ends_on && !e.off.some((o) => o.day === day),
+        );
+        if (live) onDay = day;
+      }
+      const last = mine[0];
+      return {
+        id: d.id,
+        name: d.name,
+        price: d.price_kes,
+        photo: d.photo_thumb_url,
+        lastServedOn: d.last_served_on,
+        onDay,
+        last: last ? { from: last.show_from, until: last.show_until, plates: last.plates_per_day } : null,
+      };
+    }),
+  };
 }
