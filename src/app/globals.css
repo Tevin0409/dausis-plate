@@ -353,3 +353,50 @@ html:has(.board) {
     }
   }
 }
+
+/* Reports (spec-2.12 Motion). Reports is a reading screen, so little moves: the tooltip fades in with a
+   2 px rise from its bar, and the cards fade in when a period or tab's data arrives. Both use
+   --dur-small and --ease-out; nothing else on the screen animates (bars never grow, figures never tick).
+   Press feedback is the shared .press class. The order sheet reuses .planner-* above. */
+.rpt-tip {
+  transform-origin: 50% 100%;
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .rpt-tip {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+.rpt-in {
+  transition: opacity var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .rpt-in {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rpt-tip {
+    transition: opacity var(--dur-small) var(--ease-out);
+  }
+  @starting-style {
+    .rpt-tip {
+      transform: none;
+    }
+  }
+}
+/* The tab strip scrolls on its own and shows no scrollbar. */
+.rpt-strip {
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+}
+.rpt-strip::-webkit-scrollbar {
+  display: none;
+}
+.rpt-table {
+  overscroll-behavior-x: contain;
+}

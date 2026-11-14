@@ -157,8 +157,16 @@ function rest(row: ChangeRow): Piece[] {
       const why = reason === "other" ? str(a.note) : reason ? (REASON_LABEL as Record<string, string>)[reason] : null;
       return why ? [t(verb), code, t(`: ${why.replace(/[.\s]+$/, "")}.`)] : [t(verb), code, t(".")];
     }
-    case "order.paid":
-      return [t("marked "), code, t(" paid.")];
+    case "order.paid": {
+      const w = str(a.with);
+      return [t("marked "), code, t(w ? ` paid: ${w === "mpesa" ? "M-Pesa" : w === "cash" ? "cash" : w}.` : " paid.")];
+    }
+    case "credit_note.issue":
+      return [t("issued credit note "), { text: str(a.code) ?? "", bold: true }, t(" for "), code, t(`: ${kes(a.amount)}.`)];
+    case "credit_note.void": {
+      const why = str(a.reason);
+      return [t("voided credit note "), { text: str(a.code) ?? "", bold: true }, t(" for "), code, t(why ? `: ${why.replace(/[.\s]+$/, "")}.` : ".")];
+    }
     case "order.paid_undo":
       return [t("undid marking "), code, t(" paid.")];
 

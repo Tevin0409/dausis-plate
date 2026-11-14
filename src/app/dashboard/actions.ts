@@ -442,11 +442,11 @@ export async function undoOrderMove(orderId: string, status: Enums<"order_status
 }
 
 export async function markPaid(_prev: ActionResult, formData: FormData): Promise<BoardResult> {
-  const parsed = z.object({ orderId: uuid }).safeParse(Object.fromEntries(formData));
+  const parsed = z.object({ orderId: uuid, with: z.enum(["cash", "mpesa"]) }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return STALE_FORM;
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
-  const { data, error } = await supabase.rpc("mark_order_paid", { p_order: parsed.data.orderId });
+  const { data, error } = await supabase.rpc("mark_order_paid", { p_order: parsed.data.orderId, p_with: parsed.data.with });
   revalidatePath("/dashboard/orders");
   // mark_order_paid never refuses a stale tap (paying twice is harmless), so there is nothing for
   // the board's strip; its only P0001 is "Order not found", shown under the button.

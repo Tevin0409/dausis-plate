@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { RefusalNote } from "@/components/dashboard/refusal-note";
-import { z } from "zod";
 import { PlusIcon } from "@/components/icons";
-import { formatKes, nairobiToday, weekdayName } from "@/lib/format";
+import { formatKes, nairobiToday } from "@/lib/format";
 import { notFound } from "next/navigation";
 import { regularOnSale } from "@/lib/kitchen";
 import { ActionForm } from "@/components/dashboard/action-form";
@@ -13,40 +12,23 @@ import { must } from "@/lib/supabase/result";
 import { deleteDish, removeFromRegulars, setRegularAvailable } from "../actions";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Menu & sales" };
+export const metadata = { title: "Dishes" };
 
-const counts = z.record(z.string(), z.number()).catch({});
-const stats = z.object({
-  revenue_kes: z.number(),
-  paid_kes: z.number(),
-  unpaid_kes: z.number(),
-  orders: z.number(),
-  by_mode: counts,
-  by_payment: counts,
-  by_hour: counts,
-  rotating: z.array(z.object({ name: z.string(), sold: z.number(), total: z.number().nullable() })),
-});
-
-const HOURS = Array.from({ length: 11 }, (_, i) => 10 + i);
 const CATEGORY = { mains: "Mains", sides: "Sides", breakfast: "Breakfast", drinks: "Drinks" } as const;
 
 export default async function ManagePage() {
   const staff = await getStaff();
   if (!staff) notFound();
   const owner = staff.role === "owner";
-  // Sales figures are the owner's (spec-2.3); staff never ask for them.
   const today = nairobiToday();
   const supabase = await createClient();
-  const [statsResult, regularsResult] = await Promise.all([
-    owner ? supabase.rpc("dashboard_stats", { p_day: today }) : null,
-    supabase
-      .from("dishes")
-      .select("id, name, category, price_kes, unavailable_on")
-      .eq("is_regular", true)
-      .eq("archived", false)
-      .order("category")
-      .order("sort_order"),
-  ]);
+  const regularsResult = await supabase
+    .from("dishes")
+    .select("id, name, category, price_kes, unavailable_on")
+    .eq("is_regular", true)
+    .eq("archived", false)
+    .order("category")
+    .order("sort_order");
   const regulars = must(regularsResult, "regular dishes").map((d) => ({ ...d, onSale: regularOnSale(d.unavailable_on, today) }));
   const edits = can(staff, "dishes_prices");
   const everyday = can(staff, "everyday_menu");
@@ -54,14 +36,16 @@ export default async function ManagePage() {
 
   return (
     <div className="flex max-w-[1040px] flex-col gap-5">
-      {statsResult ? (
-        <Sales st={readStats(statsResult)} today={today} />
-      ) : (
-        <header>
-          <h1 className="font-display text-[34px]">Dishes</h1>
-          <RefusalNote className="mt-1" />
-        </header>
-      )}
+      {/* Sales moved to Reports (2.12); the owner gets a pointer, staff just the header. */}
+      <header>
+        <h1 className="font-display text-[34px]">Dishes</h1>
+        <RefusalNote className="mt-1" />
+        {owner && (
+          <p className="mt-1 text-sm text-ink-soft">
+            Today’s sales are in <Link href="/dashboard/reports" className="font-semibold text-teal-deep underline underline-offset-2">Reports →</Link>
+          </p>
+        )}
+      </header>
 
       <section aria-label="Always on the menu" className="overflow-hidden rounded-[18px] border border-line bg-white">
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
@@ -147,90 +131,5 @@ export default async function ManagePage() {
       </section>
       {!everyday && <p className="text-sm text-ink-soft">{OWNER_ONLY.everyday_menu}</p>}
     </div>
-  );
-}
-
-function readStats(result: Parameters<typeof must>[0]) {
-  const s = stats.safeParse(must(result, "today’s sales"));
-  if (!s.success) {
-    // Wrong shape is a failure too: showing zeros would look like a quiet day.
-    console.error("[db] dashboard_stats had an unexpected shape:", s.error.message);
-    throw new Error("Couldn't load today’s sales");
-  }
-  return s.data;
-}
-
-/** The owner's header and today's figures. */
-function Sales({ st, today }: { st: z.infer<typeof stats>; today: string }) {
-
-  const sold = st.rotating.reduce((n, r) => n + r.sold, 0);
-  const total = st.rotating.reduce((n, r) => n + (r.total ?? 0), 0);
-  const best = st.rotating[0];
-  const maxHour = Math.max(1, ...HOURS.map((h) => st.by_hour[String(h)] ?? 0));
-
-  const tile = "flex flex-col gap-1 rounded-[18px] border border-line bg-white p-[18px]";
-  const big = "font-display text-[34px] leading-tight";
-  // "KSh" and the figure never split (formatKes), so a seven-figure day steps down to
-  // display-lg (28 px) to stay inside a 200 px tile; six figures and below keep 34 px.
-  const money = (kes: number) => {
-    const text = formatKes(kes);
-    return <span className={text.length > 11 ? "font-display text-[28px] leading-tight" : big}>{text}</span>;
-  };
-
-  return (
-    <>
-      <header>
-        <h1 className="font-display text-[34px]">Menu &amp; sales</h1>
-        <RefusalNote className="mt-1" />
-        <span className="text-sm text-ink-soft">Today so far</span>
-      </header>
-
-      <section aria-label="Today’s numbers" className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-3.5">
-        <div className={tile}>
-          <span className="text-sm font-semibold text-ink-soft">Total ordered</span>
-          {money(st.revenue_kes)}
-        </div>
-        <div className={tile}>
-          <span className="text-sm font-semibold text-ink-soft">Orders</span>
-          <span className={big}>{st.orders}</span>
-          <span className="text-[13px] text-ink-soft">
-            {st.by_mode.delivery ?? 0} delivery · {st.by_mode.pickup ?? 0} pickup · {st.by_mode.dine_in ?? 0} dine-in
-          </span>
-        </div>
-        <div className="flex flex-col gap-2 rounded-[18px] bg-blush p-[18px]">
-          <span className="text-sm font-semibold text-coral-ink">{weekdayName(today)}’s menu</span>
-          <span className={big}>
-            {sold} {total > 0 && <span className="font-sans text-base text-ink-soft">of {total} plates sold</span>}
-          </span>
-          {total > 0 && (
-            <div className="h-2 rounded-full bg-blush-deep"><div className="h-2 rounded-full bg-coral" style={{ width: `${Math.min(100, (sold / total) * 100)}%` }} /></div>
-          )}
-          {best && best.sold > 0 && <span className="text-[13px] text-ink-soft">Best seller: {best.name}, {best.sold}{best.total ? ` of ${best.total}` : ""}</span>}
-        </div>
-        <div className={tile}>
-          <span className="text-sm font-semibold text-ink-soft">Paid so far</span>
-          {money(st.paid_kes)}
-          <span className="text-[13px] text-ink-soft">{formatKes(st.unpaid_kes)} not paid yet</span>
-        </div>
-      </section>
-
-      <section aria-label="Orders by hour" className="flex flex-col gap-3.5 rounded-[18px] border border-line bg-white p-5">
-        <h2 className="text-base font-bold">Orders by hour</h2>
-        <div
-          role="img"
-          aria-label={HOURS.map((h) => `${h}:00 ${st.by_hour[String(h)] ?? 0}`).join(", ")}
-          className="grid h-[120px] grid-cols-11 items-end gap-2.5"
-        >
-          {HOURS.map((h) => {
-            const n = st.by_hour[String(h)] ?? 0;
-            return <div key={h} className={`rounded-t-md ${n ? "bg-teal" : "bg-line-deep"}`} style={{ height: n ? `${(n / maxHour) * 100}%` : 4 }} />;
-          })}
-        </div>
-        <div className="grid grid-cols-11 gap-2.5 text-center text-xs text-ink-soft">
-          {HOURS.map((h) => <span key={h}>{h > 12 ? h - 12 : h}{h === 12 ? "pm" : ""}</span>)}
-        </div>
-      </section>
-
-    </>
   );
 }

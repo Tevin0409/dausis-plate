@@ -13,6 +13,7 @@ export type BoardOrder = {
   mode: Mode;
   payment_method: Enums<"payment_method">;
   payment_status: Enums<"payment_status">;
+  paid_with: Enums<"paid_with"> | null;
   total_kes: number;
   created_at: string;
   status_changed_at: string;
@@ -102,13 +103,13 @@ export function Ticket({ o, now }: { o: BoardOrder; now: Date }) {
         Call {phoneLabel(o.customer_phone)}
       </a>
 
-      {/* 6. Money row: the total and Mark paid on one line when they fit (they wrap at large text), the pill under */}
-      <div className="flex flex-col items-start gap-1 border-t border-sand pt-2.5">
-        <div className="flex w-full flex-wrap items-center justify-between gap-2">
+      {/* 6. Money row: the total and the pill; Paid cash / Paid M-Pesa (or Undo) on their own full-width row under it (2.12) */}
+      <div className="flex flex-col gap-2 border-t border-sand pt-2.5">
+        <div className="flex w-full flex-wrap items-center justify-between gap-x-2 gap-y-1">
           <span className="text-base font-bold tabular-nums">{formatKes(o.total_kes)}</span>
-          <PaidButton orderId={o.id} code={o.code} paid={paid} />
+          <PayPill paid={paid} method={payLabel(o)} paidWith={o.paid_with} />
         </div>
-        <PayPill paid={paid} method={payLabel(o)} />
+        <PaidButton orderId={o.id} code={o.code} paid={paid} block />
       </div>
 
       {/* 7 and 8. Main action, then Decline or Cancel order */}
@@ -134,7 +135,7 @@ export function DoneRow({ o }: { o: BoardOrder }) {
       <TypeTag o={o} />
       <span className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1.5">
         <span className="text-[15px] font-bold tabular-nums">{formatKes(o.total_kes)}</span>
-        <PayPill paid={paid} method={payLabel(o)} />
+        <PayPill paid={paid} method={payLabel(o)} paidWith={o.paid_with} />
         <PaidButton orderId={o.id} code={o.code} paid={paid} />
       </span>
     </TicketShell>

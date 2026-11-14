@@ -181,8 +181,8 @@ describe("orders", () => {
       const f = await seedFixtures(tx);
       const order = await placeOrder(tx, dineIn(f, [{ dish_id: f.regular.id, quantity: 1 }]));
       const [{ id }] = await tx`select id from public.orders where public_token = ${order.public_token}`;
-      await as(tx, f.ownerId, (q) => q`select public.mark_order_paid(${id})`);
-      await as(tx, f.ownerId, (q) => q`select public.mark_order_paid(${id})`);
+      await as(tx, f.ownerId, (q) => q`select public.mark_order_paid(${id}, 'cash')`);
+      await as(tx, f.ownerId, (q) => q`select public.mark_order_paid(${id}, 'cash')`);
       expect(await actions(tx)).toEqual(["order.paid"]);
     }));
 
@@ -290,7 +290,7 @@ describe("the record itself", () => {
       const order = await placeOrder(tx, dineIn(f, [{ dish_id: f.regular.id, quantity: 1 }]));
       const [{ id }] = await tx`select id from public.orders where public_token = ${order.public_token}`;
       await as(tx, o, (q) => q`select public.advance_order(${id}, 'new', 'preparing')`);
-      await as(tx, f.ownerId, (q) => q`select public.mark_order_paid(${id})`);
+      await as(tx, f.ownerId, (q) => q`select public.mark_order_paid(${id}, 'cash')`);
       await as(tx, f.ownerId, (q) => q`update public.dishes set price_kes = 350 where id = ${f.regular.id}`);
       const all = await as(tx, f.ownerId, (q) => q`select action from public.change_log where action <> 'order.move' order by id desc`);
       expect(all.map((r) => r.action)).toEqual(["dish.price", "order.paid"]);

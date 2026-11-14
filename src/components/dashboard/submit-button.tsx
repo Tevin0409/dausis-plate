@@ -6,6 +6,8 @@ type Props = {
   pendingLabel?: string;
   className?: string;
   "aria-label"?: string;
+  name?: string;
+  value?: string;
   /** Ask before submitting, for actions that can't be undone. */
   confirm?: string;
   /** Disabled until the form is ready (as well as while it runs). */

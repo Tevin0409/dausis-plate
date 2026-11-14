@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Orders" };
 
 const SELECT =
-  "id, code, status, mode, payment_method, payment_status, total_kes, created_at, status_changed_at, pickup_at, delivery_address, delivery_notes, customer_name, customer_phone, table:dining_tables(label), zone:delivery_zones(name), items:order_items(name, option_label, quantity, note)";
+  "id, code, status, mode, payment_method, payment_status, paid_with, total_kes, created_at, status_changed_at, pickup_at, delivery_address, delivery_notes, customer_name, customer_phone, table:dining_tables(label), zone:delivery_zones(name), items:order_items(name, option_label, quantity, note)";
 
 const EMPTY: Record<string, string> = {
   new: "No new orders",
