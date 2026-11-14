@@ -235,6 +235,61 @@ describe("sold_out_at", () => {
       expect(back!.sold_out_at.getTime()).toBe(first.getTime());
     });
   });
+
+  // The last plate is caught by a trigger on plates_sold, not by place_order, so a later
+  // place_order (2.11) keeps it. These tests go round place_order on purpose.
+  test("the trigger: set at the limit whoever writes the count, kept when plates are given back", async () => {
+    await inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      const read = async () =>
+        (await tx`select plates_sold, sold_out_at from public.menu_entry_days where entry_id = ${f.openEntry.id} and day = public.nairobi_today()`)[0]!;
+      const [trig] = await tx`select count(*)::int n from pg_trigger where tgname = 'menu_entry_days_sold_out_at' and not tgisinternal`;
+      expect(trig!.n).toBe(1);
+      // place_order no longer mentions sold_out_at: the trigger is the only writer on the plate path.
+      const [src] = await tx`select prosrc from pg_proc where proname = 'place_order' and pronamespace = 'public'::regnamespace`;
+      expect(src!.prosrc).not.toContain("sold_out_at");
+
+      // Straight into the table: below the limit stays null, the limit sets it.
+      await tx`insert into public.menu_entry_days (entry_id, day) values (${f.openEntry.id}, public.nairobi_today()) on conflict do nothing`;
+      await tx`update public.menu_entry_days set plates_sold = 2 where entry_id = ${f.openEntry.id} and day = public.nairobi_today()`;
+      expect((await read()).sold_out_at).toBeNull();
+      await tx`update public.menu_entry_days set plates_sold = 3 where entry_id = ${f.openEntry.id} and day = public.nairobi_today()`;
+      const full = await read();
+      expect(full.sold_out_at).not.toBeNull();
+
+      // Given back, then full again: the first time stays.
+      await tx`update public.menu_entry_days set plates_sold = 1 where entry_id = ${f.openEntry.id} and day = public.nairobi_today()`;
+      expect((await read()).sold_out_at.getTime()).toBe(full.sold_out_at.getTime());
+      await tx`update public.menu_entry_days set plates_sold = 3 where entry_id = ${f.openEntry.id} and day = public.nairobi_today()`;
+      expect((await read()).sold_out_at.getTime()).toBe(full.sold_out_at.getTime());
+
+      // A dish with no plate limit never gets a time.
+      const [free] = await tx`select id from public.menu_entries where plates_per_day is null limit 1`;
+      if (free) {
+        await tx`insert into public.menu_entry_days (entry_id, day, plates_sold) values (${free.id}, public.nairobi_today(), 500)
+                   on conflict (entry_id, day) do update set plates_sold = 500`;
+        const [row] = await tx`select sold_out_at from public.menu_entry_days where entry_id = ${free.id} and day = public.nairobi_today()`;
+        expect(row!.sold_out_at).toBeNull();
+      }
+    });
+  });
+
+  test("the trigger: a cancelled last-plate order gives the plate back and keeps the time", async () => {
+    await inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      const read = async () =>
+        (await tx`select plates_sold, sold_out_at from public.menu_entry_days where entry_id = ${f.openEntry.id} and day = public.nairobi_today()`)[0]!;
+      await placeOrder(tx, dineIn(f, [{ dish_id: f.rotating.id, menu_entry_id: f.openEntry.id, quantity: 2 }]));
+      const last = await placeOrder(tx, dineIn(f, [{ dish_id: f.rotating.id, menu_entry_id: f.openEntry.id, quantity: 1 }]));
+      const full = await read();
+      expect(full).toMatchObject({ plates_sold: 3 });
+      expect(full.sold_out_at).not.toBeNull();
+      await tx`update public.orders set status = 'cancelled' where public_token = ${last.public_token}`;
+      const back = await read();
+      expect(back.plates_sold).toBe(2);
+      expect(back.sold_out_at.getTime()).toBe(full.sold_out_at.getTime());
+    });
+  });
 });
 
 describe("report_sales: a hand-counted case (March 2020)", () => {

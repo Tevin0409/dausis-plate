@@ -41,3 +41,22 @@ For the worst case, I set seed orders so that Money in = **KSh 10,058,479**, Sti
 - Motion: none added or changed.
 
 Skills used: break-ui — worst-case amounts (8-digit, 7-digit, negative glyph in the table, 320 to 1280) at the data boundary; it found the overflow at 320, 600 and 1024 as well as 375, and that is now fixed; mobile-native — no new inputs or touch targets; the figure uses nowrap and a container-width cap, with no sideways scroll at 320 or 375; impeccable audit (responsive, tile only) — figures keep their type steps wherever they fit; the one finding left is the Cancelled tile wrap at 320, noted above.
+
+## Follow-up: `sold_out_at` by trigger, not by `place_order` (orch.lead 20:40Z), 2026-11-15
+Migrations run by timestamp, so 2.12's copy of `place_order` (20261116) would always run last and overwrite the `place_order` bodies from 2.6, 2.8 and 2.11. This slice no longer redefines `place_order`.
+
+| File | What |
+|---|---|
+| `supabase/migrations/20261116000000_reports.sql` | The whole `create or replace function public.place_order` block is removed. In its place is `menu_entry_days_sold_out_at()`, a `before insert or update of plates_sold` trigger on `menu_entry_days`. When the entry has a plate limit and `plates_sold` reaches it, the trigger sets `sold_out_at := coalesce(sold_out_at, now())`. The first time that day is kept, and giving plates back (a cancel) never clears it. It runs `security definer` with `search_path = ''`, and execute is revoked from public, anon and authenticated. `set_entry_sold_out` (the manual switch) is unchanged. The whole migration no longer mentions `place_order`, so whichever `place_order` runs last (2.11's) keeps this behaviour. |
+| `tests/db/reports.test.ts` | Two new tests. (1) The trigger exists, and `place_order`'s source no longer contains `sold_out_at`. Straight writes to the table: 2 of 3 leaves it null, 3 of 3 sets it; back to 1, then up to 3 again, keeps the first time; an entry with no limit at 500 stays null. (2) Through `place_order`: 2 plates, then the last 1 sets it. Cancelling the last order gives the plate back (3 → 2) and keeps the time. The existing "set by the last plate" test still passes, unchanged. |
+
+**Checks:**
+- `DEV_STACK_REPO=<this worktree> $D reset`: done. **The stack is now on the 2.12 schema.**
+- `bun run test` (rebuilds `dausis_test` from this worktree): **316 pass, 3 skip, 0 fail** (`/tmp/dev-implementor-212trig-test.log`). The 3 skips are time-gated opening-hours tests.
+- **Control:** with the trigger dropped on `dausis_test`, all three `sold_out_at` tests fail (17 pass, 3 fail; `/tmp/dev-implementor-212trig-control.log`). `dausis_test` was rebuilt afterwards.
+- typecheck, lint, build: pass (`/tmp/dev-implementor-212trig-{typecheck,lint,build}.log`).
+- No app code changed; the Reports screen reads `sold_out_at` as before.
+
+**Notes:**
+- The trigger catches any write to `plates_sold`, whichever `place_order` makes it. A future `place_order` only has to keep counting plates in `menu_entry_days.plates_sold`, which every version since `init` does.
+- Not changed: `sold_out_at` still has one time per day row. Going over the limit and back under it doesn't record a second time, same as before.
