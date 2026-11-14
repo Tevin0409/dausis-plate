@@ -7,7 +7,7 @@
 --   * set_option_out, save_dish_options, dish_has_orders, restore_dish;
 --   * kitchen_settings.phone (Q4 A), shown on the order status page with the extras;
 --   * staff: must_change_password (Q5 A) and invited_at, and the owner's team RPCs.
--- Go-live: docs/review/launch/2.6-go-live-checks.sql lists existing rows the new checks refuse.
+-- Go-live: run supabase/preflight/2.6-owner-screens.sql (read-only) first; it lists existing rows the new checks refuse.
 
 -- ───────────────────────── delivery zones ─────────────────────────
 alter table public.delivery_zones
