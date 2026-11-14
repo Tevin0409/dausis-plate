@@ -148,3 +148,29 @@ export function nextChange(s: KitchenStatus, now: Date): number | null {
   ].filter((t): t is number => typeof t === "number" && t > now.getTime());
   return candidates.length ? Math.min(...candidates) : null;
 }
+
+/**
+ * The band's status (spec-2.8 "The band"): "Open now · last orders 20:30",
+ * "Closed now · opens Friday 11:00", "Closed now · opens today 11:00".
+ */
+export function bandStatus(s: KitchenStatus): { lead: string; rest: string | null } {
+  if (s.state === "open") return { lead: "Open now", rest: s.last_order_at ? `last orders ${closingTime(s.last_order_at)}` : null };
+  if (!s.next_open_date || !s.next_opens_at) return { lead: "Closed for now", rest: null };
+  const n = days(s.today, s.next_open_date);
+  const day = n === 0 ? "today" : n < 7 ? weekdayName(s.next_open_date) : longDate(s.next_open_date);
+  return { lead: "Closed now", rest: `opens ${day} ${timeLabel(s.next_opens_at)}` };
+}
+
+/** The rail's hours card: a bold first line and the line under it. */
+export function hoursCard(s: KitchenStatus): { lead: string; rest: string | null } {
+  if (s.state === "open")
+    return {
+      lead: s.closes_at ? `Open till ${closingTime(s.closes_at)}` : "Open now",
+      rest: s.last_order_at ? `Last orders ${closingTime(s.last_order_at)}.` : null,
+    };
+  const when = opensWhen(s);
+  return when ? { lead: "Closed now", rest: `Opens ${when}.` } : { lead: "Closed for now", rest: null };
+}
+
+/** The menu's day, as the database's menu_day(): today while open, else the next open day. */
+export const menuDayOf = (s: KitchenStatus) => (s.state === "open" ? s.today : (s.next_open_date ?? s.today));

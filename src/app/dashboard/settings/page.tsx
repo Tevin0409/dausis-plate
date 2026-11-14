@@ -11,6 +11,7 @@ import { ClosedDates } from "./closed-dates";
 import { HoursForm, type Day } from "./hours-form";
 import { TillCard } from "./till-card";
 import { PhoneCard } from "./phone-card";
+import { AddressCard } from "./address-card";
 import { formatKenyanPhone } from "@/lib/kitchen-phone";
 import { hint, tile, tileHeading } from "./ui";
 
@@ -40,7 +41,7 @@ export default async function SettingsPage() {
   const [hoursResult, datesResult, settingsResult, pickupsResult] = await Promise.all([
     supabase.from("opening_hours").select("weekday, is_open, opens, closes"),
     supabase.from("closed_dates").select("day, note").gt("day", today).order("day"),
-    supabase.from("kitchen_settings").select("till_number, last_orders_minutes, phone").maybeSingle(),
+    supabase.from("kitchen_settings").select("till_number, last_orders_minutes, phone, address, maps_url").maybeSingle(),
     supabase
       .from("orders")
       .select("id", { count: "exact", head: true })
@@ -75,7 +76,7 @@ export default async function SettingsPage() {
       </p>
       {!owner && (
         <p className={`${hint} mt-2 text-[15px]`}>
-          {closes ? "Only the owner can change the hours, closed dates, till number and kitchen phone." : "Only the owner can change these."}
+          {closes ? "Only the owner can change the hours, closed dates, till number, kitchen phone and address." : "Only the owner can change these."}
         </p>
       )}
 
@@ -106,6 +107,16 @@ export default async function SettingsPage() {
               <section className={tile}>
                 <h2 className={tileHeading}>Kitchen phone</h2>
                 <p className="mt-2 text-base font-semibold tabular-nums">{settings?.phone ? formatKenyanPhone(settings.phone) : "Not set"}</p>
+              </section>
+            )}
+          </div>
+          <div className="order-6 xl:order-none">
+            {owner ? (
+              <AddressCard initial={{ address: settings?.address ?? "", mapsUrl: settings?.maps_url ?? "" }} />
+            ) : (
+              <section className={tile}>
+                <h2 className={tileHeading}>Kitchen address</h2>
+                <p className="mt-2 text-base font-semibold [overflow-wrap:anywhere]">{settings?.address ?? "Not set"}</p>
               </section>
             )}
           </div>

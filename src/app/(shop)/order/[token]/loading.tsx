@@ -16,6 +16,9 @@ export default function OrderLoading() {
           </div>
         ))}
       </div>
+      {/* The where card and the Save this link card. */}
+      <Bone className="mx-5 mt-5 h-36 rounded-[var(--r-lg)]" />
+      <Bone className="mx-5 mt-5 h-44 rounded-[var(--r-lg)]" />
     </Loading>
   );
 }

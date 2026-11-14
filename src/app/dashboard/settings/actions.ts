@@ -180,3 +180,16 @@ export async function saveKitchenPhone(input: string): Promise<SettingsResult> {
   refreshEverywhere();
   return { ok: true, note: phone };
 }
+
+// ───────── kitchen address (2.8: the menu band, the rail and pickup/dine-in order pages) ─────────
+
+/** Saves the pickup address and its maps link; empty clears them. set_kitchen_address checks both. */
+export async function saveKitchenAddress(address: string, mapsUrl: string): Promise<SettingsResult> {
+  const message = "Couldn’t save. The address hasn’t changed. Try again.";
+  const db = await ownerClient();
+  if (!db) return fail("saveKitchenAddress", null, message);
+  const { error } = await db.rpc("set_kitchen_address", { p_address: address, p_maps_url: mapsUrl });
+  if (error) return refused("saveKitchenAddress", error) ?? fail("saveKitchenAddress", error, error.code === "P0001" ? error.message : message);
+  refreshEverywhere();
+  return { ok: true };
+}

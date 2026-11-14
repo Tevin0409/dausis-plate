@@ -46,7 +46,7 @@ describe("place_order", () => {
       const f = await seedFixtures(tx);
       const rotating = (quantity: number) => dineIn(f, [{ dish_id: f.rotating.id, menu_entry_id: f.openEntry.id, quantity }]);
 
-      await expect(placeOrder(tx, rotating(4))).rejects.toThrow("Sorry, Test rotating has sold out");
+      await expect(placeOrder(tx, rotating(4))).rejects.toThrow("Only 3 plates of Test rotating left. Change your order and try again.");
       expect(await platesSold(tx, f.openEntry.id)).toBe(0);
 
       await placeOrder(tx, rotating(3));

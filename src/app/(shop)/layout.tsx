@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { OrderAnnouncer } from "@/components/shop/cart-line";
 import { CartProvider } from "@/components/shop/cart-provider";
 import { KitchenProvider } from "@/components/shop/kitchen-provider";
 import { getKitchen } from "@/lib/kitchen-server";
@@ -9,10 +10,11 @@ export default async function ShopLayout({ children }: { children: React.ReactNo
   const [jar, kitchen] = await Promise.all([cookies(), getKitchen()]);
   const table = parseTableCookie(jar.get(TABLE_COOKIE)?.value);
   return (
-    <CartProvider table={table}>
-      <KitchenProvider initial={kitchen}>
+    <KitchenProvider initial={kitchen}>
+      <CartProvider table={table}>
         <div className="min-h-dvh bg-cream">{children}</div>
-      </KitchenProvider>
-    </CartProvider>
+        <OrderAnnouncer />
+      </CartProvider>
+    </KitchenProvider>
   );
 }

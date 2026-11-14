@@ -37,3 +37,12 @@ select id, 'day', public.nairobi_today(), public.nairobi_today(), 20, 2 from pub
 insert into public.menu_entries (dish_id, kind, starts_on, ends_on, plates_per_day, sort_order)
 select id, 'week', date_trunc('week', public.nairobi_today())::date, (date_trunc('week', public.nairobi_today()) + interval '6 days')::date, 30, 3
 from public.dishes where name = 'Matoke & Goat Stew';
+
+-- Slice 2.8: sample kitchen address and directions for the status page (the real ones are Tevin's
+-- to give; set them in Settings), and tomorrow's dishes so the closed-kitchen menu has something.
+update public.kitchen_settings
+set address = 'Argwings Kodhek Rd, Kilimani, Nairobi',
+    maps_url = 'https://maps.google.com/?q=Argwings+Kodhek+Rd+Kilimani+Nairobi'
+where id;
+insert into public.menu_entries (dish_id, kind, starts_on, ends_on, plates_per_day, sort_order)
+select id, 'day', public.nairobi_today() + 1, public.nairobi_today() + 1, 25, 1 from public.dishes where name = 'Mukimo & Beef Fry';
