@@ -39,6 +39,21 @@ export type Database = {
         Update: { active?: boolean; id?: string; label?: string; qr_token?: string };
         Relationships: [];
       };
+      table_requests: {
+        Row: {
+          auto_cleared: boolean;
+          cleared_at: string | null;
+          cleared_by: string | null;
+          created_at: string;
+          id: string;
+          kind: Database["public"]["Enums"]["table_request_kind"];
+          order_id: string | null;
+          table_id: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
       dish_options: {
         Row: {
           archived: boolean; dish_id: string; id: string; is_default: boolean; kind: "choice" | "extra"; label: string;
@@ -421,6 +436,17 @@ export type Database = {
       history_people: { Args: never; Returns: { actor: string; actor_name: string; on_team: boolean }[] };
       has_permission: { Args: { p_permission: string }; Returns: boolean };
       kitchen_status: { Args: never; Returns: Json };
+      request_table_help: {
+        Args: { p_token: string; p_kind: Database["public"]["Enums"]["table_request_kind"] };
+        Returns: { asked_at: string; created: boolean }[];
+      };
+      request_waiter_at_table: { Args: { p_qr_token: string }; Returns: { asked_at: string; created: boolean }[] };
+      table_waiter_status: { Args: { p_qr_token: string }; Returns: Json };
+      open_table_requests: { Args: never; Returns: Json };
+      clear_table_request: { Args: { p_id: string }; Returns: boolean };
+      undo_clear_table_request: { Args: { p_id: string }; Returns: undefined };
+      mark_orders_paid: { Args: { p_ids: string[] }; Returns: Json };
+      unmark_orders_paid: { Args: { p_items: Json }; Returns: undefined };
       regular_on_sale: { Args: { p_unavailable_on: string | null }; Returns: boolean };
       reopen_today: { Args: never; Returns: Json };
       save_opening_hours: { Args: { p_days: Json; p_last_orders_minutes: number }; Returns: Json };
@@ -504,6 +530,7 @@ export type Database = {
       payment_status: "pending" | "paid" | "failed" | "unpaid";
       staff_grant: "everyday_menu" | "dishes_prices" | "tables_delivery" | "close_early";
       staff_role: "owner" | "staff";
+      table_request_kind: "waiter" | "bill";
     };
     CompositeTypes: {
       [_ in never]: never;

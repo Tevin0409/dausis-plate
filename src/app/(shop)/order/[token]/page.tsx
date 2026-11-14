@@ -7,6 +7,7 @@ import { CheckIcon, PhoneIcon, PinIcon } from "@/components/icons";
 import { AutoRefresh } from "@/components/shop/auto-refresh";
 import { Arrive, StatusHeadline } from "@/components/shop/arrive";
 import { SaveLink } from "@/components/shop/save-link";
+import { TableRequestButtons } from "@/components/shop/table-request-buttons";
 import { TillLine } from "@/components/shop/till-line";
 import { Narrow } from "@/components/shop/ui";
 import { customerCancelText } from "@/lib/board";
@@ -14,6 +15,7 @@ import { formatKes, timeLabel } from "@/lib/format";
 import { closingTime } from "@/lib/kitchen";
 import { createClient } from "@/lib/supabase/server";
 import { must } from "@/lib/supabase/result";
+import { customerRequests } from "@/lib/table-requests";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +41,9 @@ const status = z.object({
   declined: z.boolean().nullish(),
   // Only while unpaid and not cancelled, and only if Mama has set one (get_order_status decides).
   till_number: z.string().nullable().optional(),
+  // spec-2.9: table requests work only on the order's own day, at its table.
+  placed_today: z.boolean().optional(),
+  requests: customerRequests.optional(),
   // spec-2.6: the kitchen phone (null when Mama hasn't set one) and each line's extras.
   phone: z.string().nullable().optional(),
   // 2.8: where the food is. Delivery carries the customer's address and notes; the others the kitchen's.
@@ -138,10 +143,14 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
   // A cancelled pickup is never collected or paid for, so it has no Pay row either; with no rows the card goes.
   if (!(cancelled && o.mode === "pickup")) rows.push(["Pay", payRow]);
 
+  const requests = o.mode === "dine_in" && !cancelled && o.placed_today && o.requests ? o.requests : null;
+  const requestOpen = !!requests && [requests.waiter, requests.bill].some((r) => r && !r.answered_at);
+
   return (
     <Narrow>
       <Arrive>
-      <AutoRefresh active={o.status !== "completed" && o.status !== "cancelled"} />
+      {/* Keeps refreshing while a table request waits, so "Answered" shows up even after Served. */}
+      <AutoRefresh active={(o.status !== "completed" && !cancelled) || requestOpen} />
       <section className="flex flex-col gap-1.5 rounded-b-[28px] bg-teal-deep md:rounded-[28px] px-5 pb-[26px] pt-[22px] text-white">
         <div className="flex items-center justify-between">
           <Image src="/brand/dausis-plate-icon.svg" alt="Dausis Plate" width={40} height={40} />
@@ -154,7 +163,7 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
         </div>
         {o.till_number && o.payment_status !== "paid" && o.status !== "cancelled" && <TillLine till={o.till_number} />}
         <span className="mt-3.5 font-script text-[30px] leading-none">Asante, {o.customer_name}!</span>
-        <span className="text-[15px] text-on-teal-soft">
+        <span className="text-[15px] text-on-teal-soft [overflow-wrap:anywhere]">
           Order <span className="whitespace-nowrap tabular-nums">{o.code}</span> · {where}
         </span>
         {headline && <StatusHeadline text={headline} sub={waiting ? "We’ll keep this page up to date." : "Enjoy your food."} />}
@@ -166,6 +175,14 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
           </div>
         )}
       </section>
+
+      {requests ? (
+        <TableRequestButtons token={token} tableLabel={o.table_label ?? "your table"} requests={requests} />
+      ) : (
+        o.mode === "dine_in" &&
+        !cancelled &&
+        o.placed_today === false && <p className="mx-5 mt-5 text-[14px] text-ink-soft">Table requests work on the day of your order.</p>
+      )}
 
       {o.phone && (
         <p className="mx-5 mt-4 flex flex-wrap items-center gap-x-1.5 text-[15px] text-ink-soft">

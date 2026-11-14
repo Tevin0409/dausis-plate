@@ -3,6 +3,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { ClockIcon } from "@/components/icons";
 import type { MenuModel, MenuSection } from "@/lib/menu-model";
+import type { WaiterStatus } from "@/lib/table-requests";
 import { useCart } from "../cart-provider";
 import { useKitchen } from "../kitchen-provider";
 import { OrderPanel } from "../order-panel";
@@ -13,7 +14,7 @@ import { QrNotice } from "./qr-notice";
 import { focusReturnedRow, leftMenu } from "./return-to";
 import { JumpBar, type NavSection, Rail } from "./section-nav";
 
-type Props = { model: MenuModel; address: string | null; zones: string[]; soldOutLine: string; qrUnknown?: boolean };
+type Props = { model: MenuModel; address: string | null; zones: string[]; soldOutLine: string; qrUnknown?: boolean; waiter?: WaiterStatus };
 
 function Section({ section, model, soldOutLine }: { section: MenuSection; model: MenuModel; soldOutLine: string }) {
   const tiles = section.id === "today" || section.id === "week";
@@ -41,18 +42,26 @@ function Section({ section, model, soldOutLine }: { section: MenuSection; model:
   );
 }
 
-type FrameProps = { model: MenuModel; address: string | null; zones: string[]; onMenu: boolean; children: React.ReactNode };
+type FrameProps = {
+  model: MenuModel;
+  address: string | null;
+  zones: string[];
+  onMenu: boolean;
+  /** The menu page only: the table's latest waiter call (spec-2.9). Undefined: no Call waiter button. */
+  waiter?: WaiterStatus;
+  children: React.ReactNode;
+};
 
 /**
  * The page's shape from lg: band, then rail | middle | order panel (spec-2.8 "Page grid"). The dish
  * page keeps it, so the page doesn't jump when a dish opens. Below lg: the phone column.
  */
-export function MenuFrame({ model, address, zones, onMenu, children }: FrameProps) {
+export function MenuFrame({ model, address, zones, onMenu, waiter, children }: FrameProps) {
   const nav: NavSection[] = model.sections.map((s) => ({ id: s.id, label: s.rail, count: s.dishes.length }));
   return (
     <>
       <div className={onMenu ? "" : "hidden lg:block"}>
-        <MenuBand dayName={model.dayName} address={address} zones={zones} />
+        <MenuBand dayName={model.dayName} address={address} zones={zones} waiter={waiter} />
       </div>
       {onMenu && <JumpBar sections={nav} />}
       <div
@@ -70,7 +79,7 @@ export function MenuFrame({ model, address, zones, onMenu, children }: FrameProp
 }
 
 /** The customer menu: phone column (jump bar, cart bar) and, from lg, the rail and the order panel. */
-export function MenuView({ model, address, zones, soldOutLine, qrUnknown = false }: Props) {
+export function MenuView({ model, address, zones, soldOutLine, qrUnknown = false, waiter = null }: Props) {
   const router = useRouter();
   const { open } = useKitchen();
   const { recheck } = useCart();
@@ -97,7 +106,7 @@ export function MenuView({ model, address, zones, soldOutLine, qrUnknown = false
   }, []);
 
   return (
-    <MenuFrame model={model} address={address} zones={zones} onMenu>
+    <MenuFrame model={model} address={address} zones={zones} onMenu waiter={waiter}>
       {qrUnknown && <QrNotice />}
       {model.notPlanned && (
         <p className="mx-4 mt-7 flex gap-3 rounded-[var(--r-lg)] bg-paper p-4 text-[15px] leading-snug text-ink-soft ring-1 ring-sand-deep lg:mx-0">

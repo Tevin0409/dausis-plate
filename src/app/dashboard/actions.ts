@@ -724,3 +724,67 @@ export async function searchDishes(input: { q: string; from: string; until: stri
     }),
   };
 }
+
+// ── Slice 2.9: table requests on the board. Everyone on the team may clear them (no grant); the
+// database checks staff. Reads come from the browser's own poll, so these only write.
+
+/** What a table-request write returns: ok, or the line for the bottom strip. */
+export type RequestResult = { ok: true } | { ok: false; error: string };
+const REQUEST_FAILED = "Couldn’t save. Try again.";
+
+/** Done: clears the request for everyone. Already cleared (someone else was first) is still ok. */
+export async function clearTableRequest(id: string): Promise<RequestResult> {
+  if (!uuid.safeParse(id).success) return { ok: false, error: STALE_FORM!.error };
+  const [supabase, denied] = await staffClient();
+  if (!supabase) return { ok: false, error: denied!.error };
+  const { error } = await supabase.rpc("clear_table_request", { p_id: id });
+  if (error) {
+    console.error("[action] clearTableRequest failed:", error.code ?? "", error.message);
+    return { ok: false, error: REQUEST_FAILED };
+  }
+  return { ok: true };
+}
+
+/** Done's Undo: 10 s on the server (5 s on the tablet), only by whoever cleared it. */
+export async function undoClearTableRequest(id: string, table: string): Promise<RequestResult> {
+  if (!uuid.safeParse(id).success) return { ok: false, error: STALE_FORM!.error };
+  const [supabase, denied] = await staffClient();
+  if (!supabase) return { ok: false, error: denied!.error };
+  const { error } = await supabase.rpc("undo_clear_table_request", { p_id: id });
+  if (!error) return { ok: true };
+  if (error.code === "P0001" && error.message === "asked_again") return { ok: false, error: `${table} asked again. That’s the request on the board now.` };
+  if (error.code === "P0001") return { ok: false, error: `Too late to undo. ${table}’s call stays done.` };
+  console.error("[action] undoClearTableRequest failed:", error.code ?? "", error.message);
+  return { ok: false, error: "Couldn’t undo. Try again." };
+}
+
+const paidItems = z.array(z.object({ id: uuid, version: z.number().int() }));
+export type PaidAll = { ok: true; items: { id: string; version: number }[] } | { ok: false; error: string };
+
+/** Mark all paid on a bill: 2.4's mark_order_paid for each, with one Undo for the ones it changed. */
+export async function markAllPaid(ids: string[]): Promise<PaidAll> {
+  if (!z.array(uuid).min(1).max(50).safeParse(ids).success) return { ok: false, error: STALE_FORM!.error };
+  const [supabase, denied] = await staffClient();
+  if (!supabase) return { ok: false, error: denied!.error };
+  const { data, error } = await supabase.rpc("mark_orders_paid", { p_ids: ids });
+  revalidatePath("/dashboard/orders");
+  if (error) {
+    console.error("[action] markAllPaid failed:", error.code ?? "", error.message);
+    return { ok: false, error: "Couldn’t mark them paid. Nothing has changed. Try again." };
+  }
+  const items = paidItems.safeParse(data);
+  return items.success ? { ok: true, items: items.data } : { ok: true, items: [] };
+}
+
+/** Mark all paid's Undo: all of them or none (unmark_orders_paid). */
+export async function unmarkAllPaid(items: { id: string; version: number }[]): Promise<RequestResult> {
+  if (!paidItems.min(1).max(50).safeParse(items).success) return { ok: false, error: STALE_FORM!.error };
+  const [supabase, denied] = await staffClient();
+  if (!supabase) return { ok: false, error: denied!.error };
+  const { error } = await supabase.rpc("unmark_orders_paid", { p_items: items as unknown as Json });
+  revalidatePath("/dashboard/orders");
+  if (!error) return { ok: true };
+  if (error.code === "P0001") return { ok: false, error: `Too late to undo. ${items.length === 1 ? "The order stays" : "They stay"} marked paid.` };
+  console.error("[action] unmarkAllPaid failed:", error.code ?? "", error.message);
+  return { ok: false, error: "Couldn’t undo. Try again." };
+}

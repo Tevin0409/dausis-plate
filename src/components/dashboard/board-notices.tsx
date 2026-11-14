@@ -19,10 +19,18 @@ type BoardAction = (prev: ActionResult, formData: FormData) => Promise<BoardResu
 export type Moved = { orderId: string; code: string; name: string; from: Status; to: Status; version: number };
 type Notice =
   | { id: number; kind: "refused"; refusal: OrderRefusal; message: string }
-  | { id: number; kind: "moved"; moved: Moved };
+  | { id: number; kind: "moved"; moved: Moved }
+  | { id: number; kind: "custom"; text: string; undo?: CustomUndo };
+/**
+ * A notice from another part of the board (slice 2.9: "Table 4's call done. Undo"). `run` does the
+ * undo and returns null, or the line to show instead; `undone` is said once it worked.
+ */
+export type CustomUndo = { run: () => Promise<string | null>; undone: string };
 type Board = {
   report: (refusal: OrderRefusal, message: string) => void;
   moved: (m: Moved) => void;
+  /** A plain line, or one with Undo for 5 s (with undo). */
+  notify: (text: string, undo?: CustomUndo) => void;
   clear: () => void;
   /** The one open Decline or Cancel form on this tablet (an order id), or null. */
   openForm: string | null;
@@ -68,6 +76,7 @@ const title = (s: string) => TITLES[s as Status] ?? s;
 
 /** The strip text, with the column name (if any) set in bold. */
 function describe(n: Notice, name: (n: string) => string): [string, string?, string?] {
+  if (n.kind === "custom") return [n.text];
   if (n.kind === "moved") {
     const who = n.moved.name ? `${n.moved.code} (${name(n.moved.name)})` : n.moved.code;
     return [`${who} moved to `, title(n.moved.to), "."];
@@ -92,7 +101,7 @@ export function BoardNotices({ children }: { children: React.ReactNode }) {
   // it while a strip button still has keyboard focus (QA RQA2-01). A move's 5 s never pauses.
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
-  const paused = notice?.kind === "refused" && (hovered || focused);
+  const paused = (notice?.kind === "refused" || (notice?.kind === "custom" && !notice.undo)) && (hovered || focused);
   const [onBoard, setOnBoard] = useState(false);
   const [height, setHeight] = useState(0);
   const [openForm, setOpenForm] = useState<string | null>(null);
@@ -140,13 +149,15 @@ export function BoardNotices({ children }: { children: React.ReactNode }) {
     [reset],
   );
   const moved = useCallback((m: Moved) => setNotice({ id: reset(), kind: "moved", moved: m }), [reset]);
+  const notify = useCallback((text: string, undo?: CustomUndo) => setNotice({ id: reset(), kind: "custom", text, undo }), [reset]);
   const clear = useCallback(() => setLeaving(true), []);
   const say = useCallback((line: string) => setSpoken(line), []);
 
   // Each new notice gets its full time: 10 s for a refusal, 5 s for a move.
   useEffect(() => {
-    remaining.current = notice?.kind === "moved" ? UNDO_MS : REFUSED_FOR_MS;
-  }, [notice?.id, notice?.kind]);
+    const withUndo = notice?.kind === "moved" || (notice?.kind === "custom" && !!notice.undo);
+    remaining.current = withUndo ? UNDO_MS : REFUSED_FOR_MS;
+  }, [notice]);
 
   useEffect(() => {
     if (!notice || leaving || paused) return;
@@ -221,6 +232,15 @@ export function BoardNotices({ children }: { children: React.ReactNode }) {
   // Undo moves the order back one step. The server allows it for 10 s, and only if nothing else
   // moved it since; otherwise the refusal replaces this strip.
   const undo = () => {
+    if (notice?.kind === "custom" && notice.undo) {
+      const u = notice.undo;
+      return startUndo(async () => {
+        const refused = await u.run().catch(() => "Couldn’t undo. Try again.");
+        if (refused) return notify(refused);
+        setLeaving(true);
+        setSpoken(u.undone);
+      });
+    }
     if (notice?.kind !== "moved") return;
     const m = notice.moved;
     startUndo(async () => {
@@ -240,7 +260,7 @@ export function BoardNotices({ children }: { children: React.ReactNode }) {
   const text = notice ? describe(notice, (n) => n).join("") : "";
 
   return (
-    <BoardContext.Provider value={{ report, moved, clear, openForm, setOpenForm, say, paidUndos, startPaidUndo, endPaidUndo }}>
+    <BoardContext.Provider value={{ report, moved, notify, clear, openForm, setOpenForm, say, paidUndos, startPaidUndo, endPaidUndo }}>
       <div className="contents" style={{ "--strip-h": notice ? `${height + 16}px` : "0px" } as React.CSSProperties}>
         {children}
       </div>
@@ -272,7 +292,7 @@ export function BoardNotices({ children }: { children: React.ReactNode }) {
               {tail}
             </p>
             <div className="flex shrink-0 justify-end gap-1">
-              {notice.kind === "moved" && (
+              {(notice.kind === "moved" || (notice.kind === "custom" && notice.undo)) && (
                 <button
                   type="button"
                   onClick={undo}
