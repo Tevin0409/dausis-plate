@@ -363,10 +363,12 @@ export type Database = {
           closed_early_by: string | null;
           till_number: string | null;
           phone: string | null;
+          address: string | null;
+          maps_url: string | null;
           updated_at: string;
         };
-        Insert: { id?: boolean; last_orders_minutes?: number; closed_early_on?: string | null; closed_early_at?: string | null; closed_early_by?: string | null; till_number?: string | null; phone?: string | null; updated_at?: string };
-        Update: { id?: boolean; last_orders_minutes?: number; closed_early_on?: string | null; closed_early_at?: string | null; closed_early_by?: string | null; till_number?: string | null; phone?: string | null; updated_at?: string };
+        Insert: { id?: boolean; last_orders_minutes?: number; closed_early_on?: string | null; closed_early_at?: string | null; closed_early_by?: string | null; till_number?: string | null; phone?: string | null; address?: string | null; maps_url?: string | null; updated_at?: string };
+        Update: { id?: boolean; last_orders_minutes?: number; closed_early_on?: string | null; closed_early_at?: string | null; closed_early_by?: string | null; till_number?: string | null; phone?: string | null; address?: string | null; maps_url?: string | null; updated_at?: string };
         Relationships: [];
       };
       staff: {
@@ -466,6 +468,22 @@ export type Database = {
       clear_must_change_password: { Args: never; Returns: undefined };
       has_password: { Args: never; Returns: boolean };
       get_order_status: { Args: { p_token: string }; Returns: Json };
+      check_cart: { Args: { p_lines: Json }; Returns: Json };
+      customer_menu: {
+        Args: never;
+        Returns: {
+          menu_day: string; entry_id: string; kind: Database["public"]["Enums"]["entry_kind"]; starts_on: string; ends_on: string;
+          show_from: string; show_until: string; sort_order: number; dish_id: string; name: string; description: string;
+          photo_key: string | null; category: Database["public"]["Enums"]["dish_category"]; price_kes: number;
+          plates_per_day: number | null; plates_sold: number; plates_left: number | null; sold_out: boolean; open_now: boolean;
+          auto_hide_sold_out: boolean; photo_url: string | null; photo_thumb_url: string | null;
+        }[];
+      };
+      menu_day: { Args: never; Returns: string };
+      find_order: { Args: { p_phone: string; p_code: string }; Returns: string | null };
+      order_lookup_days: { Args: never; Returns: number };
+      set_kitchen_address: { Args: { p_address: string; p_maps_url: string }; Returns: undefined };
+      kitchen_place: { Args: never; Returns: Json };
       is_owner: { Args: never; Returns: boolean };
       is_staff: { Args: never; Returns: boolean };
       mark_order_paid: { Args: { p_order: string }; Returns: number | null };

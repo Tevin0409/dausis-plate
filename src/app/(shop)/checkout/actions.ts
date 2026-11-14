@@ -38,15 +38,20 @@ const input = z
 export type CheckoutInput = z.input<typeof input>;
 export type CheckoutResult =
   | { ok: true; token: string }
-  | { ok: false; error: string; reason?: "kitchen_closed" | "pickup_time" };
+  | { ok: false; error: string; reason?: Reason };
+
+/**
+ * place_order's stable refusal codes (its DETAIL). kitchen_closed and pickup_time rebuild the button
+ * and the pickup times; the menu ones (MENU_REASONS) make checkout check the order again (spec-2.8);
+ * under_minimum means the area's minimum changed since the page loaded.
+ */
+const REASONS = ["kitchen_closed", "pickup_time", "sold_out", "over_plates", "not_on_menu", "option_out", "under_minimum"] as const;
+type Reason = (typeof REASONS)[number];
 
 const TABLE_GONE = "Scan the QR code on your table again";
 const TABLE_CHANGED = "This table’s QR has changed. Scan the code on the table again.";
 
-/** place_order's stable refusal codes (its DETAIL), so checkout can rebuild the button or the pickup times. */
-const REASONS = new Set(["kitchen_closed", "pickup_time"] as const);
-const reasonOf = (details: string | undefined) =>
-  REASONS.has(details as "kitchen_closed") ? (details as "kitchen_closed" | "pickup_time") : undefined;
+const reasonOf = (details: string | undefined): Reason | undefined => REASONS.find((r) => r === details);
 
 export async function placeOrder(raw: CheckoutInput): Promise<CheckoutResult> {
   const parsed = input.safeParse(raw);

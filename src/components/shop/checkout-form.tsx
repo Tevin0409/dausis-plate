@@ -2,9 +2,12 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { placeOrder } from "@/app/(shop)/checkout/actions";
+import { isCounted } from "@/lib/cart-check";
 import { formatKes } from "@/lib/format";
 import { justClosedNote } from "@/lib/kitchen";
 import { minimumBlockLine, minimumShortfall, zoneOptionLabel } from "@/lib/zone-minimum";
+import { markArrival } from "./arrive";
+import { CartLineItem } from "./cart-line";
 import { useCart } from "./cart-provider";
 import { ClosedButton, KitchenNotice, useKitchen, usePickupSlots } from "./kitchen-provider";
 import { BottomBar } from "./ui";
@@ -22,12 +25,16 @@ const PAY_LINE = {
   delivery: "Pay cash or M-Pesa to our till when the rider arrives.",
 } as const;
 
-const input = "min-h-[50px] w-full rounded-[14px] border border-sand-deep bg-white px-3.5 text-[15px]";
+// 16 px: iOS zooms into anything smaller and doesn't zoom back out.
+const input = "min-h-[50px] w-full rounded-[14px] border border-field bg-white px-3.5 text-base";
+
+/** Refusals that mean the menu moved under the order: check it again and show what changed. */
+const MENU_REFUSALS = new Set(["sold_out", "over_plates", "not_on_menu", "option_out"]);
 
 const MAIN_BUTTON = "flex min-h-14 flex-1 touch-manipulation items-center justify-center rounded-[18px] px-5 font-semibold select-none";
 const chipClass = (selected: boolean) =>
   `press min-h-11 touch-manipulation rounded-xl px-3.5 text-sm select-none [-webkit-tap-highlight-color:transparent] ${
-    selected ? "border-2 border-teal-deep bg-teal-tint font-semibold text-teal-deeper" : "border border-sand-deep bg-white"
+    selected ? "border-2 border-teal-deep bg-teal-tint font-semibold text-teal-deeper" : "border border-field bg-white"
   }`;
 
 type Attempt = { key: string; cart: string };
@@ -49,11 +56,15 @@ function attemptFor(cart: string): Attempt {
 }
 
 export function CheckoutForm({ zones }: { zones: Zone[] }) {
-  const { lines, subtotalKes, table, clear } = useCart();
+  const { lines, checks, count, subtotalKes, table, clear, recheck } = useCart();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const kitchen = useKitchen();
   const [error, setError] = useState<string | null>(null);
+  // Set when the check at Place order (or after a refusal) changed the order: the lines it changed
+  // show above the button and the customer presses again (spec-2.8 "At Place order").
+  const [changed, setChanged] = useState(false);
+  const [checking, setChecking] = useState(false);
 
   const [mode, setMode] = useState<Mode>(table ? "dine_in" : "pickup");
   const [pay, setPay] = useState<Pay>(defaultPay(table ? "dine_in" : "pickup"));
@@ -82,6 +93,10 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
   useEffect(() => {
     if (error) errorRef.current?.scrollIntoView({ block: "center" });
   }, [error]);
+  const changedRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (changed) changedRef.current?.scrollIntoView({ block: "center" });
+  }, [changed]);
   const zone = zones.find((z) => z.id === zoneId);
   const fee = mode === "delivery" ? (zone?.fee_kes ?? 0) : 0;
   const total = subtotalKes + fee;
@@ -101,11 +116,36 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
     setPay(defaultPay(m));
   };
 
+  /** Lines the checks took out of the total or lowered: what the customer must see before paying. */
+  const touched = lines.filter((l) => !isCounted(checks[l.key]) || checks[l.key]?.lowered != null);
+
+  /** Checks the order again; true when it changed, and then the changed lines are shown. */
+  async function changedOnCheck(): Promise<boolean> {
+    const r = await recheck();
+    // The check couldn't run: place_order still checks last.
+    if (!r?.changed) return false;
+    setChanged(true);
+    return true;
+  }
+
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!kitchen.open || short > 0) return;
+    if (!kitchen.open || short > 0 || count === 0 || checking || pending) return;
     setError(null);
-    const items = lines.map((l) => ({ dishId: l.dishId, menuEntryId: l.menuEntryId, optionId: l.optionId, extraIds: l.extras.map((x) => x.id), quantity: l.quantity, note: l.note }));
+    setChanged(false);
+    setChecking(true);
+    void changedOnCheck()
+      .then((changed) => {
+        if (!changed) place();
+      })
+      .finally(() => setChecking(false));
+  }
+
+  function place() {
+    // Only what's in the total goes to the kitchen: sold-out and off-menu lines stay behind.
+    const items = lines
+      .filter((l) => isCounted(checks[l.key]))
+      .map((l) => ({ dishId: l.dishId, menuEntryId: l.menuEntryId, optionId: l.optionId, extraIds: l.extras.map((x) => x.id), quantity: l.quantity, note: l.note }));
     const cart = JSON.stringify(items);
     if (attempt.current?.cart !== cart) attempt.current = attemptFor(cart);
     const idempotencyKey = attempt.current.key;
@@ -124,6 +164,9 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
         items,
       }).catch(() => ({ ok: false as const, error: "We couldn’t confirm your order. Check your connection and try again.", reason: undefined }));
       if (!res.ok) {
+        // A plate sold in the second between the check and the order: check again and show the
+        // lines in their states, not a bare error. If the check finds nothing, say what place_order said.
+        if (res.reason && MENU_REFUSALS.has(res.reason) && (await changedOnCheck())) return;
         // Every refusal reads the status again, so the button and pickup times match the server.
         const status = await kitchen.refresh();
         setError(res.reason === "kitchen_closed" ? justClosedNote(status) : res.error);
@@ -134,6 +177,7 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
         sessionStorage.removeItem(ATTEMPT_STORAGE);
       } catch {}
       clear();
+      markArrival();
       router.push(`/order/${res.token}`);
     });
   }
@@ -216,7 +260,7 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
                 <select
                   value={pickedLater ? (pickupAt ?? "") : later[0]!.at}
                   onChange={(e) => setPickupAt(e.target.value)}
-                  className="min-h-12 w-full min-w-0 rounded-[14px] border border-sand-deep bg-white px-3.5 text-base"
+                  className="min-h-12 w-full min-w-0 rounded-[14px] border border-field bg-white px-3.5 text-base"
                 >
                   {later.map((s) => (
                     <option key={s.at} value={s.at}>
@@ -311,6 +355,22 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
         </div>
       </section>
 
+      {touched.length > 0 && (
+        <section ref={changedRef} aria-labelledby="changed-heading" className="mx-5 mt-5 rounded-[24px] bg-paper p-[18px] shadow-[var(--shadow-card)]">
+          <h2 id="changed-heading" className="font-display text-[21px] leading-tight">Your order changed</h2>
+          <p role="status" className="mt-1 text-[13px] text-ink-soft">
+            {changed
+              ? `Check it, then press Place order again. Your total is now ${formatKes(total)}.`
+              : "What’s greyed out isn’t in your total."}
+          </p>
+          <ul className="mt-2 divide-y divide-sand">
+            {touched.map((l) => (
+              <CartLineItem key={l.key} line={l} plate={44} />
+            ))}
+          </ul>
+        </section>
+      )}
+
       {error && (
         <p ref={errorRef} role="alert" className="note-in mx-5 mt-4 rounded-xl bg-blush px-4 py-3 text-[15px] [overflow-wrap:anywhere] text-coral-ink">{error}</p>
       )}
@@ -327,10 +387,16 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
         {kitchen.open ? (
           <button
             type="submit"
-            disabled={pending || short > 0}
+            disabled={pending || checking || short > 0 || count === 0}
             className={`press ${MAIN_BUTTON} bg-teal-deep text-white disabled:opacity-60`}
           >
-            {pending ? "Sending to Mama…" : `Place order · ${formatKes(total)}`}
+            {count === 0
+              ? "Nothing left to order"
+              : checking
+                ? "Checking your order…"
+                : pending
+                  ? "Sending to Mama…"
+                  : `Place order · ${formatKes(total)}`}
           </button>
         ) : (
           <ClosedButton totalKes={total} className={`${MAIN_BUTTON} bg-sand-deep text-ink-soft`} />

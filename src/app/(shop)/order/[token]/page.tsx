@@ -3,8 +3,10 @@ import { formatKenyanPhone } from "@/lib/kitchen-phone";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { z } from "zod";
-import { CheckIcon, PhoneIcon } from "@/components/icons";
+import { CheckIcon, PhoneIcon, PinIcon } from "@/components/icons";
 import { AutoRefresh } from "@/components/shop/auto-refresh";
+import { Arrive, StatusHeadline } from "@/components/shop/arrive";
+import { SaveLink } from "@/components/shop/save-link";
 import { TillLine } from "@/components/shop/till-line";
 import { Narrow } from "@/components/shop/ui";
 import { customerCancelText } from "@/lib/board";
@@ -34,17 +36,23 @@ const status = z.object({
   // spec-2.4: why a declined or cancelled order was stopped, shown to the customer.
   cancel_reason: z.enum(["sold_out", "too_busy", "cant_deliver", "customer_asked", "no_show", "other"]).nullable().optional(),
   cancel_note: z.string().nullable().optional(),
-  declined: z.boolean().optional(),
+  declined: z.boolean().nullish(),
   // Only while unpaid and not cancelled, and only if Mama has set one (get_order_status decides).
   till_number: z.string().nullable().optional(),
   // spec-2.6: the kitchen phone (null when Mama hasn't set one) and each line's extras.
   phone: z.string().nullable().optional(),
+  // 2.8: where the food is. Delivery carries the customer's address and notes; the others the kitchen's.
+  delivery_address: z.string().nullable().optional(),
+  delivery_notes: z.string().nullable().optional(),
+  kitchen_address: z.string().nullable().optional(),
+  maps_url: z.string().nullable().optional(),
   items: z.array(
     z.object({
       name: z.string(),
       option_label: z.string().nullable(),
       quantity: z.number(),
       unit_price_kes: z.number(),
+      note: z.string().nullable().optional(),
       extras: z.array(z.object({ label: z.string(), price_kes: z.number() })).nullable().optional(),
     }),
   ),
@@ -98,9 +106,41 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
             : o.mode === "pickup"
               ? "Pay when you collect"
               : "Pay when the rider arrives";
+  // The where card's "Pay" row says the same as the chip, with how. "M-Pesa" never breaks at its hyphen.
+  const how = <>cash or <span className="whitespace-nowrap">M-Pesa</span></>;
+  const payRow: React.ReactNode =
+    o.payment_status === "paid"
+      ? "Paid"
+      : o.payment_method === "at_counter"
+        ? <>At the counter, {how}</>
+        : o.mode === "dine_in"
+          ? <>When your food arrives, {how}</>
+          : o.mode === "pickup"
+            ? <>When you collect, {how}</>
+            : <>When the rider arrives, {how}</>;
+  const headline = cancelled ? null : labels[o.status as Step];
+  const kitchenAddress = o.kitchen_address?.trim() || null;
+  // Never a dead link: Directions only with both an address and a maps link.
+  const mapsUrl = kitchenAddress && o.maps_url?.startsWith("https://") ? o.maps_url : null;
+  const waiting = o.status !== "completed" && !cancelled;
+  const rows: [string, React.ReactNode][] = [];
+  if (o.mode === "delivery") {
+    if (o.delivery_address?.trim()) rows.push(["Address", o.delivery_address]);
+    if (o.delivery_notes?.trim()) rows.push(["Notes for the rider", o.delivery_notes]);
+    rows.push(["Area", `${o.zone_name ?? "Delivery"} · delivery ${formatKes(o.delivery_fee_kes)}`]);
+  } else if (o.mode === "pickup") {
+    // A cancelled order isn't collected: no place, no ready time, no Directions (RQA28-06).
+    if (kitchenAddress && !cancelled) rows.push(["Collect from", kitchenAddress]);
+    if (o.pickup_at && !cancelled) rows.push(["Ready", `Around ${closingTime(o.pickup_at)}`]);
+  } else {
+    rows.push(["Table", o.table_label ?? "Your table"]);
+  }
+  // A cancelled pickup is never collected or paid for, so it has no Pay row either; with no rows the card goes.
+  if (!(cancelled && o.mode === "pickup")) rows.push(["Pay", payRow]);
 
   return (
     <Narrow>
+      <Arrive>
       <AutoRefresh active={o.status !== "completed" && o.status !== "cancelled"} />
       <section className="flex flex-col gap-1.5 rounded-b-[28px] bg-teal-deep md:rounded-[28px] px-5 pb-[26px] pt-[22px] text-white">
         <div className="flex items-center justify-between">
@@ -114,7 +154,10 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
         </div>
         {o.till_number && o.payment_status !== "paid" && o.status !== "cancelled" && <TillLine till={o.till_number} />}
         <span className="mt-3.5 font-script text-[30px] leading-none">Asante, {o.customer_name}!</span>
-        <span className="text-[15px] text-[#d7f0ee]">Order {o.code} · {where}</span>
+        <span className="text-[15px] text-on-teal-soft">
+          Order <span className="whitespace-nowrap tabular-nums">{o.code}</span> · {where}
+        </span>
+        {headline && <StatusHeadline text={headline} sub={waiting ? "We’ll keep this page up to date." : "Enjoy your food."} />}
         {cancelled && (
           <div className="mt-3 flex flex-col gap-1">
             <span className="text-lg font-semibold">{o.declined ? "We couldn’t take your order." : "Your order was cancelled."}</span>
@@ -122,7 +165,6 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
             {o.payment_status !== "paid" && <span className="text-[15px]">You haven’t been charged.</span>}
           </div>
         )}
-        {o.pickup_at && o.mode === "pickup" && <span className="mt-3 text-lg">Collect at {closingTime(o.pickup_at)}</span>}
       </section>
 
       {o.phone && (
@@ -146,29 +188,78 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
                 ) : active ? (
                   <span className="flex size-7 items-center justify-center rounded-full border-[3px] border-coral bg-white"><span className="size-2.5 rounded-full bg-coral" /></span>
                 ) : (
-                  <span className="size-7 rounded-full border-2 border-line-deep bg-white" />
+                  <span className="size-7 rounded-full border-2 border-sand-deep bg-white" />
                 )}
                 {i < STEPS.length - 1 && <span className={`min-h-[34px] w-0.5 flex-1 ${done ? "bg-teal-deep" : "bg-sand-deep"}`} />}
               </div>
               <div className="pb-[18px] pt-[3px]">
                 <div className={`text-base ${active ? "font-bold" : done ? "font-semibold" : "font-semibold text-ink-soft"}`}>{labels[s]}</div>
                 {active && <div className="text-[13px] font-semibold text-coral-ink">In progress · since {timeLabel(o.status_changed_at)}</div>}
-                {i === 0 && <div className="text-[13px] text-ink-soft">{timeLabel(o.created_at)}</div>}
+                {i === 0 && !active && <div className="text-[13px] text-ink-soft">{timeLabel(o.created_at)}</div>}
               </div>
             </li>
           );
         })}
       </ol>
 
+      {rows.length > 0 && (
+        <section aria-labelledby="where-heading" className="mx-5 mt-5 rounded-[var(--r-lg)] bg-paper p-[18px] shadow-[var(--shadow-card)]">
+          <h2 id="where-heading" className="font-display text-[21px] leading-tight">
+            {o.mode === "delivery" ? "Delivering to" : o.mode === "pickup" ? "Pickup" : "At your table"}
+          </h2>
+          <dl className="mt-2 flex flex-col gap-2.5">
+            {rows.map(([k, v]) => (
+              <div key={k} className="flex flex-col gap-0.5">
+                <dt className="text-[13px] font-semibold text-ink-soft">{k}</dt>
+                <dd className="text-[15px] text-ink [overflow-wrap:anywhere]">{v}</dd>
+              </div>
+            ))}
+          </dl>
+          {o.mode === "pickup" && mapsUrl && !cancelled && (
+            <a
+              href={mapsUrl}
+              target="_blank"
+              rel="noopener"
+              aria-label="Directions to Dausis Plate (opens maps)"
+              className="press mt-2 inline-flex min-h-11 items-center gap-2 font-semibold text-teal-deep underline-offset-2 hover:underline"
+            >
+              <PinIcon /> Directions
+            </a>
+          )}
+          {o.mode === "dine_in" && kitchenAddress && (
+            <p className="mt-3 text-sm text-ink-soft [overflow-wrap:anywhere]">
+              Dausis Plate, {kitchenAddress}
+              {mapsUrl && (
+                <>
+                  {" · "}
+                  <a
+                    href={mapsUrl}
+                    target="_blank"
+                    rel="noopener"
+                    aria-label="Directions to Dausis Plate (opens maps)"
+                    className="inline-flex min-h-11 items-center font-semibold text-teal-deep underline underline-offset-2"
+                  >
+                    Directions
+                  </a>
+                </>
+              )}
+            </p>
+          )}
+        </section>
+      )}
+
+      {waiting && <SaveLink code={o.code} />}
+
       <section aria-label="Order summary" className="mx-5 mt-5 flex flex-col gap-2 rounded-[18px] border border-sand bg-white px-4 py-3.5 text-sm">
         {o.items.map((it, i) => (
-          <div key={i} className="flex justify-between gap-3">
+          <div key={i} className="flex flex-wrap justify-between gap-x-3 gap-y-0.5">
             <span className="min-w-0 [overflow-wrap:anywhere]">
               {it.quantity} × {it.name}
               {it.option_label ? ` (${it.option_label})` : ""}
               {it.extras && it.extras.length > 0 ? ` ${it.extras.map((x) => `+ ${x.label}`).join(", ")}` : ""}
             </span>
             <span className="shrink-0 whitespace-nowrap">{formatKes(it.unit_price_kes * it.quantity)}</span>
+            {it.note?.trim() && <span className="basis-full text-[13px] text-amber-ink [overflow-wrap:anywhere]">Note: {it.note}</span>}
           </div>
         ))}
         {o.delivery_fee_kes > 0 && (
@@ -181,6 +272,7 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
       <div className="mx-5 mt-6 flex gap-2.5">
         <Link href="/" className="flex min-h-[52px] flex-1 items-center justify-center rounded-2xl bg-teal-deep font-semibold text-white">{cancelled ? "Order again" : "Back to menu"}</Link>
       </div>
+      </Arrive>
     </Narrow>
   );
 }

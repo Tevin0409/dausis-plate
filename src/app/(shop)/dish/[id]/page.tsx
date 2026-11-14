@@ -1,12 +1,11 @@
-import Image from "next/image";
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { BackIcon } from "@/components/icons";
-import { DishForm } from "@/components/shop/dish-form";
-import { hhmm, weekdayName, nairobiToday } from "@/lib/format";
-import { backOnSale, regularOnSale } from "@/lib/kitchen";
-import { getKitchen } from "@/lib/kitchen-server";
-import type { TodaysMenuRow } from "@/lib/database.types";
+import { Plate } from "@/components/plate";
+import { BackToMenu, DishForm } from "@/components/shop/dish-form";
+import { MenuFrame } from "@/components/shop/menu/menu-view";
+import { DishPills } from "@/components/shop/menu/pills";
+import { formatKes } from "@/lib/format";
+import type { MenuDish } from "@/lib/menu-model";
+import { loadMenu } from "@/lib/menu-server";
 import { createClient } from "@/lib/supabase/server";
 import { isUuid, must } from "@/lib/supabase/result";
 
@@ -17,95 +16,91 @@ type Props = { params: Promise<{ id: string }>; searchParams: Promise<{ entry?: 
 export default async function DishPage({ params, searchParams }: Props) {
   const [{ id }, { entry }] = await Promise.all([params, searchParams]);
   if (!isUuid(id)) notFound();
-  // A malformed entry id just means "not from today's menu", same as none.
+  // A malformed entry id just means "not from the menu", same as none.
   const entryId = entry && isUuid(entry) ? entry : null;
   const supabase = await createClient();
 
-  const [dishResult, optionsResult, todaysResult, kitchen] = await Promise.all([
-    supabase.from("dishes").select("id, name, description, price_kes, photo_url, is_regular, unavailable_on").eq("id", id).maybeSingle(),
+  const [dishResult, optionsResult, menu] = await Promise.all([
+    supabase.from("dishes").select("id, name, description, price_kes, photo_url, photo_thumb_url, is_regular").eq("id", id).maybeSingle(),
     supabase
       .from("dish_options")
       .select("id, label, price_delta_kes, is_default, kind, out_on")
       .eq("dish_id", id)
       .eq("archived", false)
       .order("sort_order"),
-    entryId ? supabase.from("todays_menu").select("*").eq("entry_id", entryId).returns<TodaysMenuRow[]>().maybeSingle() : Promise.resolve({ data: null, error: null }),
-    getKitchen(),
+    loadMenu(),
   ]);
   const dish = must(dishResult, "the dish");
-  const day = nairobiToday();
+  if (!dish) notFound();
+  const { model, address, zones } = menu;
+
+  // The dish as the menu shows it for its day: the entry the link came from, else the regular,
+  // else any entry of this dish. None: it isn't on that day's menu.
+  const all = model.sections.flatMap((s) => s.dishes);
+  const mine = all.filter((d) => d.dishId === dish.id);
+  const md: MenuDish | null =
+    (entryId ? mine.find((d) => d.entryId === entryId) : undefined) ?? mine.find((d) => d.kind === "regular") ?? mine[0] ?? null;
+
+  // A choice marked out is out for that day only; the menu's day decides.
   const options = must(optionsResult, "dish options").map((o) => ({
     id: o.id,
     label: o.label,
     priceKes: o.price_delta_kes,
     isDefault: o.is_default,
     kind: o.kind,
-    outToday: o.out_on === day,
+    outToday: o.out_on === model.day,
   }));
   const choices = options.filter((o) => o.kind === "choice");
   const extras = options.filter((o) => o.kind === "extra");
-  // Every choice out today: the dish can't be ordered (todays_menu says so for a planned dish).
+  // Every choice out: the dish can't be ordered.
   const choicesAllOut = choices.length > 0 && choices.every((c) => c.outToday);
-  const todays = must(todaysResult, "today’s menu");
-  if (!dish) notFound();
 
-  const rotating = todays && todays.dish_id === dish.id ? todays : null;
-  const price = rotating?.price_kes ?? dish.price_kes;
-
-  let unavailable: string | null = null;
-  if (rotating) {
-    if (rotating.sold_out || choicesAllOut) unavailable = "Sold out for today";
-    else if (!rotating.open_now) unavailable = `Orders open ${hhmm(rotating.show_from)}–${hhmm(rotating.show_until)}`;
-  } else if (!dish.is_regular) {
-    unavailable = "Not on today’s menu";
-  } else if (!regularOnSale(dish.unavailable_on, kitchen.status.today)) {
-    unavailable = backOnSale(kitchen.status);
-  } else if (choicesAllOut) {
-    unavailable = "Sold out for today";
-  }
-
-  const src = dish.photo_url;
-  const badge = rotating ? (rotating.kind === "week" ? "This week" : "Today only") : null;
+  const price = md?.priceKes ?? dish.price_kes;
+  const focusKey = md?.key ?? dish.id;
 
   return (
-    <div className="mx-auto max-w-md pb-28 md:grid md:max-w-5xl md:grid-cols-2 md:items-start md:gap-10 md:px-8 md:pb-16 md:pt-10">
-      <div className="photo-placeholder relative h-[290px] md:sticky md:top-10 md:h-auto md:aspect-[4/3] md:overflow-hidden md:rounded-[28px]">
-        {src && <Image src={src} alt={dish.name} fill sizes="(min-width: 768px) 520px, 100vw" className="object-cover" priority />}
-        <Link href="/" aria-label="Back to menu" className="absolute left-4 top-4 flex size-11 items-center justify-center rounded-full bg-white">
-          <BackIcon />
-        </Link>
-      </div>
+    <MenuFrame model={model} address={address} zones={zones} onMenu={false}>
+      <div className="px-4 pb-[calc(140px+env(safe-area-inset-bottom,0px))] max-[360px]:pb-[calc(196px+env(safe-area-inset-bottom,0px))] pt-3 md:pb-10 lg:px-0 lg:pt-7">
+        <BackToMenu focusKey={focusKey} />
+        <article className="mt-3 grid gap-7 rounded-[var(--r-lg)] bg-paper p-5 shadow-[var(--shadow-card)] sm:p-7 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] xl:items-start">
+          <div className="flex items-center justify-center rounded-[20px] bg-cream p-6">
+            <Plate
+              id={dish.id}
+              photo={dish.photo_url ?? dish.photo_thumb_url}
+              dim={Boolean(md?.soldOut)}
+              className="aspect-square w-[min(220px,100%)] xl:w-[min(300px,100%)]"
+            />
+          </div>
 
-      <div className="relative -mt-7 flex flex-col gap-[18px] rounded-t-[28px] bg-cream px-5 pt-[22px] md:mt-0 md:px-0 md:pt-0">
-        <div className="flex flex-col gap-2">
-          {badge && (
-            <div className="flex items-center gap-2">
-              <span className="rounded-full bg-coral px-[11px] py-[5px] text-[11px] font-bold uppercase tracking-wider text-ink">{badge}</span>
-              {rotating?.plates_left !== null && rotating?.plates_left !== undefined && (
-                <span className="text-[13px] font-semibold text-coral-ink">{rotating.plates_left} plates left</span>
-              )}
+          <div className="flex min-w-0 flex-col gap-[18px]">
+            <div className="flex flex-col gap-2.5">
+              {md && <DishPills dish={md} open={model.open} day={model.dayName} />}
+              <h1 className="font-display text-[28px] leading-[1.08] [overflow-wrap:anywhere] xl:text-[34px]">{dish.name}</h1>
+              {dish.description && <p className="text-[15.5px] leading-normal text-ink-soft [overflow-wrap:anywhere]">{dish.description}</p>}
+              {md?.hours && <p className="text-[14px] text-ink-soft">{md.hours}</p>}
+              <p className="text-[22px] font-bold tabular-nums">{formatKes(price)}</p>
             </div>
-          )}
-          <h1 className="font-display text-[30px] leading-[1.08] md:text-[40px]">{dish.name}</h1>
-          {dish.description && <p className="text-[15px] leading-normal text-ink-soft">{dish.description}</p>}
-          {rotating && (
-            <span className="font-script text-xl text-coral-text">
-              {rotating.kind === "week" ? "On the menu all week" : `On ${weekdayName(nairobiToday())}’s menu · back another day`}
-            </span>
-          )}
-        </div>
 
-        <DishForm
-          dishId={dish.id}
-          menuEntryId={rotating?.entry_id ?? null}
-          name={dish.name}
-          basePriceKes={price}
-          choices={choices}
-          extras={extras}
-          unavailable={unavailable}
-          rotating={Boolean(rotating)}
-        />
+            <DishForm
+              dishId={dish.id}
+              menuEntryId={md?.entryId ?? null}
+              name={dish.name}
+              photo={md?.photo ?? dish.photo_thumb_url}
+              basePriceKes={price}
+              choices={choices}
+              extras={extras}
+              rotating={md ? md.kind !== "regular" : false}
+              limit={md?.limit ?? null}
+              left={md?.left ?? null}
+              soldOut={Boolean(md?.soldOut) || choicesAllOut}
+              onMenuDay={md !== null}
+              hoursText={md?.notNow ?? null}
+              dayName={model.dayName}
+              focusKey={focusKey}
+            />
+          </div>
+        </article>
       </div>
-    </div>
+    </MenuFrame>
   );
 }

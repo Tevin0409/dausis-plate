@@ -261,7 +261,7 @@ describe("place_order with choices and extras", () => {
       ]);
       const [status] = await tx`select public.get_order_status(${order.public_token}) s`;
       expect(status.s.items).toEqual([
-        { name: "Test regular", option_label: "Chapati", quantity: 2, unit_price_kes: 420, extras: [{ label: "Avocado", price_kes: 50 }, { label: "Extra egg", price_kes: 40 }] },
+        { name: "Test regular", option_label: "Chapati", quantity: 2, unit_price_kes: 420, note: null, extras: [{ label: "Avocado", price_kes: 50 }, { label: "Extra egg", price_kes: 40 }] },
       ]);
     }));
 

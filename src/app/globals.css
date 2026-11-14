@@ -89,6 +89,28 @@ body {
   }
 }
 
+/* Save this link: the Copy icon crossfades to a check and back; the check scales .6 → 1 as it
+   comes in (spec-2.8b Motion). Reduced motion: the crossfade only. */
+.copy-swap {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+.copy-check.copy-off {
+  transform: scale(0.6);
+}
+@media (prefers-reduced-motion: reduce) {
+  .copy-check.copy-off {
+    transform: none;
+  }
+}
+
+/* Bad-QR notice dismissed: fade out on opacity only. */
+.notice-out {
+  opacity: 0;
+  transition: opacity var(--dur-exit) var(--ease-out);
+}
+
 /* Board strip (the stale-tap message): fade in with 6 px translate, fade out on opacity only. */
 .board-notice {
   opacity: 1;
@@ -362,4 +384,91 @@ html:has(.board) {
       transform: none;
     }
   }
+}
+
+/* Slice 2.8, the customer menu (spec-2.8-menu-on-a-computer.md Motion; DESIGN.md "Add button"). */
+/* The add button: + crossfades to a check for 900 ms. Colour changes are instant (DESIGN.md). */
+.add-btn .add-icon,
+.add-btn .add-check {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+.add-btn .add-check {
+  position: absolute;
+  opacity: 0;
+  transform: scale(0.6);
+}
+.add-btn[data-added] {
+  background-color: var(--color-teal);
+}
+.add-btn[data-added] .add-icon {
+  opacity: 0;
+  transform: scale(0.6);
+}
+.add-btn[data-added] .add-check {
+  opacity: 1;
+  transform: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .add-btn:not(:disabled):not([data-added]):hover {
+    background-color: var(--color-teal-deeper);
+  }
+  .dish-card:hover .dish-name {
+    text-decoration: underline;
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 4px;
+  }
+  .rail-link:not([aria-current]):hover {
+    background-color: var(--color-sand);
+  }
+}
+
+/* The whole tile or row opens the dish page; the add button sits above the link. */
+.dish-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+}
+.dish-link:focus-visible {
+  outline: none;
+}
+.dish-link:focus-visible::after {
+  outline: 2px solid var(--color-teal-deep);
+  outline-offset: -3px;
+}
+
+/* A line just added to the order: fade in with 6 px translate. Only the new line has the class. */
+.line-in {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .line-in {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .add-btn .add-check,
+  .add-btn[data-added] .add-icon {
+    transform: none;
+  }
+  @starting-style {
+    .line-in {
+      transform: none;
+    }
+  }
+}
+
+/* A sideways bar that scrolls by touch or trackpad without a scrollbar strip. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
