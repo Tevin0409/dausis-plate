@@ -27,6 +27,8 @@ const admin = new SQL(adminUrl.toString());
 await admin.unsafe(`drop database if exists "${dbName}" with (force)`);
 await admin.unsafe(`create database "${dbName}"`);
 await admin.unsafe(`alter database "${dbName}" set search_path = public, extensions`);
+// seed.sql's six weeks of sample orders (slice 2.12) would change the counts the tests assert.
+await admin.unsafe(`alter database "${dbName}" set dausis.skip_report_seed = 'on'`);
 await admin.close();
 
 const db = new SQL(url.toString());

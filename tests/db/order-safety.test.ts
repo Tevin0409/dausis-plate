@@ -33,7 +33,7 @@ const cancel = async (tx: TransactionSQL, f: Fixtures, id: string, from?: string
   return attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.cancel_order(${id}::uuid, ${seen}::public.order_status, 'too_busy')`);
 };
 const markPaid = (tx: TransactionSQL, f: Fixtures, id: string) =>
-  attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.mark_order_paid(${id}::uuid)`);
+  attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.mark_order_paid(${id}::uuid, 'cash')`);
 
 const FORWARD = [
   ["new", "preparing"],
@@ -345,7 +345,7 @@ describe("order lifecycle", () => {
 });
 
 describe("mark paid", () => {
-  for (const status of ["new", "preparing", "ready", "completed", "cancelled"] as const) {
+  for (const status of ["new", "preparing", "ready", "completed"] as const) {
     test(`works on ${status} and leaves the status alone`, () =>
       inTx(async (tx) => {
         const f = await seedFixtures(tx);
@@ -355,6 +355,17 @@ describe("mark paid", () => {
         expect(row).toEqual({ status, payment_status: "paid" });
       }));
   }
+});
+
+describe("mark paid on a cancelled order (slice 2.12, Q1 A)", () => {
+  test("is refused, and the order stays unpaid", () =>
+    inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      const id = await orderAt(tx, f, "cancelled");
+      await expect(markPaid(tx, f, id)).rejects.toThrow("was cancelled, so it can't be marked paid.");
+      const [row] = await tx`select status, payment_status from public.orders where id = ${id}`;
+      expect(row).toEqual({ status: "cancelled", payment_status: "unpaid" });
+    }));
 });
 
 describe("who can write orders", () => {
@@ -404,7 +415,7 @@ describe("who can write orders", () => {
             ? sp`select public.advance_order(${id}::uuid, 'new'::public.order_status, 'preparing'::public.order_status)`
             : name === "cancel_order"
               ? sp`select public.cancel_order(${id}::uuid, 'new'::public.order_status, 'too_busy')`
-              : sp`select public.mark_order_paid(${id}::uuid)`;
+              : sp`select public.mark_order_paid(${id}::uuid, 'cash')`;
         await expect(attempt(tx, "anon", null, call)).rejects.toThrow("permission denied");
         await expect(attempt(tx, "authenticated", crypto.randomUUID(), call)).rejects.toThrow("Not allowed");
         const [row] = await tx`select status, payment_status from public.orders where id = ${id}`;

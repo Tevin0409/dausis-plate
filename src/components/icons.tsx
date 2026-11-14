@@ -55,6 +55,12 @@ export const SettingsIcon = ({ size = 18, className }: IconProps) => (
 export const ClockIcon = ({ size = 18, className }: IconProps) => (
   <svg {...base(size)} strokeWidth={2} className={className}><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></svg>
 );
+export const ChartIcon = ({ size = 18, className }: IconProps) => (
+  <svg {...base(size)} strokeWidth={2} className={className}><path d="M4 20h16M7 20v-6M12 20V6M17 20v-10" /></svg>
+);
+export const DownloadIcon = ({ size = 18, className }: IconProps) => (
+  <svg {...base(size)} strokeWidth={2} className={className}><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14" /></svg>
+);
 export const MoreIcon = ({ size = 18, className }: IconProps) => (
   <svg {...base(size)} strokeWidth={2.6} className={className}><path d="M5 12h.01M12 12h.01M19 12h.01" /></svg>
 );
