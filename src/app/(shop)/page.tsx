@@ -3,6 +3,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { AddButton } from "@/components/shop/add-button";
 import { KitchenNotice } from "@/components/shop/kitchen-provider";
+import { MenuCallWaiter } from "@/components/shop/menu-call-waiter";
 import { OrderPanel } from "@/components/shop/order-panel";
 import { CartBar } from "@/components/shop/ui";
 import { PlusIcon } from "@/components/icons";
@@ -13,6 +14,7 @@ import { getKitchen } from "@/lib/kitchen-server";
 import { createClient } from "@/lib/supabase/server";
 import { must } from "@/lib/supabase/result";
 import { parseTableCookie, TABLE_COOKIE } from "@/lib/table-cookie";
+import { waiterStatus, type WaiterStatus } from "@/lib/table-requests";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +48,14 @@ export default async function MenuPage() {
   const rotating = today.filter((d) => !(d.sold_out && d.auto_hide_sold_out));
   const table = parseTableCookie((await cookies()).get(TABLE_COOKIE)?.value);
   const day = weekdayName(nairobiToday());
+  // spec-2.9 Q1 B: at a table, the menu can call a waiter. The table's latest call sets the button.
+  const canCall = !!table && kitchen.status.state === "open";
+  let waiter: WaiterStatus = null;
+  if (table && canCall) {
+    const { data, error } = await supabase.rpc("table_waiter_status", { p_qr_token: table.token });
+    if (error) console.error("[db] table_waiter_status failed:", error.code ?? "", error.message);
+    else waiter = waiterStatus.safeParse(data).data ?? null;
+  }
 
   const groups = new Map<Enums<"dish_category">, typeof regulars>();
   for (const d of regulars) groups.set(d.category, [...(groups.get(d.category) ?? []), d]);
@@ -53,7 +63,7 @@ export default async function MenuPage() {
   return (
     <>
       <header className="border-b border-sand/70 md:bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 pb-2 pt-4 md:px-8 md:py-4">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-3 gap-y-2.5 px-5 pb-2 pt-4 md:px-8 md:py-4">
           <div className="flex items-center gap-2.5">
             <Image src="/brand/dausis-plate-icon.svg" alt="" width={40} height={40} priority className="md:size-12" />
             <div className="flex flex-col leading-none">
@@ -62,7 +72,12 @@ export default async function MenuPage() {
             </div>
           </div>
           {table && (
-            <span className="rounded-full border border-sand-deep bg-white px-3.5 py-2.5 text-sm font-semibold">{table.label}</span>
+            <span className="min-w-0 rounded-full border border-sand-deep bg-white px-3.5 py-2.5 text-sm font-semibold [overflow-wrap:anywhere] min-[600px]:order-last">{table.label}</span>
+          )}
+          {canCall && (
+            <div className="max-[599px]:w-full min-[600px]:ml-auto">
+              <MenuCallWaiter initial={waiter} />
+            </div>
           )}
         </div>
       </header>

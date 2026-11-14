@@ -1,6 +1,8 @@
 import { BoardFilters, BoardLayout, DoneList, Freshness, type Column } from "@/components/dashboard/board-layout";
 import { BoardNotices } from "@/components/dashboard/board-notices";
 import { LiveOrders } from "@/components/dashboard/live-orders";
+import { TableRequests } from "@/components/dashboard/table-requests";
+import { openRequests } from "@/lib/table-requests";
 import { DoneRow, Ticket, type BoardOrder } from "@/components/dashboard/ticket";
 import { doneRows, HEAD, OPEN, sortColumn, TITLES, type Mode, type Status } from "@/lib/board";
 import { nairobiToday } from "@/lib/format";
@@ -47,7 +49,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
   // Open orders of any date (they stay past midnight), and orders done since midnight by when they
   // were done. Never cancelled. All types, so New's ids for the chime ignore the filter.
   // The header's count is every order placed today, declined or cancelled included (spec; RQA24-05).
-  const [rows, placedToday, kitchen] = await Promise.all([
+  const [rows, placedToday, kitchen, requestRows] = await Promise.all([
     supabase
       .from("orders")
       .select(SELECT)
@@ -56,7 +58,11 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
       .order("created_at", { ascending: true }),
     supabase.from("orders").select("id", { count: "exact", head: true }).gte("created_at", startOfDay),
     kitchenLine(),
+    supabase.rpc("open_table_requests"),
   ]);
+  // spec-2.9: the first paint has the requests; a failed read leaves it to the 10 s poll.
+  const requests = requestRows.error ? null : (openRequests.safeParse(requestRows.data ?? []).data ?? null);
+  if (requestRows.error) console.error("[db] open_table_requests failed:", requestRows.error.code ?? "", requestRows.error.message);
   const all = must(rows, "the board’s orders") as unknown as BoardOrder[];
   const todayCount = placedToday.error ? null : (placedToday.count ?? 0);
   if (placedToday.error) console.error("[db] counting today’s orders failed:", placedToday.error.code ?? "", placedToday.error.message);
@@ -137,6 +143,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
       </header>
 
       <BoardNotices>
+        <TableRequests initial={requests} />
         <BoardLayout columns={columns} keys={keys} />
       </BoardNotices>
     </div>

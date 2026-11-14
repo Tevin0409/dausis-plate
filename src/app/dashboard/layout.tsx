@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { ClosedEarlyStrip } from "@/components/dashboard/closed-early-strip";
 import { DashboardRail, DashboardTabBar } from "@/components/dashboard/nav";
 import { RefusalNoteProvider } from "@/components/dashboard/refusal-note";
+import { TableRequestsProvider } from "@/components/dashboard/table-requests-provider";
+import { nairobiToday } from "@/lib/format";
 import type { KitchenStatus } from "@/lib/kitchen";
 import { getKitchen } from "@/lib/kitchen-server";
 import { can } from "@/lib/permissions";
@@ -35,16 +37,22 @@ export default async function DashboardLayout({ children }: { children: React.Re
     );
   }
 
-  const [{ count, error: countError }, kitchen] = await Promise.all([
-    (await createClient()).from("orders").select("id", { count: "exact", head: true }).eq("status", "new"),
+  const supabase = await createClient();
+  const startOfDay = new Date(`${nairobiToday(new Date())}T00:00:00+03:00`).toISOString();
+  const [{ count, error: countError }, requestCount, kitchen] = await Promise.all([
+    supabase.from("orders").select("id", { count: "exact", head: true }).eq("status", "new"),
+    // spec-2.9: open table requests today, for the Orders badge; the provider's 10 s poll keeps it current.
+    supabase.from("table_requests").select("id", { count: "exact", head: true }).is("cleared_at", null).gte("created_at", startOfDay),
     readKitchenStatus(),
   ]);
+  if (requestCount.error) console.error("[db] counting table requests failed:", requestCount.error.code ?? "", requestCount.error.message);
   if (countError) console.error("[db] counting new orders failed:", countError.code ?? "", countError.message);
   const newOrders = countError ? null : (count ?? 0);
 
   // spec-2.2 "Dashboard shell": a min-h-dvh column with the tab bar sticky at its foot below 1024 px,
   // a row with the sticky rail from 1024 px. Neither prints.
   return (
+    <TableRequestsProvider initialCount={requestCount.error ? null : (requestCount.count ?? 0)}>
     <div className="dash flex min-h-dvh flex-col bg-cream lg:flex-row print:block print:bg-white">
       <a
         href="#main"
@@ -63,6 +71,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       </main>
       <DashboardTabBar newOrders={newOrders} role={staff.role} grants={staff.grants} />
     </div>
+    </TableRequestsProvider>
   );
 }
 

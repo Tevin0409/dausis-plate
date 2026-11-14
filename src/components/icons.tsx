@@ -73,3 +73,6 @@ export const BikeIcon = ({ size = 18, className }: IconProps) => (
 export const BagIcon = ({ size = 18, className }: IconProps) => (
   <svg {...base(size)} strokeWidth={2} className={className}><path d="M5 8h14l-1 12H6zM9 8V6a3 3 0 0 1 6 0v2" /></svg>
 );
+export const BellIcon = ({ size = 18, className }: IconProps) => (
+  <svg {...base(size)} strokeWidth={2} className={className}><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z" /><path d="M10 20.5a2 2 0 0 0 4 0" /></svg>
+);

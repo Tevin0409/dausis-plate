@@ -107,9 +107,68 @@ body {
   transition: opacity var(--dur-exit) var(--ease-out);
 }
 
+/* Table request strip (spec-2.9 Motion): a request that arrives while the board is open enters from
+   8 px above; Done sends it back the same way. Only new arrivals carry .request-in, so opening the
+   board or unfolding "more" doesn't animate. */
+.request-strip {
+  transition:
+    opacity var(--dur-exit) var(--ease-out),
+    transform var(--dur-exit) var(--ease-out);
+}
+.request-strip.request-in {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .request-strip.request-in {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+.request-strip[data-leaving] {
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+  /* Also when the strip is still .request-in: it leaves at the exit speed. */
+  transition:
+    opacity var(--dur-exit) var(--ease-out),
+    transform var(--dur-exit) var(--ease-out);
+}
+
+/* The phone's sticky "Table 4 called a waiter" pill: fade in with 6 px translate, fade out. */
+.request-pill {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .request-pill {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+.request-pill[data-leaving] {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-exit) var(--ease-out);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .press:active {
     transform: none;
+  }
+  /* Fade only. */
+  .request-strip.request-strip,
+  .request-strip.request-strip[data-leaving],
+  .request-pill.request-pill {
+    transform: none;
+  }
+  @starting-style {
+    .request-strip.request-strip.request-in,
+    .request-pill.request-pill {
+      transform: none;
+    }
   }
   .board-notice {
     transition: opacity var(--dur-small) var(--ease-out);

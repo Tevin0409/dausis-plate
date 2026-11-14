@@ -19,7 +19,7 @@ export function PayPill({ paid, method }: { paid: boolean; method: string }) {
 
 // No nowrap or shrink-0: the money row wraps instead, so at 200% text the button takes its own line
 // and its label can wrap rather than push past the screen (QA RQA24-04).
-const quiet =
+export const quiet =
   "press min-h-11 min-w-[100px] max-w-full rounded-full bg-paper px-4 text-sm font-bold text-ink ring-[1.5px] ring-sand-deep ring-inset [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-deep";
 
 /**
@@ -29,7 +29,18 @@ const quiet =
  * remounting (QA RQA24-03), and it carries the version Mark paid returned (RQA24-01).
  * Announcements go through the board's one live region, which never unmounts.
  */
-export function PaidButton({ orderId, code, paid }: { orderId: string; code: string; paid: boolean }) {
+export function PaidButton({
+  orderId,
+  code,
+  paid,
+  onSettled,
+}: {
+  orderId: string;
+  code: string;
+  paid: boolean;
+  /** After Mark paid or its Undo, whatever the outcome (2.9's bill list re-fetches). */
+  onSettled?: () => void;
+}) {
   const board = useBoard();
   const pending = board?.paidUndos.get(orderId);
   const say = board?.say;
@@ -38,19 +49,21 @@ export function PaidButton({ orderId, code, paid }: { orderId: string; code: str
 
   const onPaid = useCallback(
     (outcome: "ok" | "refused", version?: number | null) => {
+      onSettled?.();
       // No version: it was already paid, so this tap changed nothing and there is nothing to undo.
       if (outcome !== "ok" || typeof version !== "number") return;
       start?.(orderId, version);
       say?.(`${code} marked paid. Undo for 5 seconds.`);
     },
-    [code, orderId, say, start],
+    [code, orderId, say, start, onSettled],
   );
   const onUnpaid = useCallback(
     (outcome: "ok" | "refused") => {
+      onSettled?.();
       end?.(orderId);
       if (outcome === "ok") say?.(`${code} not paid yet.`);
     },
-    [code, end, orderId, say],
+    [code, end, orderId, say, onSettled],
   );
 
   if (paid && pending) {
