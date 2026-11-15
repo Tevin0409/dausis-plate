@@ -219,3 +219,9 @@ Shots: `/private/tmp/claude-503/-Users-tevin-Developer-cash-dausis-plate/4101816
 **Not changed:**
 - RQA211-03 and the general over-reserve flag, per fix-2.11.
 - The four questions waiting on Tevin.
+
+## Follow-up: cancelled-only codes are editable (Tevin 2A, 2026-11-15)
+- New migration `20261117000500_code_lock_live_uses.sql`. `save_discount_code` and the `discount_codes_guard` trigger now lock what a code gives only when an order that isn't cancelled used it. That's the same count as `discount_code_uses`, `code_figures` and the Promos screen, which already showed such a code as unlocked. A cancelled order is final (`guard_order_status`), and `place_order` and `save_discount_code` both lock the code row, so an edit and a new use can't overlap.
+- The refusal now says "Used 1 time" instead of "Used 1 times".
+- Tests in `tests/db/discount-codes.test.ts`: cancelled-only is editable through the save and directly; one live use beside a cancelled one stays locked; an edit refused while the order is live goes through after it's cancelled, and the cancelled order keeps its saving. All three failed on the old lock.
+- Checks: 609 pass, 0 fail; typecheck, lint, build and the race script pass; slot 0 reset is clean.
