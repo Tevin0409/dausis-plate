@@ -466,7 +466,7 @@ export type Database = {
       open_table_requests: { Args: never; Returns: Json };
       clear_table_request: { Args: { p_id: string }; Returns: boolean };
       undo_clear_table_request: { Args: { p_id: string }; Returns: undefined };
-      mark_orders_paid: { Args: { p_ids: string[] }; Returns: Json };
+      mark_orders_paid: { Args: { p_ids: string[]; p_with: Database["public"]["Enums"]["paid_with"] }; Returns: Json };
       unmark_orders_paid: { Args: { p_items: Json }; Returns: undefined };
       regular_on_sale: { Args: { p_unavailable_on: string | null }; Returns: boolean };
       reopen_today: { Args: never; Returns: Json };

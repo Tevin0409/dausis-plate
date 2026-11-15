@@ -283,15 +283,20 @@ function BillList({ r, refetch }: { r: OpenRequest; refetch: () => void }) {
   const unpaid = orders.filter((o) => !o.paid);
   const total = r.unpaid_kes ?? unpaid.reduce((n, o) => n + o.total_kes, 0);
 
-  const payAll = () =>
+  // Which of the two "all paid" buttons was tapped, so only that one says "Marking paid…".
+  const [paying, setPaying] = useState<"cash" | "mpesa" | null>(null);
+  const payAll = (paidWith: "cash" | "mpesa") =>
     start(async () => {
+      setPaying(paidWith);
       board?.clear();
-      const res = await markAllPaid(unpaid.map((o) => o.id)).catch(() => ({ ok: false as const, error: "Couldn’t mark them paid. Nothing has changed. Try again." }));
+      const res = await markAllPaid(unpaid.map((o) => o.id), paidWith).catch(() => ({ ok: false as const, error: "Couldn’t mark them paid. Nothing has changed. Try again." }));
+      setPaying(null);
       refetch();
       if (!res.ok) return board?.notify(res.error);
       if (res.items.length === 0) return;
       const n = res.items.length;
-      board?.notify(n === 1 ? "1 order marked paid." : `${n} orders marked paid.`, {
+      const how = paidWith === "cash" ? "cash" : "M-Pesa";
+      board?.notify(n === 1 ? `1 order marked paid, ${how}.` : `${n} orders marked paid, ${how}.`, {
         undone: n === 1 ? "1 order not paid yet." : `${n} orders not paid yet.`,
         run: async () => {
           const u = await unmarkAllPaid(res.items);
@@ -316,13 +321,17 @@ function BillList({ r, refetch }: { r: OpenRequest; refetch: () => void }) {
               )}
             </span>
             <span className="justify-self-end text-[15px] font-bold tabular-nums">{formatKes(o.total_kes)}</span>
-            <span className="text-[13px] text-ink-soft">
-              {timeLabel(o.created_at)} · {STATUS[o.status]}
-              {o.paid && <span className="font-semibold text-teal-deeper"> · Paid</span>}
-            </span>
-            <span className="justify-self-end">
-              <PaidButton orderId={o.id} code={o.code} paid={o.paid} onSettled={refetch} />
-            </span>
+            {/* 2.12's two pay buttons are wider than 2.9's one, so they share a full-width line with
+                the time and wrap under it on a phone, leaving the name its column (wave 2 merge). */}
+            <div className="col-span-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+              <span className="text-[13px] text-ink-soft">
+                {timeLabel(o.created_at)} · {STATUS[o.status]}
+                {o.paid && <span className="font-semibold text-teal-deeper"> · Paid</span>}
+              </span>
+              <span className="ml-auto">
+                <PaidButton orderId={o.id} code={o.code} paid={o.paid} onSettled={refetch} />
+              </span>
+            </div>
           </li>
         ))}
       </ul>
@@ -335,15 +344,29 @@ function BillList({ r, refetch }: { r: OpenRequest; refetch: () => void }) {
             <span className="text-[17px] font-bold tabular-nums">{formatKes(total)}</span>
           </div>
           {unpaid.length >= 2 && (
-            <button
-              type="button"
-              onClick={payAll}
-              disabled={pending}
-              aria-busy={pending || undefined}
-              className="press min-h-11 touch-manipulation rounded-full bg-teal-deep px-4 text-sm font-bold text-white select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-deep disabled:cursor-wait disabled:opacity-70"
-            >
-              {pending ? "Marking paid…" : `Mark all paid · ${formatKes(total)}`}
-            </button>
+            // RW2B-02: the board's Cash / M-Pesa choice, for the whole bill. Paid partly each way?
+            // Use the buttons on each order above.
+            <div role="group" aria-label={`Mark all ${unpaid.length} paid, ${formatKes(total)}`} className="flex flex-col gap-1.5">
+              <span aria-hidden="true" className="text-[13px] font-semibold text-ink-soft">
+                Mark all {unpaid.length} paid
+              </span>
+              {/* Side by side when both labels fit, stacked on the narrowest phones (320 px). */}
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(8.5rem,1fr))] gap-2">
+                {(["cash", "mpesa"] as const).map((w) => (
+                  <button
+                    key={w}
+                    type="button"
+                    onClick={() => payAll(w)}
+                    disabled={pending}
+                    aria-busy={paying === w || undefined}
+                    aria-label={`All ${unpaid.length} paid ${w === "cash" ? "cash" : "M-Pesa"}, ${formatKes(total)}`}
+                    className="press min-h-11 min-w-0 touch-manipulation rounded-full bg-teal-deep px-3 text-sm font-bold whitespace-nowrap text-white select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-deep disabled:cursor-wait disabled:opacity-70"
+                  >
+                    {paying === w ? "Marking paid…" : `All paid ${w === "cash" ? "cash" : "M-Pesa"}`}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
           <p className="text-[13px] text-ink-soft [overflow-wrap:anywhere]">Every unpaid order from {r.table_label} today. Check they’re all this group.</p>
         </>

@@ -13,6 +13,11 @@ const call = (tx: Tx, who: string | null, fn: (q: Tx) => PromiseLike<unknown>) =
   attempt(tx, who ? "authenticated" : "anon", who, fn as never);
 
 const ms = (t: string | Date) => new Date(t).getTime();
+/** paid_with of each order, in the order given. */
+async function methods(tx: Tx, ids: string[]) {
+  const rows = (await tx`select id, paid_with from public.orders where id in ${tx(ids)}`) as { id: string; paid_with: string | null }[];
+  return ids.map((id) => rows.find((r) => r.id === id)!.paid_with);
+}
 const pgArray = (ids: string[]) => `{${ids.join(",")}}`;
 
 async function refusal(p: Promise<unknown>) {
@@ -254,7 +259,7 @@ describe("the bill list (Done means 3, 4)", () => {
       const gone = await order(tx, f, "Cancelled");
       await call(tx, o, (q) => q`select public.cancel_order(${gone.id}::uuid, 'new'::public.order_status, 'sold_out'::public.cancel_reason, null)`);
       const paidEarlier = await order(tx, f, "Paid before");
-      await call(tx, o, (q) => q`select public.mark_order_paid(${paidEarlier.id}::uuid)`);
+      await call(tx, o, (q) => q`select public.mark_order_paid(${paidEarlier.id}::uuid, 'cash')`);
       await tx`update public.orders set paid_at = now() - interval '1 minute' where id = ${paidEarlier.id}`;
       // Another table's order isn't listed.
       const [other] = await tx`insert into public.dining_tables (label) values ('Other table') returning qr_token`;
@@ -279,9 +284,9 @@ describe("the bill list (Done means 3, 4)", () => {
       const b = await order(tx, f, "Baraka");
       const c = await order(tx, f, "Chebet");
       await ask(tx, a.token, "bill");
-      await call(tx, staff, (q) => q`select public.mark_order_paid(${a.id}::uuid)`);
+      await call(tx, staff, (q) => q`select public.mark_order_paid(${a.id}::uuid, 'cash')`);
 
-      const [r] = (await call(tx, staff, (q) => q`select public.mark_orders_paid(${pgArray([a.id, b.id, c.id])}::uuid[]) as r`)) as { r: { id: string; version: number }[] }[];
+      const [r] = (await call(tx, staff, (q) => q`select public.mark_orders_paid(${pgArray([a.id, b.id, c.id])}::uuid[], 'mpesa') as r`)) as { r: { id: string; version: number }[] }[];
       // Amina was already paid: nothing of this tap's to undo.
       expect(r!.r.map((x) => x.id).sort()).toEqual([b.id, c.id].sort());
       let bill = (await board(tx, staff)).find((x) => x.kind === "bill")!;
@@ -289,6 +294,8 @@ describe("the bill list (Done means 3, 4)", () => {
       expect([bill.orders!.every((x) => x.paid), bill.unpaid_kes]).toEqual([true, 0]);
       const [{ n }] = await tx`select count(*)::int as n from public.change_log where area = 'orders' and action = 'order.paid'`;
       expect(n).toBe(3);
+      // RW2B-02: the bill's method is recorded on each order it changed; Amina keeps her own cash.
+      expect(await methods(tx, [a.id, b.id, c.id])).toEqual(["cash", "mpesa", "mpesa"]);
 
       await call(tx, staff, (q) => q`select public.unmark_orders_paid(${JSON.stringify(r!.r)}::text::jsonb)`);
       bill = (await board(tx, staff)).find((x) => x.kind === "bill")!;
@@ -297,6 +304,7 @@ describe("the bill list (Done means 3, 4)", () => {
         ["Baraka", false],
         ["Chebet", false],
       ]);
+      expect(await methods(tx, [a.id, b.id, c.id])).toEqual(["cash", null, null]);
       const [{ u }] = await tx`select count(*)::int as u from public.change_log where area = 'orders' and action <> 'order.paid'`;
       expect(u).toBeGreaterThanOrEqual(2);
     }));
@@ -307,14 +315,86 @@ describe("the bill list (Done means 3, 4)", () => {
       const staff = await staffMember(tx);
       const a = await order(tx, f, "Amina");
       const b = await order(tx, f, "Baraka");
-      const [r] = (await call(tx, staff, (q) => q`select public.mark_orders_paid(${pgArray([a.id, b.id])}::uuid[]) as r`)) as { r: { id: string; version: number }[] }[];
+      const [r] = (await call(tx, staff, (q) => q`select public.mark_orders_paid(${pgArray([a.id, b.id])}::uuid[], 'cash') as r`)) as { r: { id: string; version: number }[] }[];
       // Baraka's order moves on in the kitchen, so its version no longer matches.
       await call(tx, staff, (q) => q`select public.advance_order(${b.id}::uuid, 'new'::public.order_status, 'preparing'::public.order_status)`);
       const err = await refusal(call(tx, staff, (q) => q`select public.unmark_orders_paid(${JSON.stringify(r!.r)}::text::jsonb)`));
       expect(err?.code).toBe("P0001");
       const rows = await tx`select payment_status from public.orders where id in (${a.id}, ${b.id})`;
       expect(rows.every((x: { payment_status: string }) => x.payment_status === "paid")).toBe(true);
-      expect((await refusal(call(tx, staff, (q) => q`select public.mark_orders_paid(${pgArray([])}::uuid[])`)))?.code).toBe("P0001");
+      expect((await refusal(call(tx, staff, (q) => q`select public.mark_orders_paid(${pgArray([])}::uuid[], 'cash')`)))?.code).toBe("P0001");
+    }));
+});
+
+describe("Mark all paid with a method, against 2.12's Reports (RW2B-02)", () => {
+  type Day = { bucket: string; cash: number; mpesa: number };
+  async function today(tx: Tx, f: Fixtures) {
+    const [{ d }] = await tx`select public.nairobi_today()::text as d`;
+    const [row] = (await call(tx, f.ownerId, (q) => q`select public.report_sales(${d}::date, ${d}::date) as r`)) as { r: { money_in: Day[] } }[];
+    const day = row!.r.money_in.find((m) => m.bucket === d);
+    return { cash: day?.cash ?? 0, mpesa: day?.mpesa ?? 0 };
+  }
+
+  test("a bill paid by M-Pesa counts in Reports' M-Pesa total; its Undo takes it out again", () =>
+    inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      const staff = await staffMember(tx);
+      const a = await order(tx, f, "Amina");
+      const b = await order(tx, f, "Baraka");
+      const [{ kes }] = await tx`select sum(total_kes)::int as kes from public.orders where id in (${a.id}, ${b.id})`;
+      const before = await today(tx, f);
+      const [r] = (await call(tx, staff, (q) => q`select public.mark_orders_paid(${pgArray([a.id, b.id])}::uuid[], 'mpesa') as r`)) as { r: { id: string; version: number }[] }[];
+      expect(await methods(tx, [a.id, b.id])).toEqual(["mpesa", "mpesa"]);
+      expect(await today(tx, f)).toEqual({ cash: before.cash, mpesa: before.mpesa + kes });
+      const [log] = await tx`select after from public.change_log where action = 'order.paid' and subject_id = ${b.id}`;
+      expect(log!.after).toMatchObject({ payment: "paid", with: "mpesa" });
+
+      await call(tx, staff, (q) => q`select public.unmark_orders_paid(${JSON.stringify(r!.r)}::text::jsonb)`);
+      expect(await methods(tx, [a.id, b.id])).toEqual([null, null]);
+      expect(await today(tx, f)).toEqual(before);
+    }));
+
+  test("a split bill: one order paid cash on its own, the rest all M-Pesa", () =>
+    inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      const staff = await staffMember(tx);
+      const a = await order(tx, f, "Amina");
+      const b = await order(tx, f, "Baraka");
+      const c = await order(tx, f, "Chebet");
+      const [{ ka }] = await tx`select total_kes as ka from public.orders where id = ${a.id}`;
+      const [{ kbc }] = await tx`select sum(total_kes)::int as kbc from public.orders where id in (${b.id}, ${c.id})`;
+      const before = await today(tx, f);
+      await call(tx, staff, (q) => q`select public.mark_order_paid(${a.id}::uuid, 'cash')`);
+      await call(tx, staff, (q) => q`select public.mark_orders_paid(${pgArray([a.id, b.id, c.id])}::uuid[], 'mpesa')`);
+      expect(await methods(tx, [a.id, b.id, c.id])).toEqual(["cash", "mpesa", "mpesa"]);
+      expect(await today(tx, f)).toEqual({ cash: before.cash + ka, mpesa: before.mpesa + kbc });
+    }));
+
+  test("no method, or card, is refused before anything changes; one cancelled order marks none", () =>
+    inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      const staff = await staffMember(tx);
+      const a = await order(tx, f, "Amina");
+      const b = await order(tx, f, "Baraka");
+      const ids = pgArray([a.id, b.id]);
+      expect((await refusal(call(tx, staff, (q) => q`select public.mark_orders_paid(${ids}::uuid[], 'card')`)))?.message).toBe("Choose cash or M-Pesa.");
+      expect((await refusal(call(tx, staff, (q) => q`select public.mark_orders_paid(${ids}::uuid[], null)`)))?.message).toBe("Choose cash or M-Pesa.");
+      // The bill was listed, then Baraka's order was cancelled before the tap.
+      await call(tx, f.ownerId, (q) => q`select public.cancel_order(${b.id}::uuid, 'new'::public.order_status, 'sold_out'::public.cancel_reason, null)`);
+      const err = await refusal(call(tx, staff, (q) => q`select public.mark_orders_paid(${ids}::uuid[], 'cash')`));
+      expect(err?.code).toBe("P0001");
+      expect(err?.message).toContain("was cancelled");
+      const rows = (await tx`select payment_status, paid_with from public.orders where id in (${a.id}, ${b.id})`) as { payment_status: string; paid_with: string | null }[];
+      expect(rows.every((x) => x.payment_status !== "paid" && x.paid_with === null)).toBe(true);
+    }));
+
+  test("anon can't call it; the one-argument version is gone", () =>
+    inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      const a = await order(tx, f, "Amina");
+      expect((await refusal(call(tx, null, (q) => q`select public.mark_orders_paid(${pgArray([a.id])}::uuid[], 'cash')`)))?.code).toBe("42501");
+      const [{ n }] = await tx`select count(*)::int as n from pg_proc where proname = 'mark_orders_paid'`;
+      expect(n).toBe(1);
     }));
 });
 

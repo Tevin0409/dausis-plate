@@ -761,14 +761,21 @@ export async function undoClearTableRequest(id: string, table: string): Promise<
 const paidItems = z.array(z.object({ id: uuid, version: z.number().int() }));
 export type PaidAll = { ok: true; items: { id: string; version: number }[] } | { ok: false; error: string };
 
-/** Mark all paid on a bill: 2.4's mark_order_paid for each, with one Undo for the ones it changed. */
-export async function markAllPaid(ids: string[]): Promise<PaidAll> {
-  if (!z.array(uuid).min(1).max(50).safeParse(ids).success) return { ok: false, error: STALE_FORM!.error };
+/**
+ * Mark all paid on a bill: 2.12's mark_order_paid for each, all with the one method chosen, and one
+ * Undo for the ones it changed. A split bill is marked order by order instead (RW2B-02).
+ */
+export async function markAllPaid(ids: string[], paidWith: "cash" | "mpesa"): Promise<PaidAll> {
+  if (!z.array(uuid).min(1).max(50).safeParse(ids).success || !z.enum(["cash", "mpesa"]).safeParse(paidWith).success) {
+    return { ok: false, error: STALE_FORM!.error };
+  }
   const [supabase, denied] = await staffClient();
   if (!supabase) return { ok: false, error: denied!.error };
-  const { data, error } = await supabase.rpc("mark_orders_paid", { p_ids: ids });
+  const { data, error } = await supabase.rpc("mark_orders_paid", { p_ids: ids, p_with: paidWith });
   revalidatePath("/dashboard/orders");
   if (error) {
+    // One refusal marks none (one transaction); say which order when the database names it.
+    if (error.code === "P0001" && /was cancelled/.test(error.message)) return { ok: false, error: `${error.message} Nothing has changed.` };
     console.error("[action] markAllPaid failed:", error.code ?? "", error.message);
     return { ok: false, error: "Couldn’t mark them paid. Nothing has changed. Try again." };
   }
