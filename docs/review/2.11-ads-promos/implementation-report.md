@@ -225,3 +225,118 @@ Shots: `/private/tmp/claude-503/-Users-tevin-Developer-cash-dausis-plate/4101816
 - The refusal now says "Used 1 time" instead of "Used 1 times".
 - Tests in `tests/db/discount-codes.test.ts`: cancelled-only is editable through the save and directly; one live use beside a cancelled one stays locked; an edit refused while the order is live goes through after it's cancelled, and the cancelled order keeps its saving. All three failed on the old lock.
 - Checks: 609 pass, 0 fail; typecheck, lint, build and the race script pass; slot 0 reset is clean.
+
+## Follow-up: the ad's price and "Amount due" (Tevin 1A, spec-2.11-ad-price.md, 2026-11-15)
+
+**Database.** The new migration is `20261117000600_ad_price.sql`. Earlier migrations are untouched.
+- **Price column.** `ads.price_kes` is a nullable integer from 0 to 10,000,000. `fee_kes` and `fee_period` are dropped.
+- **Approval needs a price.** `ads_price_when_approved` blocks an approved ad with no price. `ad_action('approve')` refuses a missing price ("Add the price you agreed before approving. Use 0 if it’s free.", detail `ad_price`) before it checks the dates or overlaps.
+- **A price edit keeps the approval.** `guard_ads` doesn't count the price as customer-visible, so an edit never sends the ad back to Draft. That's also why an ended ad can still correct its price.
+- **History.** `ad_snapshot` carries `price_kes`. `log_ads` adds an `other` flag, so History can tell a price-only edit from one that changes other fields too.
+- **`ads_overview`.** It is dropped and recreated with `price_kes`, because its return type changed.
+- **`report_promos_ads`.** Each ad gains `price_kes`, `counted_here` and `amount_due`. Which ads are listed:
+  - **This period:** ads with views in the period, or approved ads whose run starts in it.
+  - **Whole run:** approved ads whose run has started.
+  - Drafts are never listed.
+- **Seed.** Sunrise Bakery (ended, menu) and Mama Mboga Greens (live, order page) are KSh 2,000 each.
+
+**App.**
+- **The sheet's price field** (`ad-sheet.tsx`):
+  - It has the spec's label, hint and placeholder, and accepts "3,000".
+  - A draft saves with the price empty.
+  - "Approve and schedule" with no price shows the error, moves focus to the field and doesn't open the confirm.
+  - The confirm names the price, or says "for free".
+  - On an ended ad, the price is the only field that stays editable, with a single Save. The ended note gains "You can still correct the price."
+  - When the dates change, the hint adds a second line.
+- **Ads tab:** `priceLabel` is used on the space card, in the Price column ("No price yet" in `text-ink-soft`) and on the phone cards.
+- **Reports:**
+  - "Amount due" is the last column. It shows "—" for a run counted in an earlier period; screen readers hear "Counted in the period the run started" from `sr-only` text.
+  - The column sorts with "—" below 0.
+  - A Total row appears when there are 2 or more rows, with Views, Taps and Tap rate blank.
+  - The card has the new two-line note and the new empty states.
+- **History lines:** approved for KSh X or for free; price set, changed or cleared; or another change followed by "The price is now …".
+
+**Not in the spec (flag):** `saveAdPrice` is a separate server action for the ended-ad price save, so the ended sheet never resubmits read-only fields.
+
+**Tests.**
+- **New tests:**
+  - DB (`ads.test.ts`): approval needs a price, 0 is allowed, the limits hold, a price edit keeps the approval, and an ended ad can change only its price.
+  - DB (`promo-reports.test.ts`): which ads are listed, plus `counted_here` and `amount_due` for each period.
+  - Unit: `parseAdPrice`, `priceLabel`, Amount due sorting and total, and the History lines.
+- **The race script** now gives its ads a price.
+
+**Checks.**
+- The full suite: 619 pass, 0 fail.
+- Typecheck, lint and build: all pass (exit 0).
+- The race script: 5/5 PASS.
+- The local stack has been reset to the seed for QA. The app is running on 3020.
+
+**Evidence** is in `ad-price-evidence/` (untracked; not meant to be committed). It was taken with worst-case rows I added to the local database and then reset away:
+- a 32-character advertiser (the column's maximum) priced at 10,000,000;
+- a 32-character draft with no price;
+- "Jo" at 0.
+
+The files: `sheet-*`, `ended-saved-375`, `promos-ads-*` (including `-after` shots taken after the fixes below) and `rep-today`, `rep-month` and `rep-run` at 375 and 1280. The whole-run total after correcting Sunrise to 2,500 is 10,004,500 (`rep-run-375-after`).
+
+**Fixed from the checks.**
+- The "—" cell used `aria-label` on a `<span>`, which isn't reliably announced on that role. It is now `aria-hidden` "—" plus `sr-only` text.
+- The price on the phone cards wrapped mid-label ("No price / yet"). It is now `whitespace-nowrap`.
+
+**Left as is.**
+- In the sheet's hint, the date range can break after the en dash ("5–" / "25 Dec") at 375. It's still readable.
+- A 32-character name wraps to three lines in the sheet title.
+
+**Not verified:** a real phone (emulated at 375 only).
+
+**Skills used:**
+- **mobile-native:** the price field is 16 px with `inputMode` numeric, `enterKeyHint` done, a 48 px target and the invalid ring. Not checked on a real phone.
+- **break-ui:** worst-case data on the sheet, the ads tab and the Amount due column at 375 and 1280: 32-character names, a 10,000,000 price, a draft with no price and a price of 0. Fixed the price wrapping on the phone cards. The en-dash break in the hint was left, then fixed in the fix round.
+- **impeccable audit:** the "—" cell used `aria-label` on a `<span>`, which screen readers may skip. It is now `sr-only` text. Focus and `aria-invalid` on the approve error are verified.
+
+### Ad price fix round (fix-2.11-ad-price.md), 2026-11-15
+
+**RQAAP-01: the phone report page scrolled sideways.**
+- **Root cause:** Tailwind's `sr-only` is `position: absolute`. Inside the invoice table, no positioned ancestor sat within the `overflow-x-auto` scroll region, so the hidden text's containing block was outside the scroller. The scroller's clipping didn't apply, and the text stretched the document to 912 px.
+- **Fix:** the scroll region in `ChartTable` (`charts.tsx`) is now `relative`. It is the containing block for anything absolutely positioned inside it, so its overflow clips them. This fixes every `ChartTable`, not just this cell, and the accessible name is kept.
+- **Proof:** at 375×812 on Reports → Promos & ads → Today, with the seed's Mama Mboga row, `documentElement.scrollWidth` is 375 and the explanation is still in the DOM. At 1280 it is 1280. The Promos page at 375 is 375.
+
+**Design check, required edits.**
+- **Whole dates.** In the price hint, the date range sits in a `whitespace-nowrap` span. In the approve confirm, each date does, so "from 30 Nov to 2 Jan" never splits inside a date.
+- **New message for clearing a price.** Clearing the price of an approved (scheduled, live, paused or ended) ad now says "An approved ad keeps a price. Use 0 if it’s free." (`PRICE_KEPT` in `promos.ts`). It shows in the sheet's own check, `saveAdPrice`, and the save action's constraint mapping. "…before approving" (`PRICE_NEEDED`) stays only for approving.
+- **Optional edits, both taken:**
+  - The one-day empty state ends "…its run starts that day."
+  - The ended ad's single button is labelled "Save price".
+
+**R211-03: the migration failed on an approved ad.**
+- **Early stop.** Before it touches anything, `20261117000600_ad_price.sql` checks for approved ads, i.e. `approved_at` is set (scheduled, live, paused or ended). Before this migration none of them can have a price. If any exist, it stops with one error that names them, for example: `Ad price migration stopped: these approved ads have no agreed price yet: Sunrise Bakery (menu, 2026-11-12 to 2026-12-05)`. The error's hint names the preflight. No fee is converted. The misleading comment is corrected.
+- **New preflight.** `supabase/preflight/ad-price.sql` is read-only (a read-only transaction, rolled back). It lists every approved ad with advertiser, space, dates, approved or ended, and the old `fee_kes` and `fee_period` for reference.
+- **Proved on the local stack.** Slot 0 was reset from a copy holding the migrations up to 000500, then 000600 was applied with `ON_ERROR_STOP`:
+  - **No ads:** the preflight returns 0 rows, the migration applies (exit 0), `price_kes` is there and `fee_kes` is gone.
+  - **One old-schema approved ad plus one draft:** the preflight lists only the approved ad. The migration stops (exit 3) with the named message, and the schema is unchanged (`fee_kes` is still there and there's no `price_kes`). The draft is neither listed nor blocking.
+  - After both, `$D reset` from the worktree was clean.
+
+**Release note (for Tevin, before applying 000600 on staging and then production):** run `psql "$TARGET_URL" -X -v ON_ERROR_STOP=1 -f supabase/preflight/ad-price.sql`.
+- **No rows:** apply as usual.
+- **Rows listed:** each listed run needs a price Tevin decides. The old fee is shown only as a reference and isn't converted. The migration refuses to run until those ads are dealt with. How to deal with them (for example, making them drafts again, then re-approving each with its price after the upgrade) is his call; orch.lead asks. Until 2.11 ships, no hosted database should have any ads.
+
+**Found while proving: a seed link made the first save of the live ad a "customer-visible" change.**
+- **What happened.** The seed stored Mama Mboga's link as `https://mboga.example`. The save action normalises links to `https://mboga.example/`, so the database treated any first save as a link change. That sent the ad back to Draft (as a draft its price could then be cleared), and the sheet said only "Saved Mama Mboga Greens."
+- **Fix.** The seed now stores the normalised link. Ads saved through the app always store the normalised form, so only rows inserted by SQL could hit this.
+- **Flag, not fixed:** the sheet compares the raw text, while the database compares the normalised value. It's out of this brief's scope; noting it for review.
+
+**Checks:**
+- Typecheck, lint and build all exit 0.
+- The full suite is 619 pass, 0 fail. It was run twice, the second time after the seed change.
+- `$D reset` is clean. The logs are in `/tmp/dev-implementor-ad-price-fix.log`.
+- In the app, at 375 (and 1280 for the error state):
+  - Clearing the price of a live or ended ad is refused with the new message, and the ad stays live or ended.
+  - Repricing the live ad to 2,500 keeps it live ("Saved. The price for Mama Mboga Greens is now KSh 2,500.").
+
+**Evidence:** `ad-price-evidence/fix/` (untracked):
+- `rep-today-375` and `rep-today-1280`;
+- `sheet-confirm-375`, a 30 Nov 2026 – 2 Jan 2027 run;
+- `live-cleared-375`, `live-cleared-1280`, `ended-cleared-375` and `live-repriced-375`.
+
+**Skills used:**
+- **mobile-native:** fixed RQAAP-01 at the root. At 375 there's no page-level sideways scroll; only the table scrolls. Dates in the hint and confirm no longer split. The field is still 16 px with a numeric keypad. Not checked on a real phone.
+- **impeccable audit:** on real screenshots at 375 and 1280: the report width, the confirm with a 30 Nov 2026 – 2 Jan 2027 run, and the clear-price error on live and ended ads. The error is announced (`role=alert`, `aria-invalid`, focus moves to the field). No new issues.
