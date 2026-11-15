@@ -677,3 +677,24 @@ html:has(.board) {
     }
   }
 }
+
+/* 2.11 C: the applied-code chip and the Discount line enter with a fade and a 4 px rise
+   (spec-2.11 Motion). Only on a fresh apply (the class is added by the client). Reduced: fade only. */
+.code-in {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .code-in {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  @starting-style {
+    .code-in {
+      transform: none;
+    }
+  }
+}

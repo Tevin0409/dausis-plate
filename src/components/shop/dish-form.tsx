@@ -35,17 +35,17 @@ type Props = {
   focusKey: string;
 };
 
-const priceText = (o: ShopOption) => (o.outToday ? "Out today" : o.priceKes === 0 ? "Included" : `+ ${formatKes(o.priceKes)}`);
+export const priceText = (o: ShopOption) => (o.outToday ? "Out today" : o.priceKes === 0 ? "Included" : `+ ${formatKes(o.priceKes)}`);
 
 /** The default choice, or the first one in stock when the default is out today (spec-2.6). */
-function firstChoice(choices: ShopOption[]): string | null {
+export function firstChoice(choices: ShopOption[]): string | null {
   const def = choices.find((c) => c.isDefault);
   if (def && !def.outToday) return def.id;
   return choices.find((c) => !c.outToday)?.id ?? null;
 }
 
 /** Was this page opened from the menu? Read once, on mount. */
-function useFromMenu() {
+export function useFromMenu() {
   const from = useRef<boolean | null>(null);
   useEffect(() => {
     if (from.current === null) from.current = takeFromMenu();

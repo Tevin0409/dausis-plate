@@ -10,7 +10,9 @@ import { SaveLink } from "@/components/shop/save-link";
 import { GoogleReviewCard, RatingCard } from "@/components/shop/rating-card";
 import { TableRequestButtons } from "@/components/shop/table-request-buttons";
 import { TillLine } from "@/components/shop/till-line";
+import { NeighbourAd } from "@/components/shop/neighbour-ad";
 import { Narrow } from "@/components/shop/ui";
+import { loadLiveAd } from "@/lib/ads";
 import { customerCancelText } from "@/lib/board";
 import { formatKes, timeLabel } from "@/lib/format";
 import { closingTime } from "@/lib/kitchen";
@@ -58,6 +60,28 @@ const status = z.object({
   rate_dishes: z.array(z.string()).optional(),
   rate_until: z.string().nullable().optional(),
   google_review_url: z.string().nullable().optional(),
+  // 2.11: the code's discount (0 without one) and the combos, each with its dishes.
+  discount_kes: z.number().optional().default(0),
+  discount_code: z.string().nullable().optional(),
+  combos: z
+    .array(
+      z.object({
+        name: z.string(),
+        quantity: z.number(),
+        unit_price_kes: z.number(),
+        parts: z.array(
+          z.object({
+            name: z.string(),
+            option_label: z.string().nullable(),
+            quantity: z.number(),
+            note: z.string().nullable().optional(),
+            extras: z.array(z.object({ label: z.string(), price_kes: z.number() })).nullable().optional(),
+          }),
+        ),
+      }),
+    )
+    .optional()
+    .default([]),
   items: z.array(
     z.object({
       name: z.string(),
@@ -135,6 +159,8 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
   // Never a dead link: Directions only with both an address and a maps link.
   const mapsUrl = kitchenAddress && o.maps_url?.startsWith("https://") ? o.maps_url : null;
   const waiting = o.status !== "completed" && !cancelled;
+  // The order-page ad (spec 2.11): dine-in and pickup, every status but cancelled. Never for delivery.
+  const ad = o.mode !== "delivery" && !cancelled ? await loadLiveAd("order") : null;
   const rows: [string, React.ReactNode][] = [];
   if (o.mode === "delivery") {
     if (o.delivery_address?.trim()) rows.push(["Address", o.delivery_address]);
@@ -296,6 +322,31 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
             {it.note?.trim() && <span className="basis-full text-[13px] text-amber-ink [overflow-wrap:anywhere]">Note: {it.note}</span>}
           </div>
         ))}
+        {o.combos.map((c, i) => (
+          <div key={`c${i}`} className="flex flex-wrap justify-between gap-x-3 gap-y-0.5">
+            <span className="min-w-0 [overflow-wrap:anywhere]">
+              {c.quantity} × {c.name}
+            </span>
+            <span className="shrink-0 whitespace-nowrap">{formatKes(c.unit_price_kes * c.quantity)}</span>
+            <ul className="basis-full border-l-2 border-sand pl-3 text-[13px] text-ink-soft">
+              {c.parts.map((p, j) => (
+                <li key={j} className="[overflow-wrap:anywhere]">
+                  {p.quantity > 1 ? `${p.quantity}\u00a0× ` : ""}
+                  {p.name}
+                  {p.option_label ? ` (${p.option_label})` : ""}
+                  {p.extras && p.extras.length > 0 ? ` ${p.extras.map((x) => `+ ${x.label}`).join(", ")}` : ""}
+                  {p.note?.trim() && <span className="block text-amber-ink">Note: {p.note}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+        {o.discount_kes > 0 && (
+          <div className="flex justify-between gap-3 text-teal-deep">
+            <span className="min-w-0 [overflow-wrap:anywhere]">Discount{o.discount_code ? ` (${o.discount_code})` : ""}</span>
+            <span className="shrink-0 whitespace-nowrap">−{formatKes(o.discount_kes)}</span>
+          </div>
+        )}
         {o.delivery_fee_kes > 0 && (
           <div className="flex justify-between text-ink-soft"><span>Delivery</span><span>{formatKes(o.delivery_fee_kes)}</span></div>
         )}
@@ -306,6 +357,7 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
       <div className="mx-5 mt-6 flex gap-2.5">
         <Link href="/" className="flex min-h-[52px] flex-1 items-center justify-center rounded-2xl bg-teal-deep font-semibold text-white">{cancelled ? "Order again" : "Back to menu"}</Link>
       </div>
+      {ad && <NeighbourAd ad={ad} className="mx-5 mt-8" />}
       </Arrive>
     </Narrow>
   );

@@ -1,4 +1,5 @@
 "use client";
+import { CodeRow, DiscountLine } from "./code-row";
 import Link from "next/link";
 import { useEffect, useId, useRef } from "react";
 import { InfoIcon, TableIcon } from "@/components/icons";
@@ -118,10 +119,12 @@ export function OrderPanel() {
         <div className="flex flex-col gap-3 border-t border-sand px-5 pb-[18px] pt-3.5">
           {!empty && (
             <>
+              <CodeRow />
               <div className="flex items-baseline justify-between">
                 <span className="font-semibold">Subtotal</span>
                 <span className="text-[17px] font-bold tabular-nums">{formatKes(subtotalKes)}</span>
               </div>
+              <DiscountLine className="-mt-1.5 text-[15px]" />
               {open ? (
                 <p className="-mt-1.5 text-[13px] text-ink-soft">
                   {atTable ? "No delivery fee at the table." : "Pickup or delivery, and any delivery fee, at checkout."}

@@ -1,4 +1,5 @@
 "use client";
+import { CodeRow, DiscountLine } from "@/components/shop/code-row";
 import Link from "next/link";
 import { InfoIcon } from "@/components/icons";
 import { CartLineItem, UndoStrip } from "@/components/shop/cart-line";
@@ -54,12 +55,14 @@ export default function CartPage() {
             ))}
           </ul>
           {removed && <UndoStrip className="mx-5 mt-3" />}
+          <CodeRow className="mx-5 mt-4" />
 
           <section aria-label="Summary" className="mx-5 mt-[22px] flex flex-col gap-2.5 text-[15px]">
             <div className="flex justify-between">
               <span className="text-ink-soft">Subtotal</span>
               <span className="font-semibold tabular-nums">{formatKes(subtotalKes)}</span>
             </div>
+            <DiscountLine />
             <div className="flex justify-between"><span className="text-ink-soft">Delivery</span><span className="text-ink-soft">Set at checkout</span></div>
           </section>
 

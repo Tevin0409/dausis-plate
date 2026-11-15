@@ -16,6 +16,7 @@ export type RegularDish = {
   sort_order: number;
   rating_count: number;
   rating_total: number;
+  is_pick: boolean;
 };
 
 export type MenuDish = {
@@ -42,7 +43,62 @@ export type MenuDish = {
   /** spec-2.10: the public average (from the 3rd visible rating, else null) and how many. */
   ratingAvg: number | null;
   ratingCount: number;
+  /** Mama's pick: the blush pill, and first in its section (spec 2.11 A). */
+  pick: boolean;
 };
+
+/** A combo on the menu (spec-2.11 B): shown only while every dish in it can be ordered. */
+export type MenuCombo = {
+  id: string;
+  name: string;
+  priceKes: number;
+  /** The dishes at the menu day's prices; above the price, it's struck through with "Save". */
+  dishesKes: number;
+  hasChoices: boolean;
+  parts: {
+    dishId: string;
+    menuEntryId: string | null;
+    name: string;
+    quantity: number;
+    photo: string | null;
+    hasChoices: boolean;
+    /** Plates left for its entry (null: no limit). */
+    left: number | null;
+  }[];
+};
+
+type ComboRow = {
+  combo_id: string;
+  name: string;
+  price_kes: number;
+  today_total: number;
+  available: boolean;
+  parts: { dish_id: string; menu_entry_id: string | null; name: string; quantity: number; photo_thumb_url: string | null; has_choices: boolean }[];
+};
+
+/** The combos that show: available ones only, with their dishes' plates left from the menu. */
+export function buildCombos(rows: ComboRow[], model: MenuModel): MenuCombo[] {
+  const left = new Map<string, number | null>();
+  for (const d of model.sections.flatMap((s) => s.dishes)) if (d.entryId) left.set(d.entryId, d.left);
+  return rows
+    .filter((r) => r.available && r.parts.length > 0)
+    .map((r) => ({
+      id: r.combo_id,
+      name: r.name,
+      priceKes: r.price_kes,
+      dishesKes: r.today_total,
+      hasChoices: r.parts.some((p) => p.has_choices),
+      parts: r.parts.map((p) => ({
+        dishId: p.dish_id,
+        menuEntryId: p.menu_entry_id,
+        name: p.name,
+        quantity: p.quantity,
+        photo: p.photo_thumb_url,
+        hasChoices: p.has_choices,
+        left: p.menu_entry_id ? (left.get(p.menu_entry_id) ?? null) : null,
+      })),
+    }));
+}
 
 export type MenuSection = { id: string; rail: string; head: string; aside: string | null; dishes: MenuDish[] };
 
@@ -67,9 +123,14 @@ export const CATEGORY_LABEL: Record<Enums<"dish_category">, string> = {
 
 const allDay = (from: string, until: string) => hhmm(from) === "00:00" && hhmm(until) >= "23:59";
 
-/** Sold-out dishes last, then the menu's own order (Mama's picks will go first once they exist). */
-const ordered = <T extends { soldOut: boolean }>(list: { dish: T; sort: number }[]) =>
-  list.sort((a, b) => Number(a.dish.soldOut) - Number(b.dish.soldOut) || a.sort - b.sort).map((x) => x.dish);
+/** Sold-out dishes last, then Mama's picks first, then the menu's own order. */
+const ordered = <T extends { soldOut: boolean; pick: boolean }>(list: { dish: T; sort: number }[]) =>
+  list
+    .sort(
+      (a, b) =>
+        Number(a.dish.soldOut) - Number(b.dish.soldOut) || Number(b.dish.pick) - Number(a.dish.pick) || a.sort - b.sort,
+    )
+    .map((x) => x.dish);
 
 export function buildMenu(opts: {
   rows: CustomerMenuRow[];
@@ -104,6 +165,7 @@ export function buildMenu(opts: {
       hasOptions: opts.optionDishIds.has(r.dish_id),
       ratingAvg: r.rating_avg === null ? null : Number(r.rating_avg),
       ratingCount: r.rating_count,
+      pick: r.is_pick,
     };
   };
   const shown = opts.rows.filter((r) => !(r.sold_out && r.auto_hide_sold_out));
@@ -144,6 +206,7 @@ export function buildMenu(opts: {
           hasOptions: opts.optionDishIds.has(d.id),
           ratingAvg: dishAverage(d.rating_count, d.rating_total),
           ratingCount: d.rating_count,
+          pick: d.is_pick,
         };
         return { dish, sort: d.sort_order };
       });

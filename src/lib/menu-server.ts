@@ -2,7 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { backOnSale, menuDayOf } from "./kitchen";
 import { getKitchen } from "./kitchen-server";
-import { buildMenu, type CustomerMenuRow } from "./menu-model";
+import { buildCombos, buildMenu, type CustomerMenuRow } from "./menu-model";
 import { createClient } from "./supabase/server";
 import { must } from "./supabase/result";
 
@@ -13,11 +13,11 @@ import { must } from "./supabase/result";
  */
 export const loadMenu = cache(async () => {
   const supabase = await createClient();
-  const [menuResult, regularsResult, optionsResult, placeResult, zonesResult, kitchen] = await Promise.all([
+  const [menuResult, regularsResult, optionsResult, placeResult, zonesResult, kitchen, combosResult] = await Promise.all([
     supabase.rpc("customer_menu"),
     supabase
       .from("dishes")
-      .select("id, name, description, price_kes, photo_thumb_url, category, unavailable_on, sort_order, rating_count, rating_total")
+      .select("id, name, description, price_kes, photo_thumb_url, category, unavailable_on, sort_order, rating_count, rating_total, is_pick")
       .eq("is_regular", true)
       .eq("archived", false)
       .order("sort_order"),
@@ -26,6 +26,8 @@ export const loadMenu = cache(async () => {
     supabase.rpc("kitchen_place"),
     supabase.from("delivery_zones").select("name").eq("active", true).order("sort_order"),
     getKitchen(),
+    // 2.11 B: combos for the menu's day, each with whether every dish in it can be ordered.
+    supabase.rpc("customer_combos"),
   ]);
 
   // A failed read throws to error.tsx: an empty menu must mean nothing is planned, not a broken query.
@@ -44,5 +46,6 @@ export const loadMenu = cache(async () => {
     today: status.today,
     menuDay: rows[0]?.menu_day ?? menuDayOf(status),
   });
-  return { model, address: place.address ?? null, zones, soldOutLine: backOnSale(status) };
+  const combos = buildCombos(must(combosResult, "combos") ?? [], model);
+  return { model, combos, address: place.address ?? null, zones, soldOutLine: backOnSale(status) };
 });

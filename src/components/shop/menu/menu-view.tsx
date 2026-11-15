@@ -1,20 +1,32 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import { ClockIcon } from "@/components/icons";
-import type { MenuModel, MenuSection } from "@/lib/menu-model";
+import type { MenuCombo, MenuModel, MenuSection } from "@/lib/menu-model";
 import type { WaiterStatus } from "@/lib/table-requests";
 import { useCart } from "../cart-provider";
 import { useKitchen } from "../kitchen-provider";
 import { OrderPanel } from "../order-panel";
 import { CartBar } from "../ui";
 import { MenuBand } from "./band";
+import { ComboCard } from "./combo-card";
 import { DishRow, DishTile } from "./dish-cards";
 import { QrNotice } from "./qr-notice";
 import { focusReturnedRow, leftMenu } from "./return-to";
 import { JumpBar, type NavSection, Rail } from "./section-nav";
 
-type Props = { model: MenuModel; address: string | null; zones: string[]; soldOutLine: string; qrUnknown?: boolean; waiter?: WaiterStatus };
+type Props = {
+  model: MenuModel;
+  address: string | null;
+  zones: string[];
+  soldOutLine: string;
+  qrUnknown?: boolean;
+  waiter?: WaiterStatus;
+  /** The neighbour ad, at a table only (spec 2.11): after Mains. */
+  ad?: React.ReactNode;
+  /** 2.11 B: combos that can be ordered, after today's dishes. */
+  combos?: MenuCombo[];
+};
 
 function Section({ section, model, soldOutLine }: { section: MenuSection; model: MenuModel; soldOutLine: string }) {
   const tiles = section.id === "today" || section.id === "week";
@@ -79,7 +91,7 @@ export function MenuFrame({ model, address, zones, onMenu, waiter, children }: F
 }
 
 /** The customer menu: phone column (jump bar, cart bar) and, from lg, the rail and the order panel. */
-export function MenuView({ model, address, zones, soldOutLine, qrUnknown = false, waiter = null }: Props) {
+export function MenuView({ model, address, zones, soldOutLine, qrUnknown = false, waiter = null, ad = null, combos = [] }: Props) {
   const router = useRouter();
   const { open } = useKitchen();
   const { recheck } = useCart();
@@ -105,6 +117,25 @@ export function MenuView({ model, address, zones, soldOutLine, qrUnknown = false
     return leftMenu;
   }, []);
 
+  // After Mains (DESIGN.md); with no Mains today, after the last section before Sides and Drinks.
+  const ids = model.sections.map((s) => s.id);
+  const adAfter = ad
+    ? ids.includes("mains")
+      ? "mains"
+      : (ids.filter((id) => id !== "sides" && id !== "drinks").at(-1) ?? ids.at(-1))
+    : undefined;
+
+  // DESIGN.md menu order: today's dishes, then combos, then this week.
+  const comboBlock =
+    combos.length > 0 ? (
+      <section aria-label="Combos" className="flex flex-col gap-4 px-4 pt-7 lg:px-0">
+        {combos.map((c) => (
+          <ComboCard key={c.id} combo={c} />
+        ))}
+      </section>
+    ) : null;
+  const comboAfterToday = ids.includes("today");
+
   return (
     <MenuFrame model={model} address={address} zones={zones} onMenu waiter={waiter}>
       {qrUnknown && <QrNotice />}
@@ -116,10 +147,15 @@ export function MenuView({ model, address, zones, soldOutLine, qrUnknown = false
           </span>
         </p>
       )}
+      {!comboAfterToday && comboBlock}
       {model.sections.map((s) => (
-        <Section key={s.id} section={s} model={model} soldOutLine={soldOutLine} />
+        <Fragment key={s.id}>
+          <Section section={s} model={model} soldOutLine={soldOutLine} />
+          {s.id === "today" && comboBlock}
+          {s.id === adAfter && <div className="pt-7">{ad}</div>}
+        </Fragment>
       ))}
-      {model.sections.length === 0 && (
+      {model.sections.length === 0 && combos.length === 0 && (
         <p className="mx-4 mt-7 rounded-[var(--r-lg)] bg-paper p-5 text-[15px] text-ink-soft ring-1 ring-sand lg:mx-0">
           Nothing on the menu yet. Check back soon.
         </p>

@@ -7,11 +7,11 @@ const row = (o: Partial<CustomerMenuRow>): CustomerMenuRow => ({
   show_from: "00:00:00", show_until: "23:59:59", sort_order: 0, dish_id: "d1", name: "Fish Curry", description: "",
   photo_key: null, category: "mains", price_kes: 650, plates_per_day: 30, plates_sold: 0, plates_left: 30,
   sold_out: false, open_now: true, auto_hide_sold_out: false, photo_url: null, photo_thumb_url: null,
-  rating_avg: null, rating_count: 0, ...o,
+  rating_avg: null, rating_count: 0, is_pick: false, ...o,
 });
 const reg = (o: Partial<RegularDish>): RegularDish => ({
   id: "r1", name: "Chapati", description: "", price_kes: 50, photo_thumb_url: null, category: "sides",
-  unavailable_on: null, sort_order: 0, rating_count: 0, rating_total: 0, ...o,
+  unavailable_on: null, sort_order: 0, rating_count: 0, rating_total: 0, is_pick: false, ...o,
 });
 const base = { optionDishIds: new Set<string>(), open: true, today: "2026-11-13", menuDay: "2026-11-13" };
 
@@ -64,6 +64,20 @@ describe("buildMenu", () => {
     expect(m.sections[0]?.dishes.map((d) => d.key)).toEqual(["b", "a"]);
     expect(m.sections[1]?.dishes.map((d) => d.key)).toEqual(["y", "x"]);
     expect(m.sections[1]?.dishes[1]).toMatchObject({ soldOut: true, canAdd: false });
+  });
+  test("Mama's picks come first in their section, sold out still last", () => {
+    const m = buildMenu({
+      ...base,
+      rows: [
+        row({ entry_id: "a", sort_order: 0 }),
+        row({ entry_id: "b", sort_order: 5, is_pick: true }),
+        row({ entry_id: "c", sort_order: 1, is_pick: true, sold_out: true }),
+      ],
+      regulars: [reg({ id: "x", sort_order: 0 }), reg({ id: "y", sort_order: 9, is_pick: true })],
+    });
+    expect(m.sections[0]?.dishes.map((d) => d.key)).toEqual(["b", "a", "c"]);
+    expect(m.sections[0]?.dishes.map((d) => d.pick)).toEqual([true, false, true]);
+    expect(m.sections[1]?.dishes.map((d) => d.key)).toEqual(["y", "x"]);
   });
   test("outside serving hours while open: no add, with the hours", () => {
     const m = buildMenu({ ...base, rows: [row({ show_from: "12:00:00", show_until: "15:00:00", open_now: false })], regulars: [] });

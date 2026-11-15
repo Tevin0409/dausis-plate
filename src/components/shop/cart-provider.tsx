@@ -1,6 +1,6 @@
 "use client";
 import { usePathname } from "next/navigation";
-import { forgetTable, recheckCart } from "@/app/(shop)/cart-actions";
+import { checkCode, forgetTable, recheckCart } from "@/app/(shop)/cart-actions";
 import {
   applyCheck,
   checkPayload,
@@ -10,7 +10,9 @@ import {
   type LineCheck,
   MAX_PER_LINE,
 } from "@/lib/cart-check";
-import { type CartExtra, cartLineKey, readStoredLine } from "@/lib/cart-lines";
+import { type CartExtra, type ComboPart, cartLineKey, comboLineKey, readStoredLine } from "@/lib/cart-lines";
+import { CODE_UNREACHABLE, type CodeCheck, codeError } from "@/lib/discount-words";
+import type { OrderMode } from "@/lib/promos";
 import { tableExpired } from "@/lib/table-cookie";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useKitchen } from "./kitchen-provider";
@@ -31,6 +33,15 @@ export type CartLine = {
   rotating: boolean;
   /** The dish's thumbnail for the order's plates; carts saved before 2.8 have none. */
   photo?: string | null;
+  /**
+   * 2.11 B: a combo line. `dishId` holds the combo's id too, so older code that reads it stays
+   * safe; `unitPriceKes` is the combo price plus its dishes' choices and extras.
+   */
+  kind?: "combo";
+  comboId?: string;
+  parts?: ComboPart[];
+  /** A combo line's second plate photo. */
+  photo2?: string | null;
 };
 
 export type DineInTable = { token: string; label: string; at?: string };
@@ -40,7 +51,20 @@ type NewLine = Omit<CartLine, "key" | "quantity" | "extras"> & {
   extras?: CartExtra[];
   /** Plates left for this entry, from the menu (null: no limit). Caps the add. */
   platesLeft?: number | null;
+  /** A combo's dishes' plates left, by entry. */
+  partsLeft?: Record<string, number | null>;
 };
+
+/** The code in the order (2.11 C) and what its last check said. */
+export type CodeState = {
+  code: string;
+  check: CodeCheck;
+  /** The last check couldn't reach the server: the previous answer stands, with a note. */
+  unreachable: boolean;
+};
+
+/** What checkout knows that the cart doesn't: the order type and the phone. */
+export type CodeContext = { mode: OrderMode | null; phone: string | null };
 
 /** The last line removed, for its 6 s Undo. */
 export type Removed = { key: string; name: string };
@@ -55,6 +79,18 @@ type CartContext = {
   /** Plates in the total (lines still on the menu). */
   count: number;
   subtotalKes: number;
+  /** 2.11 C: food in the total, the part a code covers (no combos), and the code's saving. */
+  foodKes: number;
+  coveredKes: number;
+  discountKes: number;
+  code: CodeState | null;
+  /** Checks a code and keeps it if it works. Returns the message to show when it doesn't. */
+  applyCode: (text: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  removeCode: () => void;
+  /** True for a moment after a code is applied here, so its chip and Discount line enter once (spec Motion: "Code applied"). */
+  codeFresh: boolean;
+  /** Checkout passes the order type and phone, so the check covers them (null: the cart). */
+  setCodeContext: (ctx: CodeContext | null) => void;
   table: DineInTable | null;
   /** Adds and returns how many went in (fewer when the plates left run out). */
   add: (line: NewLine) => number;
@@ -78,7 +114,10 @@ type CartContext = {
 };
 
 const Ctx = createContext<CartContext | null>(null);
-const STORAGE_KEY = "dp-cart-v1";
+// v2 (2.11): { lines, code }. A v1 cart (an array of lines) is read once and moved over.
+const STORAGE_KEY = "dp-cart-v2";
+const STORAGE_V1 = "dp-cart-v1";
+const CODE_DEBOUNCE_MS = 300;
 const UNDO_MS = 6000;
 
 type Held = Removed & { line: CartLine; index: number; check?: LineCheck };
@@ -92,12 +131,18 @@ export function CartProvider({ children, table: cookieTable }: { children: React
   const [removed, setRemoved] = useState<Held | null>(null);
   const [announcement, setAnnouncement] = useState<CartContext["announcement"]>(null);
   const [lastAdded, setLastAdded] = useState<string | null>(null);
+  const [code, setCodeState] = useState<CodeState | null>(null);
+  const [codeCtx, setCodeCtx] = useState<CodeContext | null>(null);
 
   // Refs hold the latest state so callbacks chained in one tap see each other's writes.
   const linesRef = useRef(lines);
   const checksRef = useRef(checks);
   const leftRef = useRef(left);
   const removedRef = useRef<Held | null>(null);
+  const codeRef = useRef<CodeState | null>(null);
+  const codeSeq = useRef(0);
+  /** What the code was last checked against, so an Apply isn't checked twice. */
+  const codeCheckedFor = useRef<string | null>(null);
   const seq = useRef(0);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -109,32 +154,48 @@ export function CartProvider({ children, table: cookieTable }: { children: React
     checksRef.current = next;
     setChecksState(next);
   }, []);
+  const setCode = useCallback((next: CodeState | null) => {
+    codeRef.current = next;
+    setCodeState(next);
+  }, []);
   const setLeft = useCallback((next: Record<string, number | null>) => {
     leftRef.current = next;
     setLeftState(next);
   }, []);
 
   useEffect(() => {
+    const readLines = (v: unknown) =>
+      Array.isArray(v) ? v.map((x) => readStoredLine<CartLine>(x)).filter((l): l is CartLine => l !== null) : [];
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
-        const parsed: unknown = JSON.parse(raw);
-        if (Array.isArray(parsed)) setLines(parsed.map((v) => readStoredLine<CartLine>(v)).filter((l): l is CartLine => l !== null));
+        const parsed = JSON.parse(raw) as { lines?: unknown; code?: unknown } | null;
+        setLines(readLines(parsed?.lines));
+        // Only the code text is kept: its check runs again on load.
+        const saved = parsed?.code;
+        if (typeof saved === "string" && /^[A-Z0-9]{3,20}$/.test(saved))
+          setCode({ code: saved, check: { ok: false, code: saved, discountKes: 0, reason: null, label: null, startsOn: null, minOrderKes: null, modes: null }, unreachable: false });
+      } else {
+        const old = localStorage.getItem(STORAGE_V1);
+        if (old) {
+          setLines(readLines(JSON.parse(old)));
+          localStorage.removeItem(STORAGE_V1);
+        }
       }
     } catch {
       // Storage unavailable (private mode): the cart just lives in memory.
     }
     setLoaded(true);
-  }, [setLines]);
+  }, [setLines, setCode]);
 
   useEffect(() => {
     if (!loaded) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(lines));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ lines, code: code?.code ?? null }));
     } catch {
       // ignore
     }
-  }, [lines, loaded]);
+  }, [lines, code?.code, loaded]);
 
   // The table goes at closing; the items stay (DESIGN.md "Saved cart, closed kitchen").
   const expired = cookieTable !== null && tableExpired(cookieTable.at, status);
@@ -184,17 +245,25 @@ export function CartProvider({ children, table: cookieTable }: { children: React
   }, [loaded, status, recheck]);
 
   const add = useCallback<CartContext["add"]>(
-    ({ platesLeft, ...line }) => {
+    ({ platesLeft, partsLeft, ...line }) => {
       const extras = line.extras ?? [];
-      const key = cartLineKey({ ...line, extras });
+      const combo = line.kind === "combo" && line.comboId && line.parts ? { id: line.comboId, parts: line.parts } : null;
+      const key = combo ? comboLineKey(combo.id, combo.parts) : cartLineKey({ ...line, extras });
       const want = line.quantity ?? 1;
       if (line.menuEntryId && platesLeft !== undefined) setLeft({ ...leftRef.current, [line.menuEntryId]: platesLeft });
+      if (partsLeft) setLeft({ ...leftRef.current, ...partsLeft });
       const prev = linesRef.current;
       const found = prev.find((l) => l.key === key);
       let room = MAX_PER_LINE;
       if (found) room = lineCap(prev, checksRef.current, leftRef.current, key) - found.quantity;
-      else if (line.menuEntryId && leftRef.current[line.menuEntryId] != null)
-        room = Math.min(MAX_PER_LINE, (leftRef.current[line.menuEntryId] ?? 0) - entryInOrder(prev, checksRef.current, line.menuEntryId));
+      else {
+        // A new line: the plates left for each entry it uses, less what the order already holds.
+        const uses = combo ? combo.parts.map((p) => ({ entry: p.menuEntryId, per: p.per })) : [{ entry: line.menuEntryId, per: 1 }];
+        for (const u of uses) {
+          const left = u.entry ? leftRef.current[u.entry] : null;
+          if (u.entry && left != null) room = Math.min(room, Math.floor((left - entryInOrder(prev, checksRef.current, u.entry)) / u.per));
+        }
+      }
       const n = Math.max(0, Math.min(want, room));
       if (n === 0) return 0;
       if (!found) setLastAdded(key);
@@ -256,7 +325,8 @@ export function CartProvider({ children, table: cookieTable }: { children: React
     setRemoved(null);
     setLines([]);
     setChecks({});
-  }, [setLines, setChecks]);
+    setCode(null);
+  }, [setLines, setChecks, setCode]);
 
   useEffect(
     () => () => {
@@ -265,14 +335,86 @@ export function CartProvider({ children, table: cookieTable }: { children: React
     [],
   );
 
+  const counted = useMemo(() => lines.filter((l) => isCounted(checks[l.key])), [lines, checks]);
+  const foodKes = counted.reduce((n, l) => n + l.quantity * l.unitPriceKes, 0);
+  const coveredKes = counted.filter((l) => l.kind !== "combo").reduce((n, l) => n + l.quantity * l.unitPriceKes, 0);
+  const discountKes = code?.check.ok ? Math.min(code.check.discountKes, coveredKes) : 0;
+  const mode = codeCtx?.mode ?? null;
+  const phone = codeCtx?.phone ?? null;
+
+  const runCodeCheck = useCallback(
+    async (text: string, food: number, covered: number) => {
+      const id = ++codeSeq.current;
+      const check = await checkCode({ code: text, foodKes: food, coveredKes: covered, mode, phone }).catch(() => null);
+      if (id !== codeSeq.current) return { stale: true as const };
+      return { stale: false as const, check };
+    },
+    [mode, phone],
+  );
+
+  // A code in the order is checked again (300 ms after the last change) whenever the food, the
+  // order type, the phone or the kitchen changes. It stays when it stops working: the chip says why.
+  const forKey = code ? [code.code, foodKes, coveredKes, mode ?? "-", phone ?? "-", status.state].join("|") : null;
+  useEffect(() => {
+    if (!loaded || !code || forKey === null || codeCheckedFor.current === forKey) return;
+    const text = code.code;
+    const t = setTimeout(() => {
+      void runCodeCheck(text, foodKes, coveredKes).then((r) => {
+        const cur = codeRef.current;
+        if (r.stale || !cur || cur.code !== text) return;
+        codeCheckedFor.current = forKey;
+        setCode(r.check ? { code: text, check: r.check, unreachable: false } : { ...cur, unreachable: true });
+      });
+    }, CODE_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [loaded, code, forKey, foodKes, coveredKes, runCodeCheck, setCode]);
+
+  const [codeFresh, setCodeFresh] = useState(false);
+  const freshTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(freshTimer.current), []);
+
+  const applyCode = useCallback<CartContext["applyCode"]>(
+    async (raw) => {
+      const text = raw.replace(/\s+/g, "").toUpperCase();
+      if (!/^[A-Z0-9]{3,20}$/.test(text)) return { ok: false, error: "We don’t know that code. Check the spelling." };
+      const r = await runCodeCheck(text, foodKes, coveredKes);
+      if (r.stale) return { ok: false, error: CODE_UNREACHABLE };
+      if (!r.check) return { ok: false, error: CODE_UNREACHABLE };
+      if (!r.check.ok) return { ok: false, error: codeError(r.check, foodKes) };
+      codeCheckedFor.current = [r.check.code, foodKes, coveredKes, mode ?? "-", phone ?? "-", status.state].join("|");
+      setCode({ code: r.check.code, check: r.check, unreachable: false });
+      setCodeFresh(true);
+      clearTimeout(freshTimer.current);
+      // Long enough for the entry to play; a later mount (checkout, a reload) doesn't animate.
+      freshTimer.current = setTimeout(() => setCodeFresh(false), 1000);
+      return { ok: true };
+    },
+    [runCodeCheck, foodKes, coveredKes, mode, phone, status.state, setCode],
+  );
+
+  const removeCode = useCallback(() => {
+    clearTimeout(freshTimer.current);
+    setCodeFresh(false);
+    codeSeq.current++;
+    codeCheckedFor.current = null;
+    setCode(null);
+  }, [setCode]);
+
   const value = useMemo<CartContext>(() => {
-    const counted = lines.filter((l) => isCounted(checks[l.key]));
     return {
       lines,
       checks,
       table,
       count: counted.reduce((n, l) => n + l.quantity, 0),
-      subtotalKes: counted.reduce((n, l) => n + l.quantity * l.unitPriceKes, 0),
+      subtotalKes: foodKes,
+      foodKes,
+      coveredKes,
+      discountKes,
+      code,
+      applyCode,
+      removeCode,
+      codeFresh,
+      setCodeContext: setCodeCtx,
       add,
       setQuantity,
       remove,
@@ -287,7 +429,7 @@ export function CartProvider({ children, table: cookieTable }: { children: React
       announce,
       clear,
     };
-  }, [lines, checks, left, table, add, setQuantity, remove, removed, undoRemove, lastAdded, recheck, announcement, announce, clear]);
+  }, [lines, checks, counted, foodKes, coveredKes, discountKes, code, applyCode, removeCode, codeFresh, left, table, add, setQuantity, remove, removed, undoRemove, lastAdded, recheck, announcement, announce, clear]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

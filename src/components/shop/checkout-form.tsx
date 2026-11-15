@@ -1,14 +1,17 @@
 "use client";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { placeOrder } from "@/app/(shop)/checkout/actions";
-import { isCounted } from "@/lib/cart-check";
+import { comboParts, isCounted } from "@/lib/cart-check";
+import { codeError } from "@/lib/discount-words";
 import { formatKes } from "@/lib/format";
 import { justClosedNote } from "@/lib/kitchen";
 import { minimumBlockLine, minimumShortfall, zoneOptionLabel } from "@/lib/zone-minimum";
 import { markArrival } from "./arrive";
 import { CartLineItem } from "./cart-line";
 import { useCart } from "./cart-provider";
+import { DiscountLine } from "./code-row";
 import { ClosedButton, KitchenNotice, useKitchen, usePickupSlots } from "./kitchen-provider";
 import { BottomBar } from "./ui";
 
@@ -56,7 +59,7 @@ function attemptFor(cart: string): Attempt {
 }
 
 export function CheckoutForm({ zones }: { zones: Zone[] }) {
-  const { lines, checks, count, subtotalKes, table, clear, recheck } = useCart();
+  const { lines, checks, count, subtotalKes, discountKes, code, removeCode, setCodeContext, table, clear, recheck } = useCart();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const kitchen = useKitchen();
@@ -65,6 +68,9 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
   // show above the button and the customer presses again (spec-2.8 "At Place order").
   const [changed, setChanged] = useState(false);
   const [checking, setChecking] = useState(false);
+  // place_order refused the code (spec-2.11 Q2 A): its note replaces the main button until the
+  // customer places without the code or goes back to the cart.
+  const [codeRefused, setCodeRefused] = useState<string | null>(null);
 
   const [mode, setMode] = useState<Mode>(table ? "dine_in" : "pickup");
   const [pay, setPay] = useState<Pay>(defaultPay(table ? "dine_in" : "pickup"));
@@ -97,9 +103,25 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
   useEffect(() => {
     if (changed) changedRef.current?.scrollIntoView({ block: "center" });
   }, [changed]);
+  // The order type and phone are only known here: the cart's code check takes them (spec-2.11).
+  useEffect(() => {
+    setCodeContext({ mode, phone });
+  }, [mode, phone, setCodeContext]);
+  useEffect(() => () => setCodeContext(null), [setCodeContext]);
+  const codeNoteRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (codeRefused) codeNoteRef.current?.scrollIntoView({ block: "center" });
+  }, [codeRefused]);
+  // A held code's reason (order type, phone, minimum…) under the summary; a code waiting for its
+  // first check says nothing yet.
+  const codeHeld = code && !code.check.ok && code.check.reason !== null ? codeError(code.check, subtotalKes) : null;
+
   const zone = zones.find((z) => z.id === zoneId);
   const fee = mode === "delivery" ? (zone?.fee_kes ?? 0) : 0;
-  const total = subtotalKes + fee;
+  // Once place_order has refused the code, the summary matches the button: no discount.
+  const total = subtotalKes - (codeRefused ? 0 : discountKes) + fee;
+  // Placing without the code: the food and the fee only.
+  const totalWithoutCode = subtotalKes + fee;
   // The zone's minimum counts the food only, before the fee (spec-2.6, Q1 A). place_order checks it again.
   const short = mode === "delivery" && zone ? minimumShortfall(subtotalKes, { name: zone.name, feeKes: zone.fee_kes, minOrderKes: zone.min_order_kes }) : 0;
 
@@ -131,6 +153,8 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!kitchen.open || short > 0 || count === 0 || checking || pending) return;
+    // While the code's note shows, Enter in a field means the button on screen.
+    if (codeRefused) return placeWithoutCode();
     setError(null);
     setChanged(false);
     setChecking(true);
@@ -141,12 +165,18 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
       .finally(() => setChecking(false));
   }
 
-  function place() {
+  function place(withCode = true) {
     // Only what's in the total goes to the kitchen: sold-out and off-menu lines stay behind.
-    const items = lines
-      .filter((l) => isCounted(checks[l.key]))
+    const counted = lines.filter((l) => isCounted(checks[l.key]));
+    const items = counted
+      .filter((l) => l.kind !== "combo")
       .map((l) => ({ dishId: l.dishId, menuEntryId: l.menuEntryId, optionId: l.optionId, extraIds: l.extras.map((x) => x.id), quantity: l.quantity, note: l.note }));
-    const cart = JSON.stringify(items);
+    const combos = counted
+      .filter((l) => l.kind === "combo" && l.comboId && l.parts)
+      .map((l) => ({ comboId: l.comboId!, quantity: l.quantity, parts: comboParts(l.parts!) }));
+    const discountCode = withCode ? (code?.code ?? null) : null;
+    // The code is part of the attempt: placing without it is a new attempt, with a new key.
+    const cart = JSON.stringify({ items, combos, discountCode });
     if (attempt.current?.cart !== cart) attempt.current = attemptFor(cart);
     const idempotencyKey = attempt.current.key;
     startTransition(async () => {
@@ -162,8 +192,14 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
         phone,
         payment: pay,
         items,
+        combos,
+        discountCode,
       }).catch(() => ({ ok: false as const, error: "We couldn’t confirm your order. Check your connection and try again.", reason: undefined }));
       if (!res.ok) {
+        if ("codeError" in res && res.codeError) {
+          setCodeRefused(res.error);
+          return;
+        }
         // A plate sold in the second between the check and the order: check again and show the
         // lines in their states, not a bare error. If the check finds nothing, say what place_order said.
         if (res.reason && MENU_REFUSALS.has(res.reason) && (await changedOnCheck())) return;
@@ -180,6 +216,15 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
       markArrival();
       router.push(`/order/${res.token}`);
     });
+  }
+
+  /** "Place without the code": the code leaves the cart, and the order goes with a new key. */
+  function placeWithoutCode() {
+    if (pending || checking) return;
+    setCodeRefused(null);
+    setError(null);
+    removeCode();
+    place(false);
   }
 
   if (lines.length === 0) {
@@ -346,6 +391,7 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
 
       <section aria-label="Summary" className="mx-5 mt-[18px] flex flex-col gap-2 text-[15px]">
         <div className="flex justify-between"><span className="text-ink-soft">Subtotal</span><span className="font-semibold">{formatKes(subtotalKes)}</span></div>
+        {!codeRefused && <DiscountLine />}
         {mode === "delivery" && zone && (
           <div className="flex justify-between"><span className="text-ink-soft">Delivery · {zone.name}</span><span className="font-semibold">{formatKes(fee)}</span></div>
         )}
@@ -353,6 +399,9 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
           <span>{pay === "at_counter" ? "To pay at the counter" : "To pay on handover"}</span>
           <span>{formatKes(total)}</span>
         </div>
+        {codeHeld && !codeRefused && (
+          <p role="status" className="fade-in text-[14px] font-semibold [overflow-wrap:anywhere] text-amber-ink">{codeHeld}</p>
+        )}
       </section>
 
       {touched.length > 0 && (
@@ -383,8 +432,28 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
 
       {!kitchen.open && <KitchenNotice className="mx-5 mt-4" />}
 
+      {codeRefused && (
+        <div ref={codeNoteRef} role="alert" className="fade-in mx-5 mt-4 rounded-xl bg-amber-tint px-4 py-3 text-[15px] font-semibold [overflow-wrap:anywhere] text-amber-ink">
+          {codeRefused}
+        </div>
+      )}
+
       <BottomBar inlineOnDesktop="padded">
-        {kitchen.open ? (
+        {codeRefused && kitchen.open ? (
+          <div className="flex flex-1 flex-col gap-1">
+            <button
+              type="button"
+              onClick={placeWithoutCode}
+              disabled={pending || checking || short > 0 || count === 0}
+              className={`press ${MAIN_BUTTON} bg-teal-deep text-white disabled:opacity-60`}
+            >
+              {pending ? "Sending to Mama…" : `Place without the code · ${formatKes(totalWithoutCode)}`}
+            </button>
+            <Link href="/cart" className="press flex min-h-11 touch-manipulation items-center justify-center text-[15px] font-semibold text-teal-deep select-none">
+              Back to cart
+            </Link>
+          </div>
+        ) : kitchen.open ? (
           <button
             type="submit"
             disabled={pending || checking || short > 0 || count === 0}

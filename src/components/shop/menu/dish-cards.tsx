@@ -4,7 +4,8 @@ import type { MenuDish } from "@/lib/menu-model";
 import { formatKes } from "@/lib/format";
 import { AddButton } from "../add-button";
 import { RatingMeta } from "../rating-meta";
-import { DishPills } from "./pills";
+import { pickPill } from "@/lib/menu-words";
+import { DishPills, Pill } from "./pills";
 
 export const dishHref = (d: MenuDish) => (d.entryId ? `/dish/${d.dishId}?entry=${d.entryId}` : `/dish/${d.dishId}`);
 
@@ -92,6 +93,12 @@ export function DishRow({ dish, soldOutLine }: CardProps) {
     <li className="dish-card relative flex min-h-[84px] items-center gap-3.5 px-4 py-3">
       <Plate id={dish.dishId} photo={dish.photo} dim={dish.soldOut} className="size-[60px] lg:size-16" />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        {/* Pills on a row: Mama's pick only (spec-2.8; RQA211-01). */}
+        {dish.pick && (
+          <span className="mb-1 flex">
+            <Pill {...pickPill} />
+          </span>
+        )}
         <span className={`line-clamp-3 text-base font-semibold [overflow-wrap:anywhere] ${dish.soldOut ? "text-ink-soft" : ""}`}>
           <DishLink dish={dish} className="" />
         </span>

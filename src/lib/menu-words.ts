@@ -5,7 +5,10 @@ import { formatKes } from "./format";
 /** "1 plate", "7 plates". Never "1 plates" (break-ui fix 3). */
 export const plates = (n: number) => `${n} ${n === 1 ? "plate" : "plates"}`;
 
-export type PillTone = "teal" | "amber" | "sand";
+export type PillTone = "teal" | "amber" | "sand" | "blush";
+
+/** Mama's pick (spec 2.11 A, DESIGN.md "Pills"): the only mark a dish gets. */
+export const pickPill: Pill = { text: "Mama’s pick", tone: "blush" };
 export type Pill = { text: string; tone: PillTone };
 
 /**

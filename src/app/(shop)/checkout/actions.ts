@@ -1,5 +1,6 @@
 "use server";
 import { z } from "zod";
+import { codeReason, type CodeReason } from "@/lib/discount-words";
 import { normaliseKenyanPhone } from "@/lib/phone";
 import { createClient } from "@/lib/supabase/server";
 
@@ -10,6 +11,24 @@ const item = z.object({
   extraIds: z.array(z.string().uuid()).max(8).default([]),
   quantity: z.number().int().min(1).max(20),
   note: z.string().max(200),
+});
+
+/** A combo: its dishes with their choices, each part's quantity per combo (spec-2.11 B). */
+const combo = z.object({
+  comboId: z.string().uuid(),
+  quantity: z.number().int().min(1).max(20),
+  parts: z
+    .array(
+      z.object({
+        dish_id: z.string().uuid(),
+        menu_entry_id: z.string().uuid().nullable(),
+        option_id: z.string().uuid().nullable(),
+        extra_ids: z.array(z.string().uuid()).max(8),
+        quantity: z.number().int().min(1).max(20),
+      }),
+    )
+    .min(1)
+    .max(8),
 });
 
 const input = z
@@ -25,9 +44,12 @@ const input = z
     phone: z.string(),
     // Launch takes no online payment (spec-2.1-payments.md); place_order checks the same.
     payment: z.enum(["on_handover", "at_counter"], { message: "Choose how you’ll pay" }),
-    items: z.array(item).min(1, "Your order is empty").max(30),
+    items: z.array(item).max(30),
+    combos: z.array(combo).max(30).default([]),
+    discountCode: z.string().trim().max(20).nullable().optional(),
   })
   .superRefine((v, ctx) => {
+    if (v.items.length + v.combos.length === 0) ctx.addIssue({ code: "custom", message: "Your order is empty" });
     if (v.mode === "delivery" && !v.zoneId) ctx.addIssue({ code: "custom", message: "Choose a delivery area" });
     if (v.mode === "delivery" && !v.address?.trim()) ctx.addIssue({ code: "custom", message: "Add your delivery address" });
     if (v.mode === "dine_in" && !v.tableToken) ctx.addIssue({ code: "custom", message: "Scan the QR code on your table" });
@@ -38,7 +60,7 @@ const input = z
 export type CheckoutInput = z.input<typeof input>;
 export type CheckoutResult =
   | { ok: true; token: string }
-  | { ok: false; error: string; reason?: Reason };
+  | { ok: false; error: string; reason?: Reason; codeError?: CodeReason };
 
 /**
  * place_order's stable refusal codes (its DETAIL). kitchen_closed and pickup_time rebuild the button
@@ -82,6 +104,8 @@ export async function placeOrder(raw: CheckoutInput): Promise<CheckoutResult> {
         quantity: i.quantity,
         note: i.note,
       })),
+      combos: v.combos.map((c) => ({ combo_id: c.comboId, quantity: c.quantity, parts: c.parts })),
+      discount_code: v.discountCode || null,
     },
   });
 
@@ -89,6 +113,9 @@ export async function placeOrder(raw: CheckoutInput): Promise<CheckoutResult> {
     // P0001 = messages written for customers inside place_order.
     // A new code or a table turned off mid-order (spec-2.6 States): say why, not just "scan again".
     if (error.code === "P0001" && error.message === TABLE_GONE) return { ok: false, error: TABLE_CHANGED };
+    // A code refusal (Q2 A): checkout offers to place the order without it.
+    if (error.code === "P0001" && error.details === "discount_code")
+      return { ok: false, error: error.message, codeError: codeReason(error.hint?.replace(/^discount_code:/, "")) ?? "unknown" };
     if (error.code === "P0001") return { ok: false, error: error.message, reason: reasonOf(error.details) };
     return { ok: false, error: "Something went wrong placing your order. Try again." };
   }

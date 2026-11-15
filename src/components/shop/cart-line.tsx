@@ -1,7 +1,7 @@
 "use client";
 import { MinusIcon, PlusIcon, TrashIcon } from "@/components/icons";
 import { Plate } from "@/components/plate";
-import { extrasLine } from "@/lib/cart-lines";
+import { extrasLine, partLine } from "@/lib/cart-lines";
 import { isCounted, MAX_PER_LINE } from "@/lib/cart-check";
 import { formatKes, weekdayName } from "@/lib/format";
 import { menuDayOf } from "@/lib/kitchen";
@@ -49,6 +49,9 @@ export function QtyStepper({ line, cap }: { line: CartLine; cap: number }) {
 const OUT_WORDS = {
   option_out: { pill: "Choice sold out", note: "Not in your total. Remove it, then choose again." },
   not_now: { pill: "Not served now", note: "Not in your total. Keep it for later, or remove it." },
+  // 2.11 B (spec "States": the combo line goes amber with Remove).
+  combo_off: { pill: "Not available", note: "This combo isn’t available any more. Remove it." },
+  combo_parts: { pill: "Combo changed", note: "This combo has changed. Remove it and add it again." },
 } as const;
 
 /**
@@ -63,14 +66,15 @@ export function CartLineItem({ line, plate, fresh = false }: { line: CartLine; p
   const counted = isCounted(check);
   const day = weekdayName(menuDayOf(status));
   const cap = capFor(line.key);
-  const limited = line.menuEntryId !== null && leftFor(line.menuEntryId) != null && cap < MAX_PER_LINE;
+  const entries = line.kind === "combo" ? (line.parts ?? []).map((p) => p.menuEntryId) : [line.menuEntryId];
+  const limited = entries.some((e) => e !== null && leftFor(e) != null) && cap < MAX_PER_LINE;
   const choice = extrasLine(line.optionLabel, line.extras);
 
   let out: { pill: string; tone: "sand" | "amber"; note: string; noteClass: string } | null = null;
   if (check?.state === "sold_out") out = { pill: "Sold out today", tone: "sand", note: soldOutNote, noteClass: "text-ink-soft" };
   else if (check?.state === "not_on_menu")
     out = { pill: notOnMenuPill(day), tone: "amber", note: notOnMenuNote, noteClass: "text-amber-ink" };
-  else if (check?.state === "option_out" || check?.state === "not_now")
+  else if (check?.state === "option_out" || check?.state === "not_now" || check?.state === "combo_off" || check?.state === "combo_parts")
     out = { pill: OUT_WORDS[check.state].pill, tone: "amber", note: OUT_WORDS[check.state].note, noteClass: "text-amber-ink" };
 
   const note = counted
@@ -83,7 +87,7 @@ export function CartLineItem({ line, plate, fresh = false }: { line: CartLine; p
 
   return (
     <li className={`flex gap-3 py-3.5 ${fresh ? "line-in" : ""}`}>
-      <Plate id={line.dishId} photo={line.photo ?? null} size={plate} dim={!counted} />
+      <Plate id={line.parts?.[0]?.dishId ?? line.dishId} photo={line.photo ?? null} size={plate} dim={!counted} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-start justify-between gap-3">
           <span title={line.name} className={`line-clamp-3 text-[15px] font-semibold leading-snug [overflow-wrap:anywhere] ${counted ? "" : "text-ink-soft"}`}>
@@ -94,6 +98,15 @@ export function CartLineItem({ line, plate, fresh = false }: { line: CartLine; p
           </span>
         </div>
         {choice && <span className="text-[13px] text-ink-soft [overflow-wrap:anywhere]">{choice}</span>}
+        {line.parts && (
+          <ul aria-label={`In ${line.name}`} className="flex flex-col gap-0.5 border-l-2 border-sand-deep pl-2.5 text-[13px] text-ink-soft">
+            {line.parts.map((p) => (
+              <li key={p.dishId} className="[overflow-wrap:anywhere]">
+                {partLine(p)}
+              </li>
+            ))}
+          </ul>
+        )}
         {line.note && <span className="text-[13px] text-ink-soft [overflow-wrap:anywhere]">Note: {line.note}</span>}
         {out ? (
           <>
@@ -153,8 +166,10 @@ export function OrderAnnouncer() {
 
 /** The order's main button: checkout, closed (disabled with the total), or nothing left. */
 export function useOrderButton() {
-  const { lines, count, subtotalKes } = useCart();
+  const { lines, count, subtotalKes: food, discountKes } = useCart();
   const { open } = useKitchen();
+  // The button shows what the food comes to after the code (delivery is added at checkout).
+  const subtotalKes = food - discountKes;
   if (lines.length > 0 && count === 0) return { kind: "nothing" as const, subtotalKes };
   return { kind: open ? ("checkout" as const) : ("closed" as const), subtotalKes };
 }
