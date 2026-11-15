@@ -9,6 +9,7 @@ import {
   ClockIcon,
   DishesIcon,
   ExternalIcon,
+  MegaphoneIcon,
   MoreIcon,
   PeopleIcon,
   QrIcon,
@@ -43,6 +44,8 @@ const ITEMS: Item[] = [
   { href: "/dashboard/menu", label: "Menu", Icon: CalendarIcon },
   { href: "/dashboard/manage", label: "Dishes", Icon: DishesIcon, also: (p) => p.startsWith("/dashboard/dishes/") },
   { href: "/dashboard/tables", label: "Tables", Icon: QrIcon },
+  // spec-2.11: the owner's Promos, after Tables in the rail; below 1024 px it's a row on More.
+  { href: "/dashboard/promos", label: "Promos", Icon: MegaphoneIcon, shows: (w) => w.role === "owner", railOnly: true },
   // spec-2.6: the owner's Team, after Tables in the rail; below 1024 px it's a row on More.
   { href: "/dashboard/team", label: "Team", Icon: PeopleIcon, shows: (w) => w.role === "owner", railOnly: true },
   // Staff with Close early see Settings for its card (spec-2.3); the other cards stay read-only.
@@ -157,7 +160,7 @@ export function DashboardTabBar({ newOrders, role, grants }: Pick<NavProps, "new
   // below 600 px, so More looks selected there, while aria-current stays on the (hidden) Tables tab.
   const owner = items.some((i) => i.href === "/dashboard/settings");
   const onTables = path.startsWith("/dashboard/tables");
-  const moreOn = path === "/dashboard/more" || path === "/dashboard/account" || path.startsWith("/dashboard/history") || path.startsWith("/dashboard/team");
+  const moreOn = path === "/dashboard/more" || path === "/dashboard/account" || path.startsWith("/dashboard/history") || path.startsWith("/dashboard/team") || path.startsWith("/dashboard/promos");
   const tab = `${NAV_TOUCH} ${FOCUS} flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-[14px] text-[12px] font-semibold`;
   return (
     <nav

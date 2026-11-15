@@ -10,7 +10,7 @@ import { WhoSelect } from "./who-select";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "History" };
 
-const LABEL: Record<Area | "all", string> = { all: "All", menu: "Menu", orders: "Orders", tables: "Tables", team: "Team", settings: "Settings", ratings: "Ratings" };
+const LABEL: Record<Area | "all", string> = { all: "All", menu: "Menu", orders: "Orders", tables: "Tables", team: "Team", settings: "Settings", ratings: "Ratings", promos: "Promos" };
 // 44 px chips that wrap onto a second line at 375 rather than scroll (spec-2.3 "Phone layout").
 const CHIP =
   "press inline-flex min-h-11 items-center rounded-full px-4 text-[15px] font-semibold touch-manipulation select-none [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-deep";

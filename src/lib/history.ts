@@ -6,8 +6,9 @@ import { addDays, dayLabel, formatKes, timeLabel, weekdayName } from "@/lib/form
 import { REASON_LABEL, TITLES } from "@/lib/board";
 import type { Grant } from "@/lib/permissions";
 import { daysLabel } from "@/lib/planner";
+import { codeGives, dateRange, shortDate, SPACE_IN, type AdSpace } from "@/lib/promos";
 
-export const AREAS = ["menu", "orders", "tables", "team", "settings", "ratings"] as const;
+export const AREAS = ["menu", "orders", "tables", "team", "settings", "ratings", "promos"] as const;
 export type Area = (typeof AREAS)[number];
 
 export type ChangeRow = {
@@ -53,6 +54,14 @@ const isDay = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2
 export const longDay = (day: string) => dayLabel(day, "long").replace(",", "");
 const weekday = (v: unknown) => (isDay(v) ? weekdayName(v) : "a day");
 const kes = (v: unknown) => (num(v) === null ? "no price" : formatKes(num(v)!));
+/** A code's "10% off, up to KSh 300" from its History snapshot, or null. */
+const codeGivesOf = (v: Record<string, unknown>) =>
+  (v.kind === "percent" || v.kind === "amount") && num(v.value) !== null ? codeGives({ kind: v.kind, value: num(v.value)!, cap_kes: num(v.cap_kes) }) : null;
+/** "Beef pilau · 2× Chapati" from a combo snapshot's dishes. */
+const comboDishes = (v: unknown) =>
+  Array.isArray(v)
+    ? v.map((d: { name?: unknown; quantity?: unknown }) => `${num(d.quantity) && num(d.quantity)! > 1 ? `${num(d.quantity)}× ` : ""}${str(d.name) ?? "a dish"}`).join(" · ")
+    : "its dishes";
 const plates = (v: unknown) => (num(v) === null ? "no plate limit" : num(v) === 1 ? "1 plate" : `${num(v)} plates`);
 const clock = (v: unknown) => (str(v) === "24:00" || str(v) === "00:00" ? "midnight" : (str(v) ?? "?"));
 
@@ -61,6 +70,13 @@ function entryDays(e: Obj) {
   const from = e.starts_on;
   const to = e.ends_on;
   return isDay(from) && isDay(to) && from !== to ? `${weekdayName(from)} to ${weekdayName(to)}` : weekday(from);
+}
+
+/** ", on the menu, 1–30 Nov" from an ad's snapshot. */
+function adWhere(a: Obj) {
+  const space = str(a.space);
+  const where = space === "menu" || space === "order" ? `, ${SPACE_IN[space as AdSpace]}` : "";
+  return isDay(a.starts_on) && isDay(a.ends_on) ? `${where}, ${dateRange(a.starts_on, a.ends_on)}` : where;
 }
 
 /** The sentence after the person: pieces, ending with a full stop. */
@@ -281,6 +297,63 @@ function rest(row: ChangeRow): Piece[] {
       return [t(`closed the kitchen early${str(a.at) ? ` at ${timeLabel(str(a.at)!)}` : ""}.`)];
     case "kitchen.reopen":
       return [t("reopened the kitchen.")];
+
+    // ── promos (slice 2.11)
+    case "ad.create":
+      return [t("added a draft ad from "), s, t(`${adWhere(a)}.`)];
+    case "ad.approve":
+      return [t("approved the ad from "), s, t(`${adWhere(a)}.`)];
+    case "ad.edit": {
+      if (a.to_draft === true) return [t("changed the ad from "), s, t(", so it’s a draft again until it’s approved.")];
+      if (isDay(a.ends_on) && a.ends_on !== b.ends_on) return [t("changed the ad from "), s, t(`: it now ends ${shortDate(a.ends_on)}.`)];
+      return [t("changed the ad from "), s, t(".")];
+    }
+    case "ad.pause":
+      return [t("paused the ad from "), s, t(".")];
+    case "ad.resume":
+      return [t("resumed the ad from "), s, t(".")];
+    case "ad.end":
+      return [t("ended the ad from "), s, t(" early.")];
+    case "ad.delete":
+      return [t("deleted the draft ad from "), s, t(".")];
+    case "promo.pick_on":
+      return [t("made "), s, t(" a Mama’s pick.")];
+    case "promo.pick_off":
+      return [t("took "), s, t(" off Mama’s picks.")];
+    case "combo.create":
+      return [t("made the combo "), s, t(`: ${comboDishes(a.dishes)} for ${kes(a.price_kes)}.`)];
+    case "combo.edit": {
+      const price = num(a.price_kes) !== num(b.price_kes);
+      const dishes = comboDishes(a.dishes) !== comboDishes(b.dishes);
+      const renamed = str(b.name) && str(a.name) !== str(b.name) ? ` (it was ${str(b.name)})` : "";
+      if (price && dishes) return [t("changed the combo "), s, t(`${renamed}: now ${comboDishes(a.dishes)} for ${kes(a.price_kes)}.`)];
+      if (price) return [t("changed the price of the combo "), s, t(`${renamed} from ${kes(b.price_kes)} to ${kes(a.price_kes)}.`)];
+      if (dishes) return [t("changed the dishes in the combo "), s, t(`${renamed} to ${comboDishes(a.dishes)}.`)];
+      return renamed ? [t("renamed the combo "), s, t(`${renamed}.`)] : [t("changed the combo "), s, t(".")];
+    }
+    case "combo.on":
+      return [t("switched on the combo "), s, t(".")];
+    case "combo.off":
+      return [t("switched off the combo "), s, t(".")];
+    case "combo.archive":
+      return [t("archived the combo "), s, t(".")];
+    case "code.create": {
+      const gives = codeGivesOf(a);
+      return [t("made the code "), s, t(`${gives ? `: ${gives}` : ""}${isDay(a.ends_on) ? `, until ${shortDate(a.ends_on)}` : ""}.`)];
+    }
+    case "code.edit": {
+      const gives = codeGivesOf(a);
+      if (gives && gives !== codeGivesOf(b)) return [t("changed "), s, t(` to ${gives}.`)];
+      const limits = ["max_uses", "once_per_phone", "min_order_kes", "modes", "starts_on"].some((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+      const ends = isDay(a.ends_on) && a.ends_on !== b.ends_on ? `ends ${shortDate(a.ends_on)}` : "";
+      if (ends && !limits) return [t("changed "), s, t(`: it now ${ends}.`)];
+      if (ends) return [t("changed the limits on "), s, t(`, and it now ${ends}.`)];
+      return [t(limits ? "changed the limits on " : "changed "), s, t(".")];
+    }
+    case "code.on":
+      return [t("switched on the code "), s, t(".")];
+    case "code.off":
+      return [t("switched off the code "), s, t(".")];
   }
   return row.subject_label ? [t("changed "), s, t(".")] : [t("made a change.")];
 }

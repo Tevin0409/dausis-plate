@@ -15,7 +15,10 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Orders" };
 
 const SELECT =
-  "id, code, status, mode, payment_method, payment_status, paid_with, total_kes, created_at, status_changed_at, pickup_at, delivery_address, delivery_notes, customer_name, customer_phone, table:dining_tables(label), zone:delivery_zones(name), items:order_items(name, option_label, quantity, note, extras:order_item_extras(label, sort_order))";
+  "id, code, status, mode, payment_method, payment_status, paid_with, total_kes, created_at, status_changed_at, pickup_at, delivery_address, delivery_notes, customer_name, customer_phone, table:dining_tables(label), zone:delivery_zones(name), items:order_items(name, option_label, quantity, note, extras:order_item_extras(label, sort_order)), " +
+  // 2.11: the code and its saving, and each combo with its dishes in the combo's order.
+  "discount_kes, discount_code, combos:order_combos!order_combos_order_id_fkey(name, quantity, sort_order, combo:combos(parts:combo_items(dish_id, sort_order)), " +
+  "items:order_items(dish_id, name, option_label, quantity, note, extras:order_item_extras(label, sort_order)))";
 
 const EMPTY: Record<string, string> = {
   new: "No new orders",
@@ -55,6 +58,8 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
       .select(SELECT)
       .or(`status.in.(${OPEN.join(",")}),and(status.eq.completed,status_changed_at.gte.${startOfDay})`)
       .neq("status", "cancelled")
+      // A combo's dishes are under the combo, not among the order's own lines.
+      .is("items.order_combo_id", null)
       .order("created_at", { ascending: true }),
     supabase.from("orders").select("id", { count: "exact", head: true }).gte("created_at", startOfDay),
     kitchenLine(),

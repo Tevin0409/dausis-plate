@@ -24,8 +24,46 @@ export type BoardOrder = {
   customer_phone: string;
   table: { label: string } | null;
   zone: { name: string } | null;
-  items: { name: string; option_label: string | null; quantity: number; note: string | null; extras?: { label: string; sort_order: number }[] | null }[];
+  items: BoardItem[];
+  /** 2.11: the code's saving (0 without one) and the code as placed. */
+  discount_kes?: number;
+  discount_code?: string | null;
+  combos?: {
+    name: string;
+    quantity: number;
+    sort_order: number;
+    combo: { parts: { dish_id: string; sort_order: number }[] } | null;
+    items: (BoardItem & { dish_id: string })[];
+  }[];
 };
+type BoardItem = { name: string; option_label: string | null; quantity: number; note: string | null; extras?: { label: string; sort_order: number }[] | null };
+
+/** One dish line: the quantity and name, its choice, extras at the item's size, the note. */
+function ItemLine({ it }: { it: BoardItem }) {
+  return (
+    <>
+      <span className="block text-base font-semibold">
+        {it.quantity} × {it.name}
+      </span>
+      {it.option_label && <span className="block text-sm font-medium text-ink-soft">{it.option_label}</span>}
+      {/* spec-2.6: extras at the item's size, so the kitchen can't miss them. */}
+      {it.extras && it.extras.length > 0 && (
+        <span className="block text-base font-semibold [overflow-wrap:anywhere]">
+          {[...it.extras].sort((a, b) => a.sort_order - b.sort_order).map((x) => `+ ${x.label}`).join(", ")}
+        </span>
+      )}
+      {it.note && <span className="block text-sm font-semibold text-amber-ink [overflow-wrap:anywhere]">{it.note}</span>}
+    </>
+  );
+}
+
+/** A combo's dishes in the combo's own order; each dish's quantity is per combo. */
+export function comboDishes(c: NonNullable<BoardOrder["combos"]>[number]) {
+  const rank = new Map((c.combo?.parts ?? []).map((p) => [p.dish_id, p.sort_order]));
+  return [...c.items]
+    .sort((a, b) => (rank.get(a.dish_id) ?? 1e9) - (rank.get(b.dish_id) ?? 1e9) || a.name.localeCompare(b.name))
+    .map((it) => ({ ...it, quantity: Math.max(1, Math.round(it.quantity / c.quantity)) }));
+}
 
 // Launch has two ways to pay (spec-2.1-payments.md); older mpesa or card orders read as on handover.
 const PAY_LABEL: Record<Enums<"payment_method">, string> = { at_counter: "At the counter", on_handover: "On handover", mpesa: "On handover", card: "On handover" };
@@ -76,17 +114,22 @@ export function Ticket({ o, now }: { o: BoardOrder; now: Date }) {
       <ul className="flex flex-col gap-1">
         {o.items.map((it, i) => (
           <li key={i} className="leading-snug">
-            <span className="block text-base font-semibold">
-              {it.quantity} × {it.name}
+            <ItemLine it={it} />
+          </li>
+        ))}
+        {/* 2.11: a combo is its name, then each dish indented under it. Kitchen staff read dishes. */}
+        {[...(o.combos ?? [])].sort((a, b) => a.sort_order - b.sort_order).map((c, i) => (
+          <li key={`c${i}`} className="leading-snug">
+            <span className="block text-base font-semibold [overflow-wrap:anywhere]">
+              {c.quantity} × {c.name}
             </span>
-            {it.option_label && <span className="block text-sm font-medium text-ink-soft">{it.option_label}</span>}
-            {/* spec-2.6: extras at the item's size, so the kitchen can't miss them. */}
-            {it.extras && it.extras.length > 0 && (
-              <span className="block text-base font-semibold [overflow-wrap:anywhere]">
-                {[...it.extras].sort((a, b) => a.sort_order - b.sort_order).map((x) => `+ ${x.label}`).join(", ")}
-              </span>
-            )}
-            {it.note && <span className="block text-sm font-semibold text-amber-ink [overflow-wrap:anywhere]">{it.note}</span>}
+            <ul className="mt-0.5 flex flex-col gap-1 border-l-2 border-sand-deep pl-3">
+              {comboDishes(c).map((it, j) => (
+                <li key={j}>
+                  <ItemLine it={it} />
+                </li>
+              ))}
+            </ul>
           </li>
         ))}
       </ul>
@@ -111,6 +154,12 @@ export function Ticket({ o, now }: { o: BoardOrder; now: Date }) {
 
       {/* 6. Money row: the total and the pill; Paid cash / Paid M-Pesa (or Undo) on their own full-width row under it (2.12) */}
       <div className="flex flex-col gap-2 border-t border-sand pt-2.5">
+        {/* 2.11: the code's saving above the total, so whoever takes the cash charges the right amount. */}
+        {(o.discount_kes ?? 0) > 0 && (
+          <span className="text-sm text-ink-soft tabular-nums [overflow-wrap:anywhere]">
+            {o.discount_code ?? "Discount"} −{formatKes(o.discount_kes!)}
+          </span>
+        )}
         <div className="flex w-full flex-wrap items-center justify-between gap-x-2 gap-y-1">
           <span className="text-base font-bold tabular-nums">{formatKes(o.total_kes)}</span>
           <PayPill paid={paid} method={payLabel(o)} paidWith={o.paid_with} />

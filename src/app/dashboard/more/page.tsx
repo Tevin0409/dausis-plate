@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AccountIcon, ChartIcon, ClockIcon, ExternalIcon, PeopleIcon, QrIcon, SignOutIcon, StarIcon } from "@/components/icons";
+import { AccountIcon, ChartIcon, ClockIcon, ExternalIcon, MegaphoneIcon, PeopleIcon, QrIcon, SignOutIcon, StarIcon } from "@/components/icons";
 import { can } from "@/lib/permissions";
 import { NAV_TOUCH, roleLabel, shortName } from "@/components/dashboard/nav-shared";
 import { SubmitButton } from "@/components/dashboard/submit-button";
@@ -45,6 +45,13 @@ export default async function MorePage() {
             </span>
           </a>
         </li>
+        {owner && (
+          <li className="border-b border-sand lg:hidden">
+            <Link href="/dashboard/promos" className={ROW}>
+              <MegaphoneIcon size={20} /> Ads &amp; promos
+            </Link>
+          </li>
+        )}
         {owner && (
           <li className="border-b border-sand lg:hidden">
             <Link href="/dashboard/team" className={ROW}>
