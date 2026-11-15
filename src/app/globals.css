@@ -15,6 +15,9 @@
   --color-blush-deep: #f3d3cf;
   --color-pink: #e99d99;
   --color-cream: #fbf7f1;
+  --color-paper: #ffffff;
+  --color-field: #8c8478;
+  --color-on-teal-soft: #d4ecea;
   --color-sand: #ece5da;
   --color-sand-deep: #d9d2c7;
   --color-mist: #f4f6f8;
@@ -33,11 +36,17 @@
 
 /* Shape, depth and motion tokens, as defined in DESIGN.md. Only the ones in use so far. */
 :root {
+  --r-sm: 10px;
   --r-md: 16px;
+  --r-lg: 24px;
   --shadow-card: 0 1px 2px rgba(26, 32, 44, 0.06), 0 4px 14px rgba(26, 32, 44, 0.05);
   --dur-press: 120ms;
   --dur-small: 180ms;
+  --dur-exit: 220ms;
+  --dur-sheet: 280ms;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
 body {
@@ -56,7 +65,9 @@ body {
 
 /* Press / tap feedback (DESIGN.md motion table). */
 .press {
-  transition: transform var(--dur-press) var(--ease-out);
+  transition:
+    transform var(--dur-press) var(--ease-out),
+    opacity var(--dur-press) var(--ease-out);
 }
 .press:active {
   transform: scale(0.97);
@@ -65,7 +76,8 @@ body {
   transform: none;
 }
 
-/* Checkout error note: fade in with 6 px translate when placing fails (spec-2.1-payments.md). */
+/* Checkout error note and the dashboard refusal line (ActionForm): fade in with 6 px translate
+   (spec-2.1-payments.md, spec-2.3 Motion). */
 .note-in {
   transition:
     opacity var(--dur-small) var(--ease-out),
@@ -76,6 +88,28 @@ body {
     opacity: 0;
     transform: translateY(6px);
   }
+}
+
+/* Save this link: the Copy icon crossfades to a check and back; the check scales .6 → 1 as it
+   comes in (spec-2.8b Motion). Reduced motion: the crossfade only. */
+.copy-swap {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+.copy-check.copy-off {
+  transform: scale(0.6);
+}
+@media (prefers-reduced-motion: reduce) {
+  .copy-check.copy-off {
+    transform: none;
+  }
+}
+
+/* Bad-QR notice dismissed: fade out on opacity only. */
+.notice-out {
+  opacity: 0;
+  transition: opacity var(--dur-exit) var(--ease-out);
 }
 
 /* Board strip (the stale-tap message): fade in with 6 px translate, fade out on opacity only. */
@@ -95,11 +129,73 @@ body {
 .board-notice[data-leaving] {
   opacity: 0;
   pointer-events: none;
+  transition: opacity var(--dur-exit) var(--ease-out);
+}
+
+/* Table request strip (spec-2.9 Motion): a request that arrives while the board is open enters from
+   8 px above; Done sends it back the same way. Only new arrivals carry .request-in, so opening the
+   board or unfolding "more" doesn't animate. */
+.request-strip {
+  transition:
+    opacity var(--dur-exit) var(--ease-out),
+    transform var(--dur-exit) var(--ease-out);
+}
+.request-strip.request-in {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .request-strip.request-in {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+.request-strip[data-leaving] {
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+  /* Also when the strip is still .request-in: it leaves at the exit speed. */
+  transition:
+    opacity var(--dur-exit) var(--ease-out),
+    transform var(--dur-exit) var(--ease-out);
+}
+
+/* The phone's sticky "Table 4 called a waiter" pill: fade in with 6 px translate, fade out. */
+.request-pill {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .request-pill {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+.request-pill[data-leaving] {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-exit) var(--ease-out);
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* Reduced motion: the press still answers, by dimming instead of shrinking. */
   .press:active {
     transform: none;
+    opacity: 0.8;
+  }
+  /* Fade only. */
+  .request-strip.request-strip,
+  .request-strip.request-strip[data-leaving],
+  .request-pill.request-pill {
+    transform: none;
+  }
+  @starting-style {
+    .request-strip.request-strip.request-in,
+    .request-pill.request-pill {
+      transform: none;
+    }
   }
   .board-notice {
     transition: opacity var(--dur-small) var(--ease-out);
@@ -114,6 +210,490 @@ body {
   }
   @starting-style {
     .note-in {
+      transform: none;
+    }
+  }
+}
+
+/* Dashboard shell (spec-2.2). The tab bar's height, for the save bar and the board strip. */
+.dash {
+  --tabbar-h: calc(64px + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 1024px) {
+  .dash {
+    --tabbar-h: 0px;
+  }
+}
+/* While the hours save bar shows (spec-2.2 build follow-up 2), focus and scrollIntoView stop
+   above it: the tab bar (64 px + safe area below 1024) plus the bar itself (96 px). */
+html.savebar-pad {
+  scroll-padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 96px);
+}
+@media (min-width: 1024px) {
+  html.savebar-pad {
+    scroll-padding-bottom: 96px;
+  }
+}
+/* While a text field has focus on a touch screen, the tab bar goes at once, so the keyboard
+   meets the content and the save bar drops to the keyboard's edge. */
+@media (pointer: coarse) {
+  .dash:has(:is(input:not([type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="file"]), textarea, select):focus) {
+    --tabbar-h: 0px;
+  }
+  .dash:has(:is(input:not([type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="file"]), textarea, select):focus) .dash-tabbar {
+    display: none;
+  }
+}
+
+/* A page heading focused by the app after a stale refresh (refusal-note.tsx): no ring. It is not a
+   control, and the browser's default ring would show after the keypress that caused the refusal. */
+#main h1[tabindex="-1"]:focus {
+  outline: none;
+}
+
+/* Closed-early strip: enters from 8 px above when it's noticed, leaves the same way. Not on page load. */
+.early-strip[data-phase] {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .early-strip[data-phase="in"] {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+.early-strip[data-phase="out"] {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+/* Settings: the hours switch. Only the knob moves; the track's colour changes at once (DESIGN.md). */
+.switch-knob {
+  transition: transform var(--dur-small) var(--ease-out);
+}
+.switch:checked + .switch-track .switch-knob,
+.switch[aria-checked="true"] .switch-knob {
+  transform: translateX(18px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .early-strip[data-phase] {
+    transition: opacity var(--dur-small) var(--ease-out);
+  }
+  @starting-style {
+    .early-strip[data-phase="in"] {
+      transform: none;
+    }
+  }
+  .early-strip[data-phase="out"] {
+    transform: none;
+  }
+  .switch-knob {
+    transition: none;
+  }
+}
+
+/* Order board (spec-2.4 "Layouts"). From 600 the columns fill to the tab bar (below 1024) or the
+   viewport's foot and scroll on their own; --board-top is the grid's measured top (board-layout.tsx). */
+.board {
+  --board-bottom: calc(var(--tabbar-h, 0px) + 20px);
+  --fill: max(26rem, calc(100dvh - var(--board-top, 0px) - var(--board-bottom)));
+}
+@media (width >= 1024px) {
+  .board {
+    --board-bottom: 28px;
+  }
+}
+@media (width >= 600px) and (width < 1280px) {
+  .board {
+    height: var(--fill);
+    grid-template-rows: 60px minmax(0, 1fr);
+  }
+}
+@media (width >= 1280px) {
+  .board {
+    grid-template-rows: var(--fill) auto;
+  }
+}
+/* The board refreshes itself, so pull-to-refresh is off on this page only. */
+html:has(.board) {
+  overscroll-behavior-y: none;
+}
+
+/* A ticket arriving in a column: enter in the new place, 8 px (spec-2.4 Motion row 1). The class is
+   only on tickets that weren't in the last render, and it is dropped once it has run. */
+.ticket-in {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .ticket-in {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ticket-in {
+    transition: opacity var(--dur-small) var(--ease-out);
+  }
+  @starting-style {
+    .ticket-in {
+      transform: none;
+    }
+  }
+}
+
+/* Menu planner (spec-2.5). The panel: a sheet from below under 600 px, a 420 px side panel from the
+   right at 600 and up. It arrives with sheet + drawer and leaves the same way with exit + ease-out;
+   the scrim fades with it. A drag on the grabber sets the transform inline (planner/sheet.tsx). */
+.planner-scrim {
+  background: rgb(0 40 38 / 0.35);
+  transition: opacity var(--dur-sheet) var(--ease-out);
+}
+.planner-panel {
+  transition: transform var(--dur-sheet) var(--ease-drawer);
+}
+@starting-style {
+  .planner-scrim {
+    opacity: 0;
+  }
+  .planner-panel {
+    transform: translateY(100%);
+  }
+}
+.planner-host[data-phase="out"] .planner-scrim {
+  opacity: 0;
+  transition-duration: var(--dur-exit);
+}
+.planner-host[data-phase="out"] .planner-panel {
+  transform: translateY(100%);
+  transition: transform var(--dur-exit) var(--ease-out);
+}
+@media (width >= 600px) {
+  @starting-style {
+    .planner-panel {
+      transform: translateX(100%);
+    }
+  }
+  .planner-host[data-phase="out"] .planner-panel {
+    transform: translateX(100%);
+  }
+}
+.planner-body {
+  overscroll-behavior: contain;
+}
+/* A sheet open while printing (Print this card) sets html overflow hidden; the sheet itself is print:hidden. */
+@media print {
+  html {
+    overflow: visible !important;
+  }
+}
+
+/* A dish just added or copied: enter in the new place, 8 px. Copied dishes enter together. */
+.dish-in {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .dish-in {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* Weekly closed days: hatched sand. */
+.closed-hatch {
+  background-color: var(--color-sand);
+  background-image: repeating-linear-gradient(135deg, rgb(26 32 44 / 0.06) 0 8px, transparent 8px 16px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .planner-panel,
+  .planner-host[data-phase="out"] .planner-panel {
+    transform: none;
+    transition: opacity var(--dur-sheet) var(--ease-out);
+  }
+  .planner-host[data-phase="out"] .planner-panel {
+    opacity: 0;
+    transition-duration: var(--dur-exit);
+  }
+  @starting-style {
+    .planner-panel {
+      transform: none;
+      opacity: 0;
+    }
+  }
+  @media (width >= 600px) {
+    @starting-style {
+      .planner-panel {
+        transform: none;
+      }
+    }
+    .planner-host[data-phase="out"] .planner-panel {
+      transform: none;
+    }
+  }
+  .dish-in {
+    transition: opacity var(--dur-small) var(--ease-out);
+  }
+  @starting-style {
+    .dish-in {
+      transform: none;
+    }
+  }
+}
+
+/* Slice 2.8, the customer menu (spec-2.8-menu-on-a-computer.md Motion; DESIGN.md "Add button"). */
+/* The add button: + crossfades to a check for 900 ms. Colour changes are instant (DESIGN.md). */
+.add-btn .add-icon,
+.add-btn .add-check {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+.add-btn .add-check {
+  position: absolute;
+  opacity: 0;
+  transform: scale(0.6);
+}
+.add-btn[data-added] {
+  background-color: var(--color-teal);
+}
+.add-btn[data-added] .add-icon {
+  opacity: 0;
+  transform: scale(0.6);
+}
+.add-btn[data-added] .add-check {
+  opacity: 1;
+  transform: none;
+}
+/* Special tiles at large text (break-ui, 2026-11-15). The plate sits beside the name in a fixed
+   150 px, so when the text grows (a phone's larger text setting, or browser zoom) the name column
+   shrinks to a word or less and names split mid-word. The query is in em, which here is the tile
+   list's own font size, so it follows the text: at the default size a 320 px phone keeps the side
+   layout (288 px tile > 272 px); from about 125-150% text the plate moves above the name, still
+   bleeding off the same edge, and the name gets the tile's full width. Week tiles keep their small
+   76 px plate, which leaves room. */
+.dish-tiles {
+  container-type: inline-size;
+}
+@container (width < 17em) {
+  .dish-tile-special {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding-inline: 18px;
+  }
+  .dish-tile-special > .dish-tile-plate {
+    position: relative;
+    inset: auto;
+    width: 132px;
+    height: 132px;
+    align-self: flex-end;
+    margin: 0 -34px 12px 0;
+  }
+  .dish-tile-special.is-flip > .dish-tile-plate {
+    align-self: flex-start;
+    margin: 0 0 12px -34px;
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .add-btn:not(:disabled):not([data-added]):hover {
+    background-color: var(--color-teal-deeper);
+  }
+  .dish-card:hover .dish-name {
+    text-decoration: underline;
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 4px;
+  }
+  .rail-link:not([aria-current]):hover {
+    background-color: var(--color-sand);
+  }
+}
+
+/* The whole tile or row opens the dish page; the add button sits above the link. */
+.dish-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+}
+.dish-link:focus-visible {
+  outline: none;
+}
+.dish-link:focus-visible::after {
+  outline: 2px solid var(--color-teal-deep);
+  outline-offset: -3px;
+}
+
+/* A line just added to the order: fade in with 6 px translate. Only the new line has the class. */
+.line-in {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .line-in {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .add-btn .add-check,
+  .add-btn[data-added] .add-icon {
+    transform: none;
+  }
+  @starting-style {
+    .line-in {
+      transform: none;
+    }
+  }
+}
+
+/* A sideways bar that scrolls by touch or trackpad without a scrollbar strip. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Reports (spec-2.12 Motion). Reports is a reading screen, so little moves: the tooltip fades in with a
+   2 px rise from its bar, and the cards fade in when a period or tab's data arrives. Both use
+   --dur-small and --ease-out; nothing else on the screen animates (bars never grow, figures never tick).
+   Press feedback is the shared .press class. The order sheet reuses .planner-* above. */
+.rpt-tip {
+  transform-origin: 50% 100%;
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .rpt-tip {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+.rpt-in {
+  transition: opacity var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .rpt-in {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rpt-tip {
+    transition: opacity var(--dur-small) var(--ease-out);
+  }
+  @starting-style {
+    .rpt-tip {
+      transform: none;
+    }
+  }
+}
+/* The tab strip scrolls on its own and shows no scrollbar. */
+.rpt-strip {
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+}
+.rpt-strip::-webkit-scrollbar {
+  display: none;
+}
+.rpt-table {
+  overscroll-behavior-x: contain;
+}
+
+/* Ratings (spec-2.10 Motion). Star press: .94, since 3 % can't be seen on a 52 px button. The fill
+   changes at once. Touch: no tap flash, no double-tap delay, no text selection on a long press. */
+.star-btn {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-press) var(--ease-out);
+}
+.star-btn:active {
+  transform: scale(0.94);
+}
+@media (hover: hover) and (pointer: fine) {
+  .star-btn:hover {
+    background: var(--color-cream);
+  }
+}
+/* Rating card → thanks card: a crossfade in one place. The form fades out; the thanks card fades
+   in from 6 px below. Only after a send in this tab (.rate-in), never on page load. */
+.rate-out {
+  transition: opacity var(--dur-exit) var(--ease-out);
+}
+.rate-out[data-leaving] {
+  opacity: 0;
+  pointer-events: none;
+}
+.rate-in {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .rate-in {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+/* Owner's Ratings screen: a hidden card's content steps back to 60 %, and back again. */
+.rating-dim {
+  transition: opacity var(--dur-small) var(--ease-in-out);
+}
+[data-hidden] .rating-dim {
+  opacity: 0.6;
+}
+/* A reply just sent, and the cards "Show 30 more" brings: opacity only, no stagger. Only on elements
+   that are new in this visit (the class is added by the client), never on page load. */
+.fade-in {
+  transition: opacity var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .fade-in {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .star-btn:active {
+    transform: none;
+  }
+  .rate-in {
+    transition: opacity var(--dur-small) var(--ease-out);
+  }
+  @starting-style {
+    .rate-in {
+      transform: none;
+    }
+  }
+}
+
+/* 2.11 C: the applied-code chip and the Discount line enter with a fade and a 4 px rise
+   (spec-2.11 Motion). Only on a fresh apply (the class is added by the client). Reduced: fade only. */
+.code-in {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .code-in {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  @starting-style {
+    .code-in {
       transform: none;
     }
   }

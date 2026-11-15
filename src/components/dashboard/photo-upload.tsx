@@ -2,7 +2,20 @@
 import { useEffect, useRef, useState } from "react";
 import { optimisePhoto } from "@/lib/image-compress";
 
-type Props = { initialUrl: string | null };
+type Props = {
+  initialUrl: string | null;
+  /** Form field prefix: `photo` sends photo_key and photo_thumb_key (the dish form). */
+  name?: string;
+  label?: string;
+  chooseLabel?: string;
+  emptyTitle?: string;
+  emptyHint?: string;
+  saveWhat?: string;
+  /** A small square well (the ad logo), cropped like the customer card. */
+  square?: boolean;
+  /** Called with true while an upload runs, so the form can hold its save. */
+  onBusy?: (busy: boolean) => void;
+};
 
 type Upload = { name: "full" | "thumb"; key: string; url: string };
 
@@ -12,7 +25,17 @@ const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} M
  * Optimises the photo in the browser (WebP, 1600px + 480px), uploads both straight to R2
  * with presigned URLs, and hands the keys to the form. The server builds the public URLs.
  */
-export function PhotoUpload({ initialUrl }: Props) {
+export function PhotoUpload({
+  initialUrl,
+  name = "photo",
+  label = "Photo",
+  chooseLabel = "Choose a dish photo",
+  emptyTitle = "Take a photo or upload",
+  emptyHint = "Natural light by the window works best",
+  saveWhat = "the dish",
+  square = false,
+  onBusy,
+}: Props) {
   const [keys, setKeys] = useState<{ full: string; thumb: string } | null>(null);
   const [preview, setPreview] = useState<string | null>(initialUrl);
   const [state, setState] = useState<"idle" | "working" | "error">("idle");
@@ -27,6 +50,7 @@ export function PhotoUpload({ initialUrl }: Props) {
 
   async function handle(file: File) {
     setState("working");
+    onBusy?.(true);
     setMessage("Optimising…");
     try {
       const variants = await optimisePhoto(file);
@@ -67,26 +91,27 @@ export function PhotoUpload({ initialUrl }: Props) {
       setKeys({ full: full.key, thumb: thumb.key });
       if (fullBlob) setPreview(URL.createObjectURL(fullBlob));
       setState("idle");
-      setMessage(`Optimised ${kb(file.size)} → ${kb(fullBlob?.size ?? 0)}. Save the dish to keep it.`);
+      setMessage(`Optimised ${kb(file.size)} → ${kb(fullBlob?.size ?? 0)}. Save ${saveWhat} to keep it.`);
     } catch (e) {
       setState("error");
       setMessage(e instanceof Error ? e.message : "Upload failed");
     } finally {
+      onBusy?.(false);
       if (input.current) input.current.value = "";
     }
   }
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-sm font-semibold">Photo</span>
-      <input type="hidden" name="photo_key" value={keys?.full ?? ""} />
-      <input type="hidden" name="photo_thumb_key" value={keys?.thumb ?? ""} />
+      <span className="text-sm font-semibold">{label}</span>
+      <input type="hidden" name={`${name}_key`} value={keys?.full ?? ""} />
+      <input type="hidden" name={`${name}_thumb_key`} value={keys?.thumb ?? ""} />
       <input
         ref={input}
         type="file"
         accept="image/*"
         className="sr-only"
-        aria-label="Choose a dish photo"
+        aria-label={chooseLabel}
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) void handle(file);
@@ -96,20 +121,20 @@ export function PhotoUpload({ initialUrl }: Props) {
         type="button"
         disabled={state === "working"}
         onClick={() => input.current?.click()}
-        className="relative flex h-44 flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border-2 border-dashed border-[#9aa5b4] bg-[#f8fafc] font-semibold text-teal-deep"
+        className={`relative flex ${square ? "size-32" : "h-44"} flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border-2 border-dashed border-[#9aa5b4] bg-[#f8fafc] font-semibold text-teal-deep`}
       >
         {preview ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={preview} alt="Dish photo" className="absolute inset-0 h-full w-full object-cover" />
+          <img src={preview} alt={label} className="absolute inset-0 h-full w-full object-cover" />
         ) : (
           <>
-            <span>Take a photo or upload</span>
-            <span className="text-[13px] font-normal text-ink-soft">Natural light by the window works best</span>
+            <span className="px-2 text-center">{emptyTitle}</span>
+            {emptyHint && <span className="px-2 text-center text-[13px] font-normal text-ink-soft">{emptyHint}</span>}
           </>
         )}
         {preview && (
           <span className="absolute bottom-2 right-2 rounded-full bg-white px-3 py-1 text-sm">
-            {state === "working" ? message : "Change photo"}
+            {state === "working" ? message : square ? "Change" : "Change photo"}
           </span>
         )}
         {!preview && state === "working" && <span className="text-sm font-normal text-ink-soft">{message}</span>}

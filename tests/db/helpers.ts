@@ -36,10 +36,15 @@ async function asCaller<T>(q: Q, role: "anon" | "authenticated", sub: string | n
 
 export type Fixtures = Awaited<ReturnType<typeof seedFixtures>>;
 
-/** Our own menu, independent of seed.sql: one regular dish and one rotating dish with two entries. */
+/** Our own menu, independent of seed.sql: one regular dish and two rotating dishes, each on today's menu once. */
 export async function seedFixtures(tx: Tx) {
   const [owner] = await tx`insert into auth.users (email) values ('owner@test.local') returning id`;
   await tx`insert into public.staff (user_id, role, display_name) values (${owner.id}, 'owner', 'Test owner')`;
+  // Open all day, every day, so order tests don't depend on the clock (opening-hours.test.ts
+  // sets its own hours). Last orders at closing, closing at midnight.
+  await tx`update public.opening_hours set is_open = true, opens = '00:00', closes = '24:00'`;
+  await tx`update public.kitchen_settings set last_orders_minutes = 0, closed_early_on = null, closed_early_at = null`;
+  await tx`delete from public.closed_dates`;
   const [regular] = await tx`
     insert into public.dishes (name, price_kes, is_regular, updated_at)
     values ('Test regular', 300, true, '2020-01-01') returning *`;
@@ -47,24 +52,27 @@ export async function seedFixtures(tx: Tx) {
     insert into public.dishes (name, price_kes, updated_at)
     values ('Test rotating', 500, '2020-01-01') returning *`;
   const [option] = await tx`
-    insert into public.dish_options (dish_id, label, price_delta_kes) values (${rotating.id}, 'Extra kachumbari', 50) returning *`;
+    insert into public.dish_options (dish_id, kind, label, price_delta_kes) values (${rotating.id}, 'extra', 'Extra kachumbari', 50) returning *`;
   // Open all day, with its own price (450) and 3 plates.
   const [openEntry] = await tx`
     insert into public.menu_entries (dish_id, kind, starts_on, ends_on, price_kes, plates_per_day, show_from, show_until)
     values (${rotating.id}, 'day', public.nairobi_today(), public.nairobi_today(), 450, 3, '00:00', '23:59:59')
     returning *`;
+  // A second rotating dish: a dish is on the menu at most once a day (2.5's one_dish_once_a_day).
+  const [late] = await tx`
+    insert into public.dishes (name, price_kes, updated_at)
+    values ('Test late', 400, '2020-01-01') returning *`;
   // Today, but its serving window is a minute on the far side of the clock from now.
-  // A `week` entry: one live entry per dish, kind and start day is allowed (menu_entries_one_per_day).
   const [closedEntry] = await tx`
     insert into public.menu_entries (dish_id, kind, starts_on, ends_on, plates_per_day, show_from, show_until)
-    select ${rotating.id}, 'week', public.nairobi_today(), public.nairobi_today(), 10, w.f, w.f + interval '1 minute'
+    select ${late.id}, 'week', public.nairobi_today(), public.nairobi_today(), 10, w.f, w.f + interval '1 minute'
     from (select case when public.nairobi_time() >= '12:00' then '00:00'::time else '23:00'::time end as f) w
     returning *`;
   const [table] = await tx`insert into public.dining_tables (label) values ('Test table') returning *`;
-  return { ownerId: owner.id as string, regular, rotating, option, openEntry, closedEntry, table };
+  return { ownerId: owner.id as string, regular, rotating, late, option, openEntry, closedEntry, table };
 }
 
-type Item = { dish_id: string; quantity: number; menu_entry_id?: string; option_id?: string } & Record<string, unknown>;
+type Item = { dish_id: string; quantity: number; menu_entry_id?: string; option_id?: string; extra_ids?: string[] | null } & Record<string, unknown>;
 
 export function dineIn(f: Fixtures, items: Item[], extra: Record<string, unknown> = {}) {
   return {

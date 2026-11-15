@@ -1,12 +1,21 @@
 "use client";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { placeOrder } from "@/app/(shop)/checkout/actions";
-import { formatKes, timeLabel } from "@/lib/format";
+import { comboParts, isCounted } from "@/lib/cart-check";
+import { codeError } from "@/lib/discount-words";
+import { formatKes } from "@/lib/format";
+import { justClosedNote } from "@/lib/kitchen";
+import { minimumBlockLine, minimumShortfall, zoneOptionLabel } from "@/lib/zone-minimum";
+import { markArrival } from "./arrive";
+import { CartLineItem } from "./cart-line";
 import { useCart } from "./cart-provider";
+import { DiscountLine } from "./code-row";
+import { ClosedButton, KitchenNotice, useKitchen, usePickupSlots } from "./kitchen-provider";
 import { BottomBar } from "./ui";
 
-type Zone = { id: string; name: string; fee_kes: number };
+type Zone = { id: string; name: string; fee_kes: number; min_order_kes: number };
 type Mode = "dine_in" | "pickup" | "delivery";
 type Pay = "on_handover" | "at_counter";
 
@@ -19,15 +28,17 @@ const PAY_LINE = {
   delivery: "Pay cash or M-Pesa to our till when the rider arrives.",
 } as const;
 
-const input = "min-h-[50px] w-full rounded-[14px] border border-sand-deep bg-white px-3.5 text-[15px]";
+// 16 px: iOS zooms into anything smaller and doesn't zoom back out.
+const input = "min-h-[50px] w-full rounded-[14px] border border-field bg-white px-3.5 text-base";
 
-/** Next three half-hour slots at least 30 minutes away. */
-function pickupSlots(now = new Date()): string[] {
-  const start = new Date(now.getTime() + 30 * 60000);
-  start.setSeconds(0, 0);
-  start.setMinutes(start.getMinutes() < 30 ? 30 : 60);
-  return [0, 1, 2].map((i) => new Date(start.getTime() + i * 30 * 60000).toISOString());
-}
+/** Refusals that mean the menu moved under the order: check it again and show what changed. */
+const MENU_REFUSALS = new Set(["sold_out", "over_plates", "not_on_menu", "option_out"]);
+
+const MAIN_BUTTON = "flex min-h-14 flex-1 touch-manipulation items-center justify-center rounded-[18px] px-5 font-semibold select-none";
+const chipClass = (selected: boolean) =>
+  `press min-h-11 touch-manipulation rounded-xl px-3.5 text-sm select-none [-webkit-tap-highlight-color:transparent] ${
+    selected ? "border-2 border-teal-deep bg-teal-tint font-semibold text-teal-deeper" : "border border-field bg-white"
+  }`;
 
 type Attempt = { key: string; cart: string };
 const ATTEMPT_STORAGE = "dp-checkout-attempt";
@@ -48,10 +59,18 @@ function attemptFor(cart: string): Attempt {
 }
 
 export function CheckoutForm({ zones }: { zones: Zone[] }) {
-  const { lines, subtotalKes, table, clear } = useCart();
+  const { lines, checks, count, subtotalKes, discountKes, code, removeCode, setCodeContext, table, clear, recheck } = useCart();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const kitchen = useKitchen();
   const [error, setError] = useState<string | null>(null);
+  // Set when the check at Place order (or after a refusal) changed the order: the lines it changed
+  // show above the button and the customer presses again (spec-2.8 "At Place order").
+  const [changed, setChanged] = useState(false);
+  const [checking, setChecking] = useState(false);
+  // place_order refused the code (spec-2.11 Q2 A): its note replaces the main button until the
+  // customer places without the code or goes back to the cart.
+  const [codeRefused, setCodeRefused] = useState<string | null>(null);
 
   const [mode, setMode] = useState<Mode>(table ? "dine_in" : "pickup");
   const [pay, setPay] = useState<Pay>(defaultPay(table ? "dine_in" : "pickup"));
@@ -62,8 +81,17 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
 
-  // Recomputed after a failed attempt, so a page left open stops offering times that have passed.
-  const slots = useMemo(() => pickupSlots(), [error]); // eslint-disable-line react-hooks/exhaustive-deps
+  // From the server's status and clock (spec-2.2 "Checkout: pickup time"). They are rebuilt whenever
+  // the status is read again: on focus, at the next change, and after any refusal below.
+  const slots = usePickupSlots();
+  const chips = slots.length > 4 ? slots.slice(0, 3) : slots;
+  const later = slots.length > 4 ? slots.slice(3) : [];
+  const [showLater, setShowLater] = useState(false);
+  const pickedLater = later.some((s) => s.at === pickupAt);
+  // A chosen time that's no longer offered goes back to "As soon as it's ready".
+  useEffect(() => {
+    if (pickupAt && !slots.some((s) => s.at === pickupAt)) setPickupAt(null);
+  }, [slots, pickupAt]);
   // One key per attempt at this cart: a retry after an error or a lost response reuses it.
   const attempt = useRef<Attempt | null>(null);
   // The message sits below the fold on a phone, behind the bottom bar: bring it into view.
@@ -71,9 +99,31 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
   useEffect(() => {
     if (error) errorRef.current?.scrollIntoView({ block: "center" });
   }, [error]);
+  const changedRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (changed) changedRef.current?.scrollIntoView({ block: "center" });
+  }, [changed]);
+  // The order type and phone are only known here: the cart's code check takes them (spec-2.11).
+  useEffect(() => {
+    setCodeContext({ mode, phone });
+  }, [mode, phone, setCodeContext]);
+  useEffect(() => () => setCodeContext(null), [setCodeContext]);
+  const codeNoteRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (codeRefused) codeNoteRef.current?.scrollIntoView({ block: "center" });
+  }, [codeRefused]);
+  // A held code's reason (order type, phone, minimum…) under the summary; a code waiting for its
+  // first check says nothing yet.
+  const codeHeld = code && !code.check.ok && code.check.reason !== null ? codeError(code.check, subtotalKes) : null;
+
   const zone = zones.find((z) => z.id === zoneId);
   const fee = mode === "delivery" ? (zone?.fee_kes ?? 0) : 0;
-  const total = subtotalKes + fee;
+  // Once place_order has refused the code, the summary matches the button: no discount.
+  const total = subtotalKes - (codeRefused ? 0 : discountKes) + fee;
+  // Placing without the code: the food and the fee only.
+  const totalWithoutCode = subtotalKes + fee;
+  // The zone's minimum counts the food only, before the fee (spec-2.6, Q1 A). place_order checks it again.
+  const short = mode === "delivery" && zone ? minimumShortfall(subtotalKes, { name: zone.name, feeKes: zone.fee_kes, minOrderKes: zone.min_order_kes }) : 0;
 
   const payOptions: { id: Pay; label: string; line: string }[] =
     mode === "dine_in"
@@ -88,11 +138,45 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
     setPay(defaultPay(m));
   };
 
+  /** Lines the checks took out of the total or lowered: what the customer must see before paying. */
+  const touched = lines.filter((l) => !isCounted(checks[l.key]) || checks[l.key]?.lowered != null);
+
+  /** Checks the order again; true when it changed, and then the changed lines are shown. */
+  async function changedOnCheck(): Promise<boolean> {
+    const r = await recheck();
+    // The check couldn't run: place_order still checks last.
+    if (!r?.changed) return false;
+    setChanged(true);
+    return true;
+  }
+
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!kitchen.open || short > 0 || count === 0 || checking || pending) return;
+    // While the code's note shows, Enter in a field means the button on screen.
+    if (codeRefused) return placeWithoutCode();
     setError(null);
-    const items = lines.map((l) => ({ dishId: l.dishId, menuEntryId: l.menuEntryId, optionId: l.optionId, quantity: l.quantity, note: l.note }));
-    const cart = JSON.stringify(items);
+    setChanged(false);
+    setChecking(true);
+    void changedOnCheck()
+      .then((changed) => {
+        if (!changed) place();
+      })
+      .finally(() => setChecking(false));
+  }
+
+  function place(withCode = true) {
+    // Only what's in the total goes to the kitchen: sold-out and off-menu lines stay behind.
+    const counted = lines.filter((l) => isCounted(checks[l.key]));
+    const items = counted
+      .filter((l) => l.kind !== "combo")
+      .map((l) => ({ dishId: l.dishId, menuEntryId: l.menuEntryId, optionId: l.optionId, extraIds: l.extras.map((x) => x.id), quantity: l.quantity, note: l.note }));
+    const combos = counted
+      .filter((l) => l.kind === "combo" && l.comboId && l.parts)
+      .map((l) => ({ comboId: l.comboId!, quantity: l.quantity, parts: comboParts(l.parts!) }));
+    const discountCode = withCode ? (code?.code ?? null) : null;
+    // The code is part of the attempt: placing without it is a new attempt, with a new key.
+    const cart = JSON.stringify({ items, combos, discountCode });
     if (attempt.current?.cart !== cart) attempt.current = attemptFor(cart);
     const idempotencyKey = attempt.current.key;
     startTransition(async () => {
@@ -108,10 +192,20 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
         phone,
         payment: pay,
         items,
-      }).catch(() => ({ ok: false as const, error: "We couldn’t confirm your order. Check your connection and try again." }));
+        combos,
+        discountCode,
+      }).catch(() => ({ ok: false as const, error: "We couldn’t confirm your order. Check your connection and try again.", reason: undefined }));
       if (!res.ok) {
-        setError(res.error);
-        if (pickupAt && new Date(pickupAt) < new Date()) setPickupAt(null);
+        if ("codeError" in res && res.codeError) {
+          setCodeRefused(res.error);
+          return;
+        }
+        // A plate sold in the second between the check and the order: check again and show the
+        // lines in their states, not a bare error. If the check finds nothing, say what place_order said.
+        if (res.reason && MENU_REFUSALS.has(res.reason) && (await changedOnCheck())) return;
+        // Every refusal reads the status again, so the button and pickup times match the server.
+        const status = await kitchen.refresh();
+        setError(res.reason === "kitchen_closed" ? justClosedNote(status) : res.error);
         return;
       }
       attempt.current = null;
@@ -119,8 +213,18 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
         sessionStorage.removeItem(ATTEMPT_STORAGE);
       } catch {}
       clear();
+      markArrival();
       router.push(`/order/${res.token}`);
     });
+  }
+
+  /** "Place without the code": the code leaves the cart, and the order goes with a new key. */
+  function placeWithoutCode() {
+    if (pending || checking) return;
+    setCodeRefused(null);
+    setError(null);
+    removeCode();
+    place(false);
   }
 
   if (lines.length === 0) {
@@ -166,20 +270,51 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
           <>
             <span className="text-sm font-semibold">When will you collect?</span>
             <div className="flex flex-wrap gap-2">
-              {[null, ...slots].map((s) => (
+              {[{ at: null, label: "As soon as it’s ready" }, ...chips].map((s) => (
                 <button
-                  key={s ?? "asap"}
+                  key={s.at ?? "asap"}
                   type="button"
-                  onClick={() => setPickupAt(s)}
-                  aria-pressed={pickupAt === s}
-                  className={`min-h-11 rounded-xl px-3.5 text-sm ${
-                    pickupAt === s ? "border-2 border-teal-deep bg-teal-tint font-semibold text-teal-deeper" : "border border-sand-deep bg-white"
-                  }`}
+                  onClick={() => {
+                    setPickupAt(s.at);
+                    setShowLater(false);
+                  }}
+                  aria-pressed={pickupAt === s.at && !(s.at === null && showLater)}
+                  className={chipClass(pickupAt === s.at && !(s.at === null && showLater))}
                 >
-                  {s ? timeLabel(s) : "As soon as it’s ready"}
+                  {s.label}
                 </button>
               ))}
+              {later.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowLater(true);
+                    if (!pickedLater) setPickupAt(later[0]!.at);
+                  }}
+                  aria-pressed={showLater || pickedLater}
+                  aria-expanded={showLater || pickedLater}
+                  className={chipClass(showLater || pickedLater)}
+                >
+                  Later
+                </button>
+              )}
             </div>
+            {(showLater || pickedLater) && later.length > 0 && (
+              <label className="flex flex-col gap-1.5 text-sm font-semibold">
+                Pickup time
+                <select
+                  value={pickedLater ? (pickupAt ?? "") : later[0]!.at}
+                  onChange={(e) => setPickupAt(e.target.value)}
+                  className="min-h-12 w-full min-w-0 rounded-[14px] border border-field bg-white px-3.5 text-base"
+                >
+                  {later.map((s) => (
+                    <option key={s.at} value={s.at}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </>
         )}
 
@@ -190,7 +325,7 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
               <select value={zoneId} onChange={(e) => setZoneId(e.target.value)} className={input} required>
                 {zones.map((z) => (
                   <option key={z.id} value={z.id}>
-                    {z.name} · {formatKes(z.fee_kes)}
+                    {zoneOptionLabel({ name: z.name, feeKes: z.fee_kes, minOrderKes: z.min_order_kes })}
                   </option>
                 ))}
               </select>
@@ -256,6 +391,7 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
 
       <section aria-label="Summary" className="mx-5 mt-[18px] flex flex-col gap-2 text-[15px]">
         <div className="flex justify-between"><span className="text-ink-soft">Subtotal</span><span className="font-semibold">{formatKes(subtotalKes)}</span></div>
+        {!codeRefused && <DiscountLine />}
         {mode === "delivery" && zone && (
           <div className="flex justify-between"><span className="text-ink-soft">Delivery · {zone.name}</span><span className="font-semibold">{formatKes(fee)}</span></div>
         )}
@@ -263,20 +399,77 @@ export function CheckoutForm({ zones }: { zones: Zone[] }) {
           <span>{pay === "at_counter" ? "To pay at the counter" : "To pay on handover"}</span>
           <span>{formatKes(total)}</span>
         </div>
+        {codeHeld && !codeRefused && (
+          <p role="status" className="fade-in text-[14px] font-semibold [overflow-wrap:anywhere] text-amber-ink">{codeHeld}</p>
+        )}
       </section>
+
+      {touched.length > 0 && (
+        <section ref={changedRef} aria-labelledby="changed-heading" className="mx-5 mt-5 rounded-[24px] bg-paper p-[18px] shadow-[var(--shadow-card)]">
+          <h2 id="changed-heading" className="font-display text-[21px] leading-tight">Your order changed</h2>
+          <p role="status" className="mt-1 text-[13px] text-ink-soft">
+            {changed
+              ? `Check it, then press Place order again. Your total is now ${formatKes(total)}.`
+              : "What’s greyed out isn’t in your total."}
+          </p>
+          <ul className="mt-2 divide-y divide-sand">
+            {touched.map((l) => (
+              <CartLineItem key={l.key} line={l} plate={44} />
+            ))}
+          </ul>
+        </section>
+      )}
 
       {error && (
         <p ref={errorRef} role="alert" className="note-in mx-5 mt-4 rounded-xl bg-blush px-4 py-3 text-[15px] [overflow-wrap:anywhere] text-coral-ink">{error}</p>
       )}
 
+      {kitchen.open && short > 0 && zone && (
+        <p role="status" className="mx-5 mt-4 rounded-xl bg-amber-tint px-4 py-3 text-[15px] font-semibold [overflow-wrap:anywhere] text-amber-ink">
+          {minimumBlockLine(short, zone.name)}
+        </p>
+      )}
+
+      {!kitchen.open && <KitchenNotice className="mx-5 mt-4" />}
+
+      {codeRefused && (
+        <div ref={codeNoteRef} role="alert" className="fade-in mx-5 mt-4 rounded-xl bg-amber-tint px-4 py-3 text-[15px] font-semibold [overflow-wrap:anywhere] text-amber-ink">
+          {codeRefused}
+        </div>
+      )}
+
       <BottomBar inlineOnDesktop="padded">
-        <button
-          type="submit"
-          disabled={pending}
-          className="press flex min-h-14 flex-1 touch-manipulation items-center justify-center rounded-[18px] bg-teal-deep px-5 font-semibold text-white select-none disabled:opacity-60"
-        >
-          {pending ? "Sending to Mama…" : `Place order · ${formatKes(total)}`}
-        </button>
+        {codeRefused && kitchen.open ? (
+          <div className="flex flex-1 flex-col gap-1">
+            <button
+              type="button"
+              onClick={placeWithoutCode}
+              disabled={pending || checking || short > 0 || count === 0}
+              className={`press ${MAIN_BUTTON} bg-teal-deep text-white disabled:opacity-60`}
+            >
+              {pending ? "Sending to Mama…" : `Place without the code · ${formatKes(totalWithoutCode)}`}
+            </button>
+            <Link href="/cart" className="press flex min-h-11 touch-manipulation items-center justify-center text-[15px] font-semibold text-teal-deep select-none">
+              Back to cart
+            </Link>
+          </div>
+        ) : kitchen.open ? (
+          <button
+            type="submit"
+            disabled={pending || checking || short > 0 || count === 0}
+            className={`press ${MAIN_BUTTON} bg-teal-deep text-white disabled:opacity-60`}
+          >
+            {count === 0
+              ? "Nothing left to order"
+              : checking
+                ? "Checking your order…"
+                : pending
+                  ? "Sending to Mama…"
+                  : `Place order · ${formatKes(total)}`}
+          </button>
+        ) : (
+          <ClosedButton totalKes={total} className={`${MAIN_BUTTON} bg-sand-deep text-ink-soft`} />
+        )}
       </BottomBar>
     </form>
   );

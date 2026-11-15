@@ -2,17 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { asOwner, dineIn, inTx, placeOrder, platesSold, seedFixtures } from "./helpers";
 
 describe("place_order", () => {
-  test("happy path: regular and rotating dishes, option, plates counted", () =>
+  test("happy path: regular and rotating dishes, an extra, plates counted", () =>
     inTx(async (tx) => {
       const f = await seedFixtures(tx);
       const order = await placeOrder(
         tx,
         dineIn(f, [
           { dish_id: f.regular.id, quantity: 2 },
-          { dish_id: f.rotating.id, menu_entry_id: f.openEntry.id, option_id: f.option.id, quantity: 1 },
+          { dish_id: f.rotating.id, menu_entry_id: f.openEntry.id, extra_ids: [f.option.id], quantity: 1 },
         ]),
       );
-      // 2 × 300 + 1 × (450 entry price + 50 option)
+      // 2 × 300 + 1 × (450 entry price + 50 extra)
       expect(order.total_kes).toBe(1100);
       expect(order.code).toMatch(/^DP-\d{4,}$/);
 
@@ -22,7 +22,7 @@ describe("place_order", () => {
         select name, option_label, unit_price_kes, quantity from public.order_items where order_id = ${o.id} order by name`;
       expect(items).toEqual([
         { name: "Test regular", option_label: null, unit_price_kes: 300, quantity: 2 },
-        { name: "Test rotating", option_label: "Extra kachumbari", unit_price_kes: 500, quantity: 1 },
+        { name: "Test rotating", option_label: null, unit_price_kes: 500, quantity: 1 },
       ]);
       expect(await platesSold(tx, f.openEntry.id)).toBe(1);
     }));
@@ -46,7 +46,7 @@ describe("place_order", () => {
       const f = await seedFixtures(tx);
       const rotating = (quantity: number) => dineIn(f, [{ dish_id: f.rotating.id, menu_entry_id: f.openEntry.id, quantity }]);
 
-      await expect(placeOrder(tx, rotating(4))).rejects.toThrow("Sorry, Test rotating has sold out");
+      await expect(placeOrder(tx, rotating(4))).rejects.toThrow("Only 3 plates of Test rotating left. Change your order and try again.");
       expect(await platesSold(tx, f.openEntry.id)).toBe(0);
 
       await placeOrder(tx, rotating(3));
@@ -60,8 +60,8 @@ describe("place_order", () => {
     inTx(async (tx) => {
       const f = await seedFixtures(tx);
       await expect(
-        placeOrder(tx, dineIn(f, [{ dish_id: f.rotating.id, menu_entry_id: f.closedEntry.id, quantity: 1 }])),
-      ).rejects.toThrow("Test rotating is not on the menu right now");
+        placeOrder(tx, dineIn(f, [{ dish_id: f.late.id, menu_entry_id: f.closedEntry.id, quantity: 1 }])),
+      ).rejects.toThrow("Test late is not on the menu right now");
       expect(await platesSold(tx, f.closedEntry.id)).toBe(0);
     }));
 });
@@ -74,7 +74,7 @@ describe("cancelling an order", () => {
       expect(await platesSold(tx, f.openEntry.id)).toBe(2);
 
       const [{ id }] = await tx`select id from public.orders where public_token = ${order.public_token}`;
-      await asOwner(tx, f, () => tx`select public.cancel_order(${id}::uuid, 'new'::public.order_status)`);
+      await asOwner(tx, f, () => tx`select public.cancel_order(${id}::uuid, 'new'::public.order_status, 'too_busy')`);
       expect(await platesSold(tx, f.openEntry.id)).toBe(0);
     }));
 });

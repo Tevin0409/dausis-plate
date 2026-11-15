@@ -1,26 +1,52 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { newIds } from "@/lib/board";
 import { getBrowserClient } from "@/lib/supabase/client";
+import { Switch } from "./switch";
+import { useTableRequests } from "./table-requests-provider";
 
-/** Listens for order changes over Supabase Realtime, refreshes the board, and chimes on new orders. */
-export function LiveOrders() {
+/**
+ * Keeps the board current and chimes for new orders (spec-2.4 "When it chimes"). Realtime and a
+ * 30 s poll both only refresh the page; the chime comes from the ids the page rendered in New, all
+ * of them, not the filtered list. Orders already on the board when it opens are seen, so opening or
+ * reloading is silent; an order back in New by Undo is already seen; two at once chime once.
+ */
+export function LiveOrders({ newOrderIds }: { newOrderIds: string[] }) {
   const router = useRouter();
-  const [sound, setSound] = useState(true);
+  // One switch for both chimes (spec-2.9); it lives in the dashboard's requests provider.
+  const shared = useTableRequests();
+  const [localSound, setLocalSound] = useState(true);
+  const sound = shared?.sound ?? localSound;
+  const setSound = shared?.setSound ?? setLocalSound;
   const soundRef = useRef(sound);
-  soundRef.current = sound;
+  const seen = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    soundRef.current = sound;
+  }, [sound]);
+
+  const idList = newOrderIds.join(",");
+  useEffect(() => {
+    const ids = idList ? idList.split(",") : [];
+    if (!seen.current) {
+      seen.current = new Set(ids);
+      return;
+    }
+    const fresh = newIds(seen.current, ids);
+    if (fresh.length === 0) return;
+    if (process.env.NEXT_PUBLIC_BOARD_DEBUG) console.debug("[board] chime", fresh, soundRef.current ? "sound on" : "sound off");
+    if (soundRef.current) chime();
+  }, [idList]);
 
   useEffect(() => {
     const supabase = getBrowserClient();
     const channel = supabase
       .channel("orders-board")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, (payload) => {
-        if (payload.eventType === "INSERT" && soundRef.current) chime();
-        router.refresh();
-      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => router.refresh())
       .subscribe();
-    // Fallback in case the socket drops on a flaky connection.
-    const poll = setInterval(() => router.refresh(), 30000);
+    // Without Realtime (a dropped socket, or the local stack) this is what brings new orders in.
+    const poll = setInterval(() => router.refresh(), 30_000);
     return () => {
       clearInterval(poll);
       void supabase.removeChannel(channel);
@@ -28,14 +54,17 @@ export function LiveOrders() {
   }, [router]);
 
   return (
-    <button
-      type="button"
-      aria-pressed={sound}
-      onClick={() => setSound((s) => !s)}
-      className="flex min-h-10 items-center gap-2 rounded-full border border-line-deep bg-white px-3.5 text-sm font-medium"
+    <>
+    <span id="sound-covers" hidden>New orders and table requests</span>
+    <Switch
+      checked={sound}
+      onChange={setSound}
+      describedBy="sound-covers"
+      className="min-h-11 gap-2.5 bg-paper py-1 pr-1.5 pl-4 text-sm font-semibold ring-1 ring-line-deep ring-inset"
     >
-      {sound ? "Sound on" : "Sound off"}
-    </button>
+      Sound
+    </Switch>
+    </>
   );
 }
 

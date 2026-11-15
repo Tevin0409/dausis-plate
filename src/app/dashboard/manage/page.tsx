@@ -1,187 +1,100 @@
 import Link from "next/link";
-import { z } from "zod";
-import { PlusIcon } from "@/components/icons";
-import { formatKes, nairobiToday, weekdayName } from "@/lib/format";
-import { ActionForm } from "@/components/dashboard/action-form";
-import { SubmitButton } from "@/components/dashboard/submit-button";
-import { createClient } from "@/lib/supabase/server";
+import { notFound } from "next/navigation";
+import { RefusalNote } from "@/components/dashboard/refusal-note";
+import { AddDish, AllList, ArchivedList, DoneNote, EverydayList, type DishRowData } from "@/components/dashboard/dishes/dish-list";
+import { nairobiToday } from "@/lib/format";
+import { regularOnSale } from "@/lib/kitchen";
+import { can, OWNER_ONLY } from "@/lib/permissions";
+import { createClient, getStaff } from "@/lib/supabase/server";
 import { must } from "@/lib/supabase/result";
-import { deleteDish, removeFromRegulars, setRegularAvailable } from "../actions";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Menu & sales" };
+export const metadata = { title: "Dishes" };
 
-const counts = z.record(z.string(), z.number()).catch({});
-const stats = z.object({
-  revenue_kes: z.number(),
-  paid_kes: z.number(),
-  unpaid_kes: z.number(),
-  orders: z.number(),
-  by_mode: counts,
-  by_payment: counts,
-  by_hour: counts,
-  rotating: z.array(z.object({ name: z.string(), sold: z.number(), total: z.number().nullable() })),
-});
+type View = "everyday" | "all" | "archived";
 
-const HOURS = Array.from({ length: 11 }, (_, i) => 10 + i);
-const CATEGORY = { mains: "Mains", sides: "Sides", breakfast: "Breakfast", drinks: "Drinks" } as const;
+type Props = { searchParams: Promise<{ view?: string; done?: string; dish?: string; name?: string }> };
 
-export default async function ManagePage() {
+export default async function ManagePage({ searchParams }: Props) {
+  const [q, staff] = await Promise.all([searchParams, getStaff()]);
+  if (!staff) notFound();
+  const owner = staff.role === "owner";
+  // Archived is the owner's; anyone else asking for it gets the everyday menu.
+  const view: View = q.view === "all" ? "all" : q.view === "archived" && owner ? "archived" : "everyday";
   const today = nairobiToday();
   const supabase = await createClient();
-  const [statsResult, regularsResult] = await Promise.all([
-    supabase.rpc("dashboard_stats", { p_day: today }),
-    supabase
-      .from("dishes")
-      .select("id, name, category, price_kes, regular_available")
-      .eq("is_regular", true)
-      .eq("archived", false)
-      .order("category")
-      .order("sort_order"),
-  ]);
-  const regulars = must(regularsResult, "regular dishes");
-  const s = stats.safeParse(must(statsResult, "today’s sales"));
-  if (!s.success) {
-    // Wrong shape is a failure too: showing zeros would look like a quiet day.
-    console.error("[db] dashboard_stats had an unexpected shape:", s.error.message);
-    throw new Error("Couldn't load today’s sales");
-  }
-  const st = s.data;
 
-  const sold = st.rotating.reduce((n, r) => n + r.sold, 0);
-  const total = st.rotating.reduce((n, r) => n + (r.total ?? 0), 0);
-  const best = st.rotating[0];
-  const maxHour = Math.max(1, ...HOURS.map((h) => st.by_hour[String(h)] ?? 0));
+  const base = supabase.from("dishes").select("id, name, category, price_kes, photo_thumb_url, photo_url, is_regular, unavailable_on, archived_at");
+  const query =
+    view === "everyday"
+      ? base.eq("is_regular", true).eq("archived", false).order("sort_order").order("name")
+      : view === "all"
+        ? base.eq("archived", false).order("name")
+        : base.eq("archived", true).order("archived_at", { ascending: false, nullsFirst: false }).order("name");
+  const dishesResult = await query;
+  const dishes: DishRowData[] = must(dishesResult, "the dishes").map((d) => ({
+    id: d.id,
+    name: d.name,
+    category: d.category,
+    price_kes: d.price_kes,
+    photo: d.photo_thumb_url ?? d.photo_url,
+    is_regular: d.is_regular,
+    onSale: regularOnSale(d.unavailable_on, today),
+    archivedOn: view === "archived" && d.archived_at ? nairobiDayOf(d.archived_at) : null,
+  }));
+  if (view === "all") dishes.sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
+  const edits = can(staff, "dishes_prices");
+  const everyday = can(staff, "everyday_menu");
+  const doneKind: "deleted" | "archived" | null = q.done === "deleted" ? "deleted" : q.done === "archived" ? "archived" : null;
+  const done = doneKind && q.dish && q.name ? { done: doneKind, dishId: q.dish, name: q.name.slice(0, 80) } : null;
 
-  const tile = "flex flex-col gap-1 rounded-[18px] border border-line bg-white p-[18px]";
-  const big = "font-display text-[34px] leading-tight";
-  // "KSh" and the figure never split (formatKes), so a seven-figure day steps down to
-  // display-lg (28 px) to stay inside a 200 px tile; six figures and below keep 34 px.
-  const money = (kes: number) => {
-    const text = formatKes(kes);
-    return <span className={text.length > 11 ? "font-display text-[28px] leading-tight" : big}>{text}</span>;
-  };
+  const segments: [View, string][] = [["everyday", "Everyday menu"], ["all", "All dishes"], ...(owner ? [["archived", "Archived"] as [View, string]] : [])];
 
   return (
-    <div className="flex max-w-[1040px] flex-col gap-5">
-      <header>
-        <h1 className="font-display text-[34px]">Menu &amp; sales</h1>
-        <span className="text-sm text-ink-soft">Today so far</span>
+    <div className="flex w-full max-w-[880px] flex-col gap-5">
+      <header className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="font-display text-[34px] leading-tight">Dishes</h1>
+            <RefusalNote className="mt-1" />
+            {/* Sales moved to Reports (2.12); the owner gets a pointer, staff just the header. */}
+            {owner && (
+              <p className="mt-1 text-sm text-ink-soft">
+                Today’s sales are in <Link href="/dashboard/reports" className="font-semibold text-teal-deep underline underline-offset-2">Reports →</Link>
+              </p>
+            )}
+          </div>
+          {edits && <AddDish href={view === "everyday" && everyday ? "/dashboard/dishes/new?regular=1" : "/dashboard/dishes/new"} />}
+        </div>
+        <nav aria-label="Dish views" className={`grid gap-1 rounded-[14px] bg-sand p-1 ${segments.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+          {segments.map(([v, text]) => (
+            <Link
+              key={v}
+              href={v === "everyday" ? "/dashboard/manage" : `/dashboard/manage?view=${v}`}
+              aria-current={view === v ? "page" : undefined}
+              className={`press flex min-h-11 items-center justify-center rounded-[10px] px-2 text-center text-sm font-semibold leading-tight touch-manipulation select-none [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-teal-deep ${
+                view === v ? "bg-paper text-teal-deep shadow-[0_1px_2px_rgb(26_32_44/0.08)]" : "text-ink-soft hover:text-ink"
+              }`}
+            >
+              {text}
+            </Link>
+          ))}
+        </nav>
       </header>
 
-      <section aria-label="Today’s numbers" className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-3.5">
-        <div className={tile}>
-          <span className="text-sm font-semibold text-ink-soft">Total ordered</span>
-          {money(st.revenue_kes)}
-        </div>
-        <div className={tile}>
-          <span className="text-sm font-semibold text-ink-soft">Orders</span>
-          <span className={big}>{st.orders}</span>
-          <span className="text-[13px] text-ink-soft">
-            {st.by_mode.delivery ?? 0} delivery · {st.by_mode.pickup ?? 0} pickup · {st.by_mode.dine_in ?? 0} dine-in
-          </span>
-        </div>
-        <div className="flex flex-col gap-2 rounded-[18px] bg-blush p-[18px]">
-          <span className="text-sm font-semibold text-coral-ink">{weekdayName(today)}’s menu</span>
-          <span className={big}>
-            {sold} {total > 0 && <span className="font-sans text-base text-ink-soft">of {total} plates sold</span>}
-          </span>
-          {total > 0 && (
-            <div className="h-2 rounded-full bg-blush-deep"><div className="h-2 rounded-full bg-coral" style={{ width: `${Math.min(100, (sold / total) * 100)}%` }} /></div>
-          )}
-          {best && best.sold > 0 && <span className="text-[13px] text-ink-soft">Best seller: {best.name}, {best.sold}{best.total ? ` of ${best.total}` : ""}</span>}
-        </div>
-        <div className={tile}>
-          <span className="text-sm font-semibold text-ink-soft">Paid so far</span>
-          {money(st.paid_kes)}
-          <span className="text-[13px] text-ink-soft">{formatKes(st.unpaid_kes)} not paid yet</span>
-        </div>
-      </section>
+      {done && <DoneNote key={`${done.done}-${done.dishId}`} {...done} />}
 
-      <section aria-label="Orders by hour" className="flex flex-col gap-3.5 rounded-[18px] border border-line bg-white p-5">
-        <h2 className="text-base font-bold">Orders by hour</h2>
-        <div
-          role="img"
-          aria-label={HOURS.map((h) => `${h}:00 ${st.by_hour[String(h)] ?? 0}`).join(", ")}
-          className="grid h-[120px] grid-cols-11 items-end gap-2.5"
-        >
-          {HOURS.map((h) => {
-            const n = st.by_hour[String(h)] ?? 0;
-            return <div key={h} className={`rounded-t-md ${n ? "bg-teal" : "bg-line-deep"}`} style={{ height: n ? `${(n / maxHour) * 100}%` : 4 }} />;
-          })}
-        </div>
-        <div className="grid grid-cols-11 gap-2.5 text-center text-xs text-ink-soft">
-          {HOURS.map((h) => <span key={h}>{h > 12 ? h - 12 : h}{h === 12 ? "pm" : ""}</span>)}
-        </div>
-      </section>
-
-      <section aria-label="Always on the menu" className="overflow-hidden rounded-[18px] border border-line bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-          <h2 className="text-base font-bold">Always on the menu <span className="font-medium text-ink-soft">· {regulars.length} items</span></h2>
-          <Link href="/dashboard/dishes/new?regular=1" className="flex min-h-10 items-center gap-1.5 rounded-[10px] bg-teal-deep px-4 text-sm font-bold text-white">
-            <PlusIcon size={16} /> Add item
-          </Link>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] border-collapse text-[15px]">
-            <thead>
-              <tr className="bg-[#f8fafc] text-left text-[13px] text-ink-soft">
-                <th scope="col" className="px-5 py-2.5 font-semibold">Item</th>
-                <th scope="col" className="px-3 py-2.5 font-semibold">Category</th>
-                <th scope="col" className="px-3 py-2.5 font-semibold">Price</th>
-                <th scope="col" className="px-3 py-2.5 font-semibold">On sale today</th>
-                <th scope="col" className="px-5 py-2.5"><span className="sr-only">Actions</span></th>
-              </tr>
-            </thead>
-            <tbody>
-              {regulars.map((d) => (
-                <tr key={d.id} className="border-t border-line">
-                  <td className="px-5 py-2.5 font-semibold">{d.name}</td>
-                  <td className="px-3 py-2.5 text-ink-soft">{CATEGORY[d.category]}</td>
-                  <td className="px-3 py-2.5">{formatKes(d.price_kes)}</td>
-                  <td className="px-3 py-1.5">
-                    <ActionForm action={setRegularAvailable} className="flex flex-col items-start gap-1">
-                      <input type="hidden" name="dishId" value={d.id} />
-                      <input type="hidden" name="available" value={d.regular_available ? "false" : "true"} />
-                      <SubmitButton
-                        pendingLabel="Saving…"
-                        aria-label={`${d.name}: ${d.regular_available ? "on sale, tap to mark sold out" : "sold out, tap to put back on sale"}`}
-                        className={`min-h-11 rounded-full px-3.5 text-sm font-semibold ${
-                          d.regular_available ? "bg-teal-tint text-teal-deeper" : "bg-blush text-coral-ink"
-                        }`}
-                      >
-                        {d.regular_available ? "On sale" : "Sold out"}
-                      </SubmitButton>
-                    </ActionForm>
-                  </td>
-                  <td className="px-5 py-1.5 text-right">
-                    <div className="flex items-start justify-end gap-1.5">
-                    <Link href={`/dashboard/dishes/${d.id}`} className="inline-flex min-h-10 items-center rounded-[10px] border border-line-deep px-3.5 text-sm font-semibold text-teal-deep">Edit</Link>
-                    <ActionForm action={removeFromRegulars} className="flex flex-col items-end gap-1">
-                      <input type="hidden" name="dishId" value={d.id} />
-                      <SubmitButton pendingLabel="Saving…" aria-label={`Take ${d.name} off the everyday menu`} className="min-h-10 whitespace-nowrap rounded-[10px] border border-line-deep bg-white px-3 text-sm font-semibold text-ink-soft">
-                        Take off menu
-                      </SubmitButton>
-                    </ActionForm>
-                    <ActionForm action={deleteDish} className="flex flex-col items-end gap-1">
-                      <input type="hidden" name="dishId" value={d.id} />
-                      <SubmitButton
-                        confirm={`Delete ${d.name}? It will disappear from the menu and the dish library.`}
-                        pendingLabel="Deleting…"
-                        aria-label={`Delete ${d.name}`}
-                        className="min-h-10 rounded-[10px] border border-line-deep bg-white px-3 text-sm font-semibold text-coral-ink"
-                      >
-                        Delete
-                      </SubmitButton>
-                    </ActionForm>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      {view === "everyday" && (
+        <>
+          <EverydayList dishes={dishes} canAdd={edits} />
+          {!everyday && <p className="text-sm text-ink-soft">{OWNER_ONLY.everyday_menu}</p>}
+        </>
+      )}
+      {view === "all" && <AllList dishes={dishes} />}
+      {view === "archived" && <ArchivedList dishes={dishes} />}
     </div>
   );
 }
+
+const nairobiDayOf = (iso: string) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Nairobi", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));

@@ -16,10 +16,11 @@ describe("dish updates by the owner", () => {
   test("the regular on/off toggle saves", () =>
     inTx(async (tx) => {
       const f = await seedFixtures(tx);
-      const [row] = await asOwner(tx, f, () => tx`
-        update public.dishes set regular_available = false
-        where id = ${f.regular.id} returning regular_available, updated_at > '2020-01-02' as touched`);
-      expect(row).toEqual({ regular_available: false, touched: true });
+      await asOwner(tx, f, () => tx`select public.set_regular_on_sale(${f.regular.id}::uuid, false)`);
+      const [row] = await tx`
+        select unavailable_on = public.nairobi_today() as off_today, updated_at > '2020-01-02' as touched
+        from public.dishes where id = ${f.regular.id}`;
+      expect(row).toEqual({ off_today: true, touched: true });
     }));
 
   test("last_served_on bookkeeping saves", () =>
@@ -46,7 +47,7 @@ describe("order timestamps", () => {
       };
 
       const [{ id }] = await tx`select id from public.orders where public_token = ${order.public_token}`;
-      await asOwner(tx, f, () => tx`select public.mark_order_paid(${id}::uuid)`);
+      await asOwner(tx, f, () => tx`select public.mark_order_paid(${id}::uuid, 'cash')`);
       expect(await stamps()).toEqual({ updated: true, status_changed: false });
 
       await asOwner(tx, f, () => tx`select public.advance_order(${id}::uuid, 'new'::public.order_status, 'preparing'::public.order_status)`);
