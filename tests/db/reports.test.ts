@@ -449,3 +449,61 @@ describe("range checks", () => {
     });
   });
 });
+
+// RW2B-03: a day counts as sold out if the dish sold out at any point that day, not only if it is
+// still out. sold_out_at is the record; rows from before it existed fall back to the flag.
+describe("report_dishes: sold-out days and the usual time (RW2B-03)", () => {
+  type DishRow = { name: string; sold_out_days: number; usual_sold_out_minutes: number | null };
+  const dish = async (tx: Tx, f: Fixtures, name: string) => {
+    const [{ d }] = await tx`select public.nairobi_today()::text as d`;
+    const [row] = (await as(tx, f.ownerId, (q) => q`select public.report_dishes(${d}::date, ${d}::date) as r`)) as { r: { dishes: DishRow[] } }[];
+    return row!.r.dishes.find((x) => x.name === name)!;
+  };
+  const minutes = (t: Date) => {
+    const [h, m] = new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Nairobi", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+      .format(t).split(":").map(Number);
+    return h! * 60 + m!;
+  };
+  const dayRow = async (tx: Tx, entry: string) =>
+    (await tx`select plates_sold, sold_out_manual, sold_out_at from public.menu_entry_days where entry_id = ${entry} and day = public.nairobi_today()`)[0]!;
+
+  test("switched off, then back on: the day still counts, at the time it went off", async () => {
+    await inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      expect((await dish(tx, f, "Test late")).sold_out_days).toBe(0);
+      await as(tx, f.ownerId, (q) => q`select public.set_entry_sold_out(${f.closedEntry.id}::uuid, true)`);
+      await as(tx, f.ownerId, (q) => q`select public.set_entry_sold_out(${f.closedEntry.id}::uuid, false)`);
+      const row = await dayRow(tx, f.closedEntry.id);
+      expect(row.sold_out_manual).toBe(false);
+      expect(await dish(tx, f, "Test late")).toMatchObject({ sold_out_days: 1, usual_sold_out_minutes: minutes(row.sold_out_at) });
+    });
+  });
+
+  test("the last plate, then a cancel gives one back: the day still counts", async () => {
+    await inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      await placeOrder(tx, dineIn(f, [{ dish_id: f.rotating.id, menu_entry_id: f.openEntry.id, quantity: 2 }]));
+      expect((await dish(tx, f, "Test rotating")).sold_out_days).toBe(0); // 2 of 3: not sold out
+      const last = await placeOrder(tx, dineIn(f, [{ dish_id: f.rotating.id, menu_entry_id: f.openEntry.id, quantity: 1 }]));
+      const [{ id }] = await tx`select id from public.orders where public_token = ${last.public_token}`;
+      await as(tx, f.ownerId, (q) => q`select public.cancel_order(${id}::uuid, 'new'::public.order_status, 'customer_asked'::public.cancel_reason, null)`);
+      const row = await dayRow(tx, f.openEntry.id);
+      expect(row.plates_sold).toBe(2);
+      expect(await dish(tx, f, "Test rotating")).toMatchObject({ sold_out_days: 1, usual_sold_out_minutes: minutes(row.sold_out_at) });
+    });
+  });
+
+  test("an older row with no time: counted while it is out, with no usual time", async () => {
+    await inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      await tx`insert into public.menu_entry_days (entry_id, day, plates_sold) values (${f.openEntry.id}, public.nairobi_today(), 3)`;
+      // As a row written before sold_out_at existed (the trigger only fires on plates_sold).
+      await tx`update public.menu_entry_days set sold_out_at = null where entry_id = ${f.openEntry.id}`;
+      expect(await dish(tx, f, "Test rotating")).toMatchObject({ sold_out_days: 1, usual_sold_out_minutes: null });
+      // Given back with no time recorded: nothing says it ever sold out, so it doesn't count.
+      await tx`update public.menu_entry_days set plates_sold = 2 where entry_id = ${f.openEntry.id}`;
+      await tx`update public.menu_entry_days set sold_out_at = null where entry_id = ${f.openEntry.id}`;
+      expect((await dish(tx, f, "Test rotating")).sold_out_days).toBe(0);
+    });
+  });
+});
