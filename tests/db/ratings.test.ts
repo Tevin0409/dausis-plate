@@ -127,7 +127,8 @@ describe("rate_order (Done means 2, 3)", () => {
       const o = await order(tx, f, [
         { dish_id: f.regular.id, quantity: 2 },
         { dish_id: f.rotating.id, menu_entry_id: f.openEntry.id, quantity: 1 },
-        { dish_id: f.rotating.id, menu_entry_id: f.openEntry.id, option_id: f.option.id, quantity: 1 },
+        // Two lines of the same dish (the second with the fixtures' extra) still count it once.
+        { dish_id: f.rotating.id, menu_entry_id: f.openEntry.id, extra_ids: [f.option.id], quantity: 1 },
       ]);
       await complete(tx, f, o.id);
       await rate(tx, o.token, 4);

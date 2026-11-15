@@ -568,6 +568,7 @@ export type Database = {
           photo_key: string | null; category: Database["public"]["Enums"]["dish_category"]; price_kes: number;
           plates_per_day: number | null; plates_sold: number; plates_left: number | null; sold_out: boolean; open_now: boolean;
           auto_hide_sold_out: boolean; photo_url: string | null; photo_thumb_url: string | null;
+          rating_avg: number | null; rating_count: number;
         }[];
       };
       menu_day: { Args: never; Returns: string };

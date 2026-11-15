@@ -2,6 +2,7 @@
 // The database decides the day, the plates and sold out (customer_menu); this only orders and words it.
 import type { Database, Enums } from "./database.types";
 import { hhmm, weekdayName } from "./format";
+import { dishAverage } from "./ratings";
 
 export type CustomerMenuRow = Database["public"]["Functions"]["customer_menu"]["Returns"][number];
 export type RegularDish = {
@@ -13,6 +14,8 @@ export type RegularDish = {
   category: Enums<"dish_category">;
   unavailable_on: string | null;
   sort_order: number;
+  rating_count: number;
+  rating_total: number;
 };
 
 export type MenuDish = {
@@ -36,6 +39,9 @@ export type MenuDish = {
   /** + adds (to the order, or to the saved order while closed). */
   canAdd: boolean;
   hasOptions: boolean;
+  /** spec-2.10: the public average (from the 3rd visible rating, else null) and how many. */
+  ratingAvg: number | null;
+  ratingCount: number;
 };
 
 export type MenuSection = { id: string; rail: string; head: string; aside: string | null; dishes: MenuDish[] };
@@ -96,6 +102,8 @@ export function buildMenu(opts: {
       notNow,
       canAdd: !r.sold_out && notNow === null,
       hasOptions: opts.optionDishIds.has(r.dish_id),
+      ratingAvg: r.rating_avg === null ? null : Number(r.rating_avg),
+      ratingCount: r.rating_count,
     };
   };
   const shown = opts.rows.filter((r) => !(r.sold_out && r.auto_hide_sold_out));
@@ -134,6 +142,8 @@ export function buildMenu(opts: {
           notNow: null,
           canAdd: !soldOut,
           hasOptions: opts.optionDishIds.has(d.id),
+          ratingAvg: dishAverage(d.rating_count, d.rating_total),
+          ratingCount: d.rating_count,
         };
         return { dish, sort: d.sort_order };
       });
