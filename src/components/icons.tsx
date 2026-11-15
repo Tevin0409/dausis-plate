@@ -115,3 +115,6 @@ export const SearchIcon = ({ size = 18, className }: IconProps) => (
 export const BellIcon = ({ size = 18, className }: IconProps) => (
   <svg {...base(size)} strokeWidth={2} className={className}><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z" /><path d="M10 20.5a2 2 0 0 0 4 0" /></svg>
 );
+export const StarIcon = ({ size = 18, className }: IconProps) => (
+  <svg {...base(size)} strokeWidth={2} className={className}><path d="M12 3.5l2.6 5.3 5.8.85-4.2 4.1 1 5.8L12 16.8l-5.2 2.75 1-5.8-4.2-4.1 5.8-.85z" /></svg>
+);

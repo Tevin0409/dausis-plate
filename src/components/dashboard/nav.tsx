@@ -14,7 +14,10 @@ import {
   QrIcon,
   ReceiptIcon,
   SettingsIcon,
-  SignOutIcon, ChartIcon } from "@/components/icons";
+  SignOutIcon,
+  ChartIcon,
+  StarIcon,
+} from "@/components/icons";
 import { signOut } from "@/app/dashboard/actions";
 import { SubmitButton } from "./submit-button";
 import { can, type Grant } from "@/lib/permissions";
@@ -45,6 +48,7 @@ const ITEMS: Item[] = [
   // Staff with Close early see Settings for its card (spec-2.3); the other cards stay read-only.
   { href: "/dashboard/settings", label: "Settings", Icon: SettingsIcon, shows: (w) => can(w, "close_early") },
   { href: "/dashboard/reports", label: "Reports", Icon: ChartIcon, shows: (w) => w.role === "owner", railOnly: true },
+  { href: "/dashboard/ratings", label: "Ratings", Icon: StarIcon, shows: (w) => w.role === "owner", railOnly: true },
   { href: "/dashboard/history", label: "History", Icon: ClockIcon, shows: (w) => w.role === "owner", railOnly: true },
 ];
 

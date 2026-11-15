@@ -7,6 +7,7 @@ import { CheckIcon, PhoneIcon, PinIcon } from "@/components/icons";
 import { AutoRefresh } from "@/components/shop/auto-refresh";
 import { Arrive, StatusHeadline } from "@/components/shop/arrive";
 import { SaveLink } from "@/components/shop/save-link";
+import { GoogleReviewCard, RatingCard } from "@/components/shop/rating-card";
 import { TableRequestButtons } from "@/components/shop/table-request-buttons";
 import { TillLine } from "@/components/shop/till-line";
 import { Narrow } from "@/components/shop/ui";
@@ -15,6 +16,7 @@ import { formatKes, timeLabel } from "@/lib/format";
 import { closingTime } from "@/lib/kitchen";
 import { createClient } from "@/lib/supabase/server";
 import { must } from "@/lib/supabase/result";
+import { customerRating } from "@/lib/ratings";
 import { customerRequests } from "@/lib/table-requests";
 
 export const dynamic = "force-dynamic";
@@ -51,6 +53,11 @@ const status = z.object({
   delivery_notes: z.string().nullable().optional(),
   kitchen_address: z.string().nullable().optional(),
   maps_url: z.string().nullable().optional(),
+  // spec-2.10: the customer's own rating (never its comment), and what the rating card needs.
+  rating: customerRating.optional(),
+  rate_dishes: z.array(z.string()).optional(),
+  rate_until: z.string().nullable().optional(),
+  google_review_url: z.string().nullable().optional(),
   items: z.array(
     z.object({
       name: z.string(),
@@ -145,6 +152,9 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
 
   const requests = o.mode === "dine_in" && !cancelled && o.placed_today && o.requests ? o.requests : null;
   const requestOpen = !!requests && [requests.waiter, requests.bill].some((r) => r && !r.answered_at);
+  // spec-2.10: the window is the server's (rate_until from get_order_status), checked at render.
+  const completed = o.status === "completed";
+  const rateOpen = !!o.rate_until && Date.parse(o.rate_until) > Date.now();
 
   return (
     <Narrow>
@@ -218,6 +228,13 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
           );
         })}
       </ol>
+
+      {completed && (
+        <>
+          <RatingCard token={token} dishes={o.rate_dishes ?? []} rating={o.rating ?? null} open={rateOpen} />
+          {o.google_review_url && <GoogleReviewCard url={o.google_review_url} />}
+        </>
+      )}
 
       {rows.length > 0 && (
         <section aria-labelledby="where-heading" className="mx-5 mt-5 rounded-[var(--r-lg)] bg-paper p-[18px] shadow-[var(--shadow-card)]">
