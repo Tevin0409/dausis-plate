@@ -157,6 +157,65 @@ join public.dishes d on d.id = e.dish_id
 where d.name = 'Kienyeji Chicken Stew' and e.starts_on < public.nairobi_today();
 end $$;
 
+-- ───────────────────────── Promos sample data (slice 2.11, for Reports' Promos & ads) ─────────────────────────
+-- Two codes used on some of the orders above and one switched off and never used; a combo on some
+-- others; two ads with daily counts: one that ran on the menu and has ended, one live on the order page.
+do $$
+declare
+  v_today date := public.nairobi_today();
+  v_combo uuid;
+  v_menu_ad uuid;
+  v_order_ad uuid;
+  v_oc uuid;
+  o record;
+begin
+  if coalesce(current_setting('dausis.skip_report_seed', true), '') = 'on' then return; end if;
+  insert into public.discount_codes (code, kind, value, cap_kes, starts_on, ends_on, once_per_phone, modes, active) values
+    ('KARIBU10', 'percent', 10, 300, v_today - 42, v_today + 30, false, '{dine_in,pickup,delivery}', true),
+    ('PICKUP50', 'amount', 50, null, v_today - 42, v_today + 30, false, '{dine_in,pickup}', true),
+    ('WELCOME', 'amount', 100, null, v_today, v_today + 30, true, '{dine_in,pickup,delivery}', false);
+
+  -- A code covers the order's dishes, never the delivery fee (or a combo; these orders have none).
+  for o in select id, mode, subtotal_kes, row_number() over (order by created_at) n from public.orders loop
+    if o.n % 5 = 0 then
+      update public.orders set discount_code_id = (select id from public.discount_codes where code = 'KARIBU10'), discount_code = 'KARIBU10',
+        discount_kes = least(300, o.subtotal_kes / 10), total_kes = total_kes - least(300, o.subtotal_kes / 10) where id = o.id;
+    elsif o.n % 7 = 0 and o.mode <> 'delivery' then
+      update public.orders set discount_code_id = (select id from public.discount_codes where code = 'PICKUP50'), discount_code = 'PICKUP50',
+        discount_kes = least(50, o.subtotal_kes), total_kes = total_kes - least(50, o.subtotal_kes) where id = o.id;
+    end if;
+  end loop;
+
+  insert into public.combos (name, price_kes) values ('Stew & chai lunch', 500) returning id into v_combo;
+  insert into public.combo_items (combo_id, dish_id, quantity, sort_order)
+    select v_combo, d.id, 1, case when d.name = 'Masala chai' then 1 else 0 end
+    from public.dishes d where d.name in ('Beef Stew & Chapati', 'Masala chai');
+  for o in select id, row_number() over (order by created_at) n from public.orders where discount_code_id is null loop
+    if o.n % 6 = 0 then
+      insert into public.order_combos (order_id, combo_id, name, unit_price_kes, quantity)
+        values (o.id, v_combo, 'Stew & chai lunch', 500, 1) returning id into v_oc;
+      insert into public.order_items (order_id, order_combo_id, dish_id, name, unit_price_kes, quantity)
+        select o.id, v_oc, d.id, d.name, 0, 1 from public.dishes d where d.name in ('Beef Stew & Chapati', 'Masala chai');
+      update public.orders set subtotal_kes = subtotal_kes + 500, total_kes = total_kes + 500 where id = o.id;
+    end if;
+  end loop;
+
+  insert into public.ads (advertiser, line, place, link_label, link_url, space, starts_on, ends_on, fee_kes, fee_period, approved_at)
+    values ('Sunrise Bakery', 'Fresh bread every morning', 'Next door', 'See today’s bread', 'https://sunrise.example/bread',
+            'menu', v_today - 40, v_today - 15, 2000, 'month', now() - interval '41 days')
+    returning id into v_menu_ad;
+  insert into public.ads (advertiser, line, place, link_label, link_url, space, starts_on, ends_on, fee_kes, fee_period, approved_at)
+    values ('Mama Mboga Greens', 'Sukuma and spinach, picked today', 'Two doors down', 'Order greens', 'https://mboga.example',
+            'order', v_today - 14, v_today + 16, 500, 'week', now() - interval '15 days')
+    returning id into v_order_ad;
+  insert into public.ad_daily_counts (ad_id, day, views, taps)
+    select v_menu_ad, d, 20 + abs(hashtext(d::text)) % 40, abs(hashtext(d::text || 't')) % 5
+    from generate_series(v_today - 40, v_today - 15, interval '1 day') g(d0), lateral (select g.d0::date as d) x;
+  insert into public.ad_daily_counts (ad_id, day, views, taps)
+    select v_order_ad, d, 10 + abs(hashtext(d::text || 'o')) % 30, abs(hashtext(d::text || 'p')) % 3
+    from generate_series(v_today - 14, v_today, interval '1 day') g(d0), lateral (select g.d0::date as d) x;
+end $$;
+
 -- Ratings (2.10) for the Reports Ratings tab (spec-2.12 seed: 2 hidden, 3 replied). About one in four
 -- completed orders before today is rated, a couple of hours after it was placed (some the next day).
 -- Days 14 to 21 ago have none, so "Ratings by week" shows a gap. The dishes' public totals are then

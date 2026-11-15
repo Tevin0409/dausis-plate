@@ -24,6 +24,8 @@ const KEYS = [
   "subtotal_kes", "delivery_fee_kes", "total_kes", "created_at", "status_changed_at", "cancel_reason", "cancel_note", "declined",
   "till_number", "placed_today", "requests", "phone", "delivery_address", "delivery_notes", "kitchen_address", "maps_url", "items",
   "rating", "rate_dishes", "rate_until", "google_review_url",
+  // 2.11
+  "discount_kes", "discount_code", "combos",
 ].sort();
 
 const advance = (tx: Tx, owner: string, id: string, from: string, to: string) =>

@@ -10,6 +10,65 @@ export type Database = {
   };
   public: {
     Tables: {
+      combos: {
+        Row: { id: string; name: string; price_kes: number; active: boolean; archived: boolean; sort_order: number; created_at: string; updated_at: string };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      combo_items: {
+        Row: { combo_id: string; dish_id: string; quantity: number; sort_order: number };
+        Insert: never;
+        Update: never;
+        Relationships: [
+          { foreignKeyName: "combo_items_combo_id_fkey"; columns: ["combo_id"]; isOneToOne: false; referencedRelation: "combos"; referencedColumns: ["id"] },
+          { foreignKeyName: "combo_items_dish_id_fkey"; columns: ["dish_id"]; isOneToOne: false; referencedRelation: "dishes"; referencedColumns: ["id"] },
+        ];
+      };
+      discount_codes: {
+        Row: {
+          id: string; code: string; kind: "percent" | "amount"; value: number; cap_kes: number | null;
+          starts_on: string; ends_on: string; max_uses: number | null; once_per_phone: boolean; min_order_kes: number | null;
+          modes: Database["public"]["Enums"]["order_mode"][]; active: boolean; created_by: string | null; created_at: string; updated_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      order_combos: {
+        Row: { id: string; order_id: string; combo_id: string | null; name: string; unit_price_kes: number; quantity: number; sort_order: number };
+        Insert: never;
+        Update: never;
+        Relationships: [
+          { foreignKeyName: "order_combos_order_id_fkey"; columns: ["order_id"]; isOneToOne: false; referencedRelation: "orders"; referencedColumns: ["id"] },
+          { foreignKeyName: "order_combos_combo_id_fkey"; columns: ["combo_id"]; isOneToOne: false; referencedRelation: "combos"; referencedColumns: ["id"] },
+        ];
+      };
+      ads: {
+        Row: {
+          advertiser: string; approved_at: string | null; approved_by: string | null; created_at: string; created_by: string | null;
+          ended_early_at: string | null; ends_on: string; fee_kes: number; fee_period: "week" | "month"; id: string; line: string;
+          link_label: string; link_url: string; logo_key: string | null; logo_url: string | null; paused_at: string | null;
+          place: string; space: Database["public"]["Enums"]["ad_space"]; starts_on: string; updated_at: string;
+        };
+        Insert: {
+          advertiser: string; ends_on: string; fee_kes?: number; fee_period?: "week" | "month"; id?: string; line: string;
+          link_label: string; link_url: string; logo_key?: string | null; logo_url?: string | null; place?: string;
+          space: Database["public"]["Enums"]["ad_space"]; starts_on: string;
+        };
+        Update: {
+          advertiser?: string; ends_on?: string; fee_kes?: number; fee_period?: "week" | "month"; line?: string;
+          link_label?: string; link_url?: string; logo_key?: string | null; logo_url?: string | null; place?: string;
+          space?: Database["public"]["Enums"]["ad_space"]; starts_on?: string;
+        };
+        Relationships: [];
+      };
+      ad_daily_counts: {
+        Row: { ad_id: string; day: string; taps: number; views: number };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
       change_log: {
         Row: {
           action: string; actor: string | null; actor_name: string; after: Json | null; area: Database["public"]["Enums"]["change_area"];
@@ -80,6 +139,7 @@ export type Database = {
           created_at: string;
           description: string;
           id: string;
+          is_pick: boolean;
           is_regular: boolean;
           last_served_on: string | null;
           name: string;
@@ -100,6 +160,7 @@ export type Database = {
           created_at?: string;
           description?: string;
           id?: string;
+          is_pick?: boolean;
           is_regular?: boolean;
           last_served_on?: string | null;
           name: string;
@@ -118,6 +179,7 @@ export type Database = {
           created_at?: string;
           description?: string;
           id?: string;
+          is_pick?: boolean;
           is_regular?: boolean;
           last_served_on?: string | null;
           name?: string;
@@ -216,6 +278,7 @@ export type Database = {
           dish_id: string;
           id: string;
           menu_entry_id: string | null;
+          order_combo_id: string | null;
           name: string;
           note: string | null;
           option_id: string | null;
@@ -228,6 +291,7 @@ export type Database = {
           dish_id: string;
           id?: string;
           menu_entry_id?: string | null;
+          order_combo_id?: string | null;
           name: string;
           note?: string | null;
           option_id?: string | null;
@@ -240,6 +304,7 @@ export type Database = {
           dish_id?: string;
           id?: string;
           menu_entry_id?: string | null;
+          order_combo_id?: string | null;
           name?: string;
           note?: string | null;
           option_id?: string | null;
@@ -255,6 +320,7 @@ export type Database = {
           { foreignKeyName: "order_items_menu_entry_id_fkey"; columns: ["menu_entry_id"]; isOneToOne: false; referencedRelation: "todays_menu"; referencedColumns: ["entry_id"] },
           { foreignKeyName: "order_items_option_id_fkey"; columns: ["option_id"]; isOneToOne: false; referencedRelation: "dish_options"; referencedColumns: ["id"] },
           { foreignKeyName: "order_items_order_id_fkey"; columns: ["order_id"]; isOneToOne: false; referencedRelation: "orders"; referencedColumns: ["id"] },
+          { foreignKeyName: "order_items_order_combo_id_fkey"; columns: ["order_combo_id"]; isOneToOne: false; referencedRelation: "order_combos"; referencedColumns: ["id"] },
           { foreignKeyName: "order_items_dish_id_fkey"; columns: ["dish_id"]; isOneToOne: false; referencedRelation: "dishes"; referencedColumns: ["id"] },
           { foreignKeyName: "order_items_menu_entry_id_fkey"; columns: ["menu_entry_id"]; isOneToOne: false; referencedRelation: "menu_entries"; referencedColumns: ["id"] },
           { foreignKeyName: "order_items_option_id_fkey"; columns: ["option_id"]; isOneToOne: false; referencedRelation: "dish_options"; referencedColumns: ["id"] },
@@ -269,6 +335,9 @@ export type Database = {
           delivery_address: string | null;
           delivery_fee_kes: number;
           delivery_notes: string | null;
+          discount_code_id: string | null;
+          discount_code: string | null;
+          discount_kes: number;
           cancel_reason: Database["public"]["Enums"]["cancel_reason"] | null;
           cancel_note: string | null;
           prev_status: Database["public"]["Enums"]["order_status"] | null;
@@ -301,6 +370,9 @@ export type Database = {
           delivery_address?: string | null;
           delivery_fee_kes?: number;
           delivery_notes?: string | null;
+          discount_code_id?: string | null;
+          discount_code?: string | null;
+          discount_kes?: number;
           cancel_reason?: Database["public"]["Enums"]["cancel_reason"] | null;
           cancel_note?: string | null;
           prev_status?: Database["public"]["Enums"]["order_status"] | null;
@@ -444,6 +516,10 @@ export type Database = {
       };
     };
     Views: {
+      code_figures: {
+        Row: { code_id: string; code: string; uses: number; discount_given: number; sales: number };
+        Relationships: [];
+      };
       todays_menu: {
         Row: {
           auto_hide_sold_out: boolean | null;
@@ -452,6 +528,7 @@ export type Database = {
           dish_id: string | null;
           ends_on: string | null;
           entry_id: string | null;
+          is_pick: boolean | null;
           kind: Database["public"]["Enums"]["entry_kind"] | null;
           name: string | null;
           open_now: boolean | null;
@@ -474,6 +551,45 @@ export type Database = {
       };
     };
     Functions: {
+      save_combo: { Args: { p: Json }; Returns: string };
+      save_discount_code: { Args: { p: Json }; Returns: string };
+      discount_code_action: { Args: { p_id: string; p_action: "on" | "off" }; Returns: undefined };
+      check_discount_code: {
+        Args: { p_code: string; p_food_kes: number; p_covered_kes: number; p_mode?: Database["public"]["Enums"]["order_mode"] | null; p_phone?: string | null };
+        Returns: {
+          ok: boolean; code: string; discount_kes: number; reason: string | null; label: string | null;
+          starts_on: string | null; min_order_kes: number | null; modes: Database["public"]["Enums"]["order_mode"][] | null;
+        }[];
+      };
+      combo_action: { Args: { p_id: string; p_action: "on" | "off" | "archive" }; Returns: undefined };
+      customer_combos: {
+        Args: never;
+        Returns: {
+          combo_id: string; name: string; price_kes: number; sort_order: number; menu_day: string;
+          everyday_total: number; today_total: number; available: boolean; reason: string | null;
+          parts: { dish_id: string; menu_entry_id: string | null; name: string; quantity: number; price_kes: number; photo_thumb_url: string | null; has_choices: boolean }[];
+        }[];
+      };
+      ad_action: { Args: { p_id: string; p_action: "approve" | "pause" | "resume" | "end" }; Returns: string };
+      ads_overview: {
+        Args: never;
+        Returns: {
+          id: string; advertiser: string; line: string; place: string; link_label: string; link_url: string;
+          logo_key: string | null; logo_url: string | null; space: Database["public"]["Enums"]["ad_space"];
+          starts_on: string; ends_on: string; fee_kes: number; fee_period: "week" | "month";
+          status: "draft" | "scheduled" | "live" | "paused" | "ended"; approved_at: string | null; created_at: string;
+          views: number; taps: number; month_views: number; month_taps: number;
+        }[];
+      };
+      live_ads: {
+        Args: { p_space: Database["public"]["Enums"]["ad_space"] };
+        Returns: {
+          id: string; space: Database["public"]["Enums"]["ad_space"]; advertiser: string; line: string; place: string;
+          link_label: string; link_kind: "web" | "tel"; link_tel: string | null; logo_url: string | null;
+        }[];
+      };
+      count_ad_view: { Args: { p_ids: string[] }; Returns: undefined };
+      count_ad_tap: { Args: { p_id: string }; Returns: string | null };
       close_early: { Args: never; Returns: Json };
       has_grant: { Args: { p_job: Database["public"]["Enums"]["staff_grant"] }; Returns: boolean };
       history_people: { Args: never; Returns: { actor: string; actor_name: string; on_team: boolean }[] };
@@ -567,7 +683,7 @@ export type Database = {
           show_from: string; show_until: string; sort_order: number; dish_id: string; name: string; description: string;
           photo_key: string | null; category: Database["public"]["Enums"]["dish_category"]; price_kes: number;
           plates_per_day: number | null; plates_sold: number; plates_left: number | null; sold_out: boolean; open_now: boolean;
-          auto_hide_sold_out: boolean; photo_url: string | null; photo_thumb_url: string | null;
+          auto_hide_sold_out: boolean; photo_url: string | null; photo_thumb_url: string | null; is_pick: boolean;
           rating_avg: number | null; rating_count: number;
         }[];
       };
@@ -587,6 +703,7 @@ export type Database = {
       report_times: { Args: { p_from: string; p_to: string }; Returns: Json };
       report_delivery: { Args: { p_from: string; p_to: string }; Returns: Json };
       report_ratings: { Args: { p_from: string; p_to: string }; Returns: Json };
+      report_promos_ads: { Args: { p_from: string; p_to: string; p_ads_whole_run?: boolean }; Returns: Json };
       report_orders_csv: { Args: { p_from: string; p_to: string }; Returns: Json[] };
       report_credit_notes_csv: { Args: { p_from: string; p_to: string }; Returns: Json[] };
       nairobi_time: { Args: never; Returns: string };
@@ -596,7 +713,8 @@ export type Database = {
       set_entry_sold_out: { Args: { p_entry: string; p_sold_out: boolean }; Returns: undefined };
     };
     Enums: {
-      change_area: "menu" | "orders" | "tables" | "team" | "settings" | "ratings";
+      ad_space: "menu" | "order";
+      change_area: "menu" | "orders" | "tables" | "team" | "settings" | "ratings" | "promos";
       dish_category: "mains" | "sides" | "breakfast" | "drinks";
       entry_kind: "day" | "week";
       order_mode: "dine_in" | "pickup" | "delivery";
