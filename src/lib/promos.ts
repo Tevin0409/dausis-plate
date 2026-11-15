@@ -7,9 +7,8 @@ import { normaliseKenyanPhone } from "./phone";
 export type AdSpace = Database["public"]["Enums"]["ad_space"];
 export type AdRow = Database["public"]["Functions"]["ads_overview"]["Returns"][number];
 export type AdStatus = AdRow["status"];
-export type FeePeriod = "week" | "month";
 
-export const AD_LIMITS = { advertiser: 32, line: 70, place: 40, linkLabel: 24, link: 500, fee: 10_000_000 } as const;
+export const AD_LIMITS = { advertiser: 32, line: 70, place: 40, linkLabel: 24, link: 500, price: 10_000_000 } as const;
 
 /** Space card headings and the "Space" column. */
 export const SPACE_HEAD: Record<AdSpace, string> = { menu: "On the menu", order: "On the order page" };
@@ -49,8 +48,23 @@ export function dateRange(from: string, to: string): string {
   return `${a.d} ${a.m} – ${b.d} ${b.m}`;
 }
 
-/** "KSh 2,000 a month". */
-export const feeLabel = (kes: number, period: FeePeriod) => `${formatKes(kes)} a ${period}`;
+/** An ad's agreed price for its run: "KSh 3,000", "Free", or "No price yet" on a draft. */
+export const priceLabel = (kes: number | null) => (kes === null ? "No price yet" : kes === 0 ? "Free" : formatKes(kes));
+
+/**
+ * The price field as typed: commas and spaces are dropped ("3,000" is 3000). Empty is null (a draft
+ * may have no price yet); anything else that isn't whole shillings from 0 to 10,000,000 is refused.
+ */
+export function parseAdPrice(input: string): { ok: true; value: number | null } | { ok: false; error: string } {
+  const raw = input.replace(/[,\s]/g, "");
+  if (!raw) return { ok: true, value: null };
+  const n = /^\d{1,8}$/.test(raw) ? Number(raw) : NaN;
+  if (!Number.isInteger(n) || n > AD_LIMITS.price) return { ok: false, error: "Put the price in whole shillings, like 3000. Use 0 if it’s free." };
+  return { ok: true, value: n };
+}
+export const PRICE_NEEDED = "Add the price you agreed before approving. Use 0 if it’s free.";
+/** Clearing the price of an approved (scheduled, live, paused or ended) ad. */
+export const PRICE_KEPT = "An approved ad keeps a price. Use 0 if it’s free.";
 
 /** "1,204". */
 export const count = (n: number) => new Intl.NumberFormat("en-KE").format(n);

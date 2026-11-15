@@ -2,7 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { OWNER_ONLY } from "@/lib/permissions";
-import { AD_LIMITS, parseAdLink, type AdAction } from "@/lib/promos";
+import { AD_LIMITS, PRICE_KEPT, PRICE_NEEDED, parseAdLink, parseAdPrice, type AdAction } from "@/lib/promos";
 import { PHOTO_KEY, photoExists, publicPhotoUrl } from "@/lib/r2";
 import { refusal } from "@/lib/supabase/refusal";
 import { createClient, getStaff } from "@/lib/supabase/server";
@@ -11,7 +11,7 @@ import { createClient, getStaff } from "@/lib/supabase/server";
 // database checks again (RLS, the ads guard, ad_action). Approval, pausing and ending only go
 // through ad_action, which locks the space so two approvals can't both take it.
 
-export type AdField = "advertiser" | "line" | "place" | "link_label" | "link" | "dates" | "fee" | "logo" | "form";
+export type AdField = "advertiser" | "line" | "place" | "link_label" | "link" | "dates" | "price" | "logo" | "form";
 export type AdResult =
   | { ok: true; id: string; status?: string }
   | { ok: false; error: string; field?: AdField; id?: string; stale?: boolean; gone?: boolean };
@@ -47,6 +47,9 @@ function failed(what: string, error: DbError, message: string): { ok: false; err
   return { ok: false, error: message };
 }
 
+/** An approved ad's price was cleared: the ads_price_when_approved check. */
+const priceGone = (error: DbError) => error?.code === "23514" && (error.message ?? "").includes("ads_price_when_approved");
+
 const done = () => {
   revalidatePath("/dashboard/promos");
   revalidatePath("/");
@@ -68,8 +71,7 @@ const adForm = z.object({
   space: z.enum(["menu", "order"]),
   starts_on: z.string(),
   ends_on: z.string(),
-  fee_kes: z.string(),
-  fee_period: z.enum(["week", "month"]),
+  price_kes: z.string().optional().default(""),
   logo_key: z.string().regex(PHOTO_KEY).optional().or(z.literal("")),
   logo_thumb_key: z.string().regex(PHOTO_KEY).optional().or(z.literal("")),
   remove_logo: z.literal("on").optional(),
@@ -78,7 +80,7 @@ const adForm = z.object({
 
 /** Field by field, in form order, so the first problem is the one shown. */
 function checkFields(v: z.infer<typeof adForm>):
-  | { ok: true; row: { advertiser: string; line: string; place: string; link_label: string; link_url: string; space: "menu" | "order"; starts_on: string; ends_on: string; fee_kes: number; fee_period: "week" | "month" } }
+  | { ok: true; row: { advertiser: string; line: string; place: string; link_label: string; link_url: string; space: "menu" | "order"; starts_on: string; ends_on: string; price_kes: number | null } }
   | { ok: false; error: string; field: AdField } {
   const advertiser = text(AD_LIMITS.advertiser).safeParse(v.advertiser);
   if (!advertiser.success) return { ok: false, field: "advertiser", error: v.advertiser.trim() ? `Keep the name to ${AD_LIMITS.advertiser} characters.` : "Add the advertiser’s name." };
@@ -92,8 +94,10 @@ function checkFields(v: z.infer<typeof adForm>):
   if (!link.ok) return { ok: false, field: "link", error: link.error };
   if (!day.safeParse(v.starts_on).success || !day.safeParse(v.ends_on).success) return { ok: false, field: "dates", error: "Pick a start and an end date." };
   if (v.ends_on < v.starts_on) return { ok: false, field: "dates", error: "The end date is before the start date." };
-  const fee = /^\d{1,8}$/.test(v.fee_kes.replace(/[,\s]/g, "")) ? Number(v.fee_kes.replace(/[,\s]/g, "")) : NaN;
-  if (!Number.isInteger(fee) || fee < 0 || fee > AD_LIMITS.fee) return { ok: false, field: "fee", error: "Put the fee in whole shillings, like 2000. Use 0 if there’s no fee." };
+  const price = parseAdPrice(v.price_kes);
+  if (!price.ok) return { ok: false, field: "price", error: price.error };
+  // A draft may wait for its price; approving needs one (0 for free). The database refuses too.
+  if (v.intent === "approve" && price.value === null) return { ok: false, field: "price", error: PRICE_NEEDED };
   return {
     ok: true,
     row: {
@@ -105,8 +109,7 @@ function checkFields(v: z.infer<typeof adForm>):
       space: v.space,
       starts_on: v.starts_on,
       ends_on: v.ends_on,
-      fee_kes: fee,
-      fee_period: v.fee_period,
+      price_kes: price.value,
     },
   };
 }
@@ -143,6 +146,7 @@ export async function saveAd(_prev: AdResult | null, formData: FormData): Promis
   if (v.id) {
     const { data, error } = await db.from("ads").update(row).eq("id", v.id).select("id").maybeSingle();
     // A later end date that runs into another approved ad (R211-01) is the dates' problem.
+    if (error && priceGone(error)) return { ok: false, field: "price", error: PRICE_KEPT };
     if (error) return { ...failed("save ad", error, "Couldn’t save the ad. Try again."), field: error.details === "ad_overlap" ? "dates" : "form" };
     if (!data) return { ok: false, error: "This ad isn’t there any more. It may have been deleted.", gone: true };
     id = data.id;
@@ -155,7 +159,7 @@ export async function saveAd(_prev: AdResult | null, formData: FormData): Promis
   if (v.intent !== "approve") return { ok: true, id };
 
   const { data: status, error } = await db.rpc("ad_action", { p_id: id, p_action: "approve" });
-  if (error) return { ...failed("approve ad", error, "Saved as a draft, but couldn’t approve it. Try again."), id, field: "form" };
+  if (error) return { ...failed("approve ad", error, "Saved as a draft, but couldn’t approve it. Try again."), id, field: error.details === "ad_price" ? "price" : "form" };
   done();
   return { ok: true, id, status: status ?? undefined };
 }
@@ -171,6 +175,25 @@ export async function adAction(id: string, action: AdAction): Promise<PromoResul
   if (error) return failed(`ad ${action}`, error, "Couldn’t change the ad. Try again.");
   done();
   return { ok: true };
+}
+
+/**
+ * An ended ad's price only (spec-2.11-ad-price: Mama can still correct her invoice figure). The rest
+ * of an ended ad is read-only; the price never reaches customers, so the guard lets it change.
+ */
+export async function saveAdPrice(id: string, input: string): Promise<AdResult> {
+  if (!uuid.safeParse(id).success) return { ok: false, field: "form", error: "Something didn’t match. Refresh the page and try again." };
+  const price = parseAdPrice(input);
+  if (!price.ok) return { ok: false, field: "price", error: price.error };
+  // An approved ad's price can't go back to empty: Amount due would lose its figure.
+  if (price.value === null) return { ok: false, field: "price", error: PRICE_KEPT };
+  const db = await ownerClient();
+  if (isFail(db)) return db;
+  const { data, error } = await db.from("ads").update({ price_kes: price.value }).eq("id", id).select("id").maybeSingle();
+  if (error) return { ...failed("save ad price", error, "Couldn’t save the price. Try again."), field: "form" };
+  if (!data) return { ok: false, error: "This ad isn’t there any more. It may have been deleted.", gone: true };
+  done();
+  return { ok: true, id: data.id };
 }
 
 /** Drafts only (RLS and the guard: an approved or shown ad is ended, never deleted). */
