@@ -1,6 +1,6 @@
 // Order safety (slice 0.2): place_order input checks, idempotency, order codes
 // and the order lifecycle. Each test failed on the schema before these migrations.
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { TransactionSQL } from "bun";
 import { attempt, dineIn, inTx, placeOrder, platesSold, seedFixtures, sql, type Fixtures } from "./helpers";
 
@@ -30,10 +30,10 @@ const advance = (tx: TransactionSQL, f: Fixtures, id: string, from: string, to: 
 /** A Decline; `from` is the status the tap saw, which defaults to the order's current one. */
 const cancel = async (tx: TransactionSQL, f: Fixtures, id: string, from?: string) => {
   const seen = from ?? (await statusOf(tx, id));
-  return attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.cancel_order(${id}::uuid, ${seen}::public.order_status)`);
+  return attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.cancel_order(${id}::uuid, ${seen}::public.order_status, 'too_busy')`);
 };
 const markPaid = (tx: TransactionSQL, f: Fixtures, id: string) =>
-  attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.mark_order_paid(${id}::uuid)`);
+  attempt(tx, "authenticated", f.ownerId, (sp) => sp`select public.mark_order_paid(${id}::uuid, 'cash')`);
 
 const FORWARD = [
   ["new", "preparing"],
@@ -137,7 +137,21 @@ describe("place_order: idempotency", () => {
 
   describe("two calls at once on separate connections", () => {
     let dishId: string | undefined;
+    // Committed, not in a rolled-back transaction, so open the kitchen all day for this test
+    // and put the hours back after.
+    let hours: Record<string, unknown>[] = [];
+    let lastOrders = 30;
+    beforeAll(async () => {
+      hours = await sql`select weekday, is_open, opens, closes from public.opening_hours`;
+      [{ last_orders_minutes: lastOrders }] = await sql`select last_orders_minutes from public.kitchen_settings`;
+      await sql`update public.opening_hours set is_open = true, opens = '00:00', closes = '24:00'`;
+      await sql`update public.kitchen_settings set last_orders_minutes = 0`;
+    });
     afterAll(async () => {
+      for (const h of hours) {
+        await sql`update public.opening_hours set is_open = ${h.is_open}, opens = ${h.opens}, closes = ${h.closes} where weekday = ${h.weekday}`;
+      }
+      await sql`update public.kitchen_settings set last_orders_minutes = ${lastOrders}`;
       if (!dishId) return;
       await sql`delete from public.order_items where dish_id = ${dishId}`;
       await sql`delete from public.orders where customer_name = 'Concurrent test'`;
@@ -331,7 +345,7 @@ describe("order lifecycle", () => {
 });
 
 describe("mark paid", () => {
-  for (const status of ["new", "preparing", "ready", "completed", "cancelled"] as const) {
+  for (const status of ["new", "preparing", "ready", "completed"] as const) {
     test(`works on ${status} and leaves the status alone`, () =>
       inTx(async (tx) => {
         const f = await seedFixtures(tx);
@@ -341,6 +355,17 @@ describe("mark paid", () => {
         expect(row).toEqual({ status, payment_status: "paid" });
       }));
   }
+});
+
+describe("mark paid on a cancelled order (slice 2.12, Q1 A)", () => {
+  test("is refused, and the order stays unpaid", () =>
+    inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      const id = await orderAt(tx, f, "cancelled");
+      await expect(markPaid(tx, f, id)).rejects.toThrow("was cancelled, so it can't be marked paid.");
+      const [row] = await tx`select status, payment_status from public.orders where id = ${id}`;
+      expect(row).toEqual({ status: "cancelled", payment_status: "unpaid" });
+    }));
 });
 
 describe("who can write orders", () => {
@@ -389,8 +414,8 @@ describe("who can write orders", () => {
           name === "advance_order"
             ? sp`select public.advance_order(${id}::uuid, 'new'::public.order_status, 'preparing'::public.order_status)`
             : name === "cancel_order"
-              ? sp`select public.cancel_order(${id}::uuid, 'new'::public.order_status)`
-              : sp`select public.mark_order_paid(${id}::uuid)`;
+              ? sp`select public.cancel_order(${id}::uuid, 'new'::public.order_status, 'too_busy')`
+              : sp`select public.mark_order_paid(${id}::uuid, 'cash')`;
         await expect(attempt(tx, "anon", null, call)).rejects.toThrow("permission denied");
         await expect(attempt(tx, "authenticated", crypto.randomUUID(), call)).rejects.toThrow("Not allowed");
         const [row] = await tx`select status, payment_status from public.orders where id = ${id}`;

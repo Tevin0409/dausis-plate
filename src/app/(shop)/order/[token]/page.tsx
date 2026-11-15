@@ -1,21 +1,34 @@
 import Image from "next/image";
+import { formatKenyanPhone } from "@/lib/kitchen-phone";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { z } from "zod";
-import { CheckIcon, PhoneIcon } from "@/components/icons";
+import { CheckIcon, PhoneIcon, PinIcon } from "@/components/icons";
 import { AutoRefresh } from "@/components/shop/auto-refresh";
+import { Arrive, StatusHeadline } from "@/components/shop/arrive";
+import { SaveLink } from "@/components/shop/save-link";
+import { GoogleReviewCard, RatingCard } from "@/components/shop/rating-card";
+import { TableRequestButtons } from "@/components/shop/table-request-buttons";
+import { TillLine } from "@/components/shop/till-line";
+import { NeighbourAd } from "@/components/shop/neighbour-ad";
 import { Narrow } from "@/components/shop/ui";
+import { loadLiveAd } from "@/lib/ads";
+import { customerCancelText } from "@/lib/board";
 import { formatKes, timeLabel } from "@/lib/format";
+import { closingTime } from "@/lib/kitchen";
 import { createClient } from "@/lib/supabase/server";
 import { must } from "@/lib/supabase/result";
+import { customerRating } from "@/lib/ratings";
+import { customerRequests } from "@/lib/table-requests";
 
 export const dynamic = "force-dynamic";
 
 const status = z.object({
   code: z.string(),
-  status: z.enum(["new", "preparing", "ready", "completed", "cancelled"]),
+  status: z.enum(["new", "preparing", "ready", "on_the_way", "completed", "cancelled"]),
   mode: z.enum(["dine_in", "pickup", "delivery"]),
-  payment_method: z.enum(["mpesa", "card", "on_handover"]),
+  // mpesa and card stay readable: older orders may carry them.
+  payment_method: z.enum(["mpesa", "card", "on_handover", "at_counter"]),
   payment_status: z.enum(["pending", "paid", "failed", "unpaid"]),
   customer_name: z.string(),
   table_label: z.string().nullable(),
@@ -26,10 +39,64 @@ const status = z.object({
   total_kes: z.number(),
   created_at: z.string(),
   status_changed_at: z.string(),
-  items: z.array(z.object({ name: z.string(), option_label: z.string().nullable(), quantity: z.number(), unit_price_kes: z.number() })),
+  // spec-2.4: why a declined or cancelled order was stopped, shown to the customer.
+  cancel_reason: z.enum(["sold_out", "too_busy", "cant_deliver", "customer_asked", "no_show", "other"]).nullable().optional(),
+  cancel_note: z.string().nullable().optional(),
+  declined: z.boolean().nullish(),
+  // Only while unpaid and not cancelled, and only if Mama has set one (get_order_status decides).
+  till_number: z.string().nullable().optional(),
+  // spec-2.9: table requests work only on the order's own day, at its table.
+  placed_today: z.boolean().optional(),
+  requests: customerRequests.optional(),
+  // spec-2.6: the kitchen phone (null when Mama hasn't set one) and each line's extras.
+  phone: z.string().nullable().optional(),
+  // 2.8: where the food is. Delivery carries the customer's address and notes; the others the kitchen's.
+  delivery_address: z.string().nullable().optional(),
+  delivery_notes: z.string().nullable().optional(),
+  kitchen_address: z.string().nullable().optional(),
+  maps_url: z.string().nullable().optional(),
+  // spec-2.10: the customer's own rating (never its comment), and what the rating card needs.
+  rating: customerRating.optional(),
+  rate_dishes: z.array(z.string()).optional(),
+  rate_until: z.string().nullable().optional(),
+  google_review_url: z.string().nullable().optional(),
+  // 2.11: the code's discount (0 without one) and the combos, each with its dishes.
+  discount_kes: z.number().optional().default(0),
+  discount_code: z.string().nullable().optional(),
+  combos: z
+    .array(
+      z.object({
+        name: z.string(),
+        quantity: z.number(),
+        unit_price_kes: z.number(),
+        parts: z.array(
+          z.object({
+            name: z.string(),
+            option_label: z.string().nullable(),
+            quantity: z.number(),
+            note: z.string().nullable().optional(),
+            extras: z.array(z.object({ label: z.string(), price_kes: z.number() })).nullable().optional(),
+          }),
+        ),
+      }),
+    )
+    .optional()
+    .default([]),
+  items: z.array(
+    z.object({
+      name: z.string(),
+      option_label: z.string().nullable(),
+      quantity: z.number(),
+      unit_price_kes: z.number(),
+      note: z.string().nullable().optional(),
+      extras: z.array(z.object({ label: z.string(), price_kes: z.number() })).nullable().optional(),
+    }),
+  ),
 });
 
-const STEPS = ["new", "preparing", "ready", "completed"] as const;
+// On the way is for delivery only (spec-2.4); the other types keep four steps.
+const ALL_STEPS = ["new", "preparing", "ready", "on_the_way", "completed"] as const;
+type Step = (typeof ALL_STEPS)[number];
 
 export default async function OrderStatusPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -47,40 +114,120 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
 
   const where =
     o.mode === "dine_in" ? `${o.table_label ?? "Your table"}` : o.mode === "pickup" ? "Pickup" : `Delivery to ${o.zone_name ?? "you"}`;
-  const readyLabel = o.mode === "delivery" ? "On the way" : o.mode === "pickup" ? "Ready to collect" : "On its way to your table";
-  const doneLabel = o.mode === "delivery" ? "Delivered" : "Enjoy!";
-  const labels: Record<(typeof STEPS)[number], string> = {
+  const STEPS = ALL_STEPS.filter((s) => s !== "on_the_way" || o.mode === "delivery");
+  // DESIGN.md: dine-in ends in Served, pickup in Collected, delivery in Delivered.
+  const labels: Record<Step, string> = {
     new: "Order received",
     preparing: "Mama is cooking",
-    ready: readyLabel,
-    completed: doneLabel,
+    ready: o.mode === "delivery" ? "Ready for the rider" : o.mode === "pickup" ? "Ready to collect" : "On its way to your table",
+    on_the_way: "On the way",
+    completed: o.mode === "delivery" ? "Delivered" : o.mode === "pickup" ? "Collected" : "Served",
   };
   const current = o.status === "cancelled" ? -1 : STEPS.indexOf(o.status);
+  const cancelled = o.status === "cancelled";
+  const cancelLine = cancelled
+    ? customerCancelText({ reason: o.cancel_reason ?? null, note: o.cancel_note ?? null, declined: !!o.declined })
+    : null;
+  // spec-2.1-payments.md: every unpaid order that isn't at the counter (older mpesa or card
+  // orders, pending or failed included) reads as on handover for its order type.
   const paymentChip =
     o.payment_status === "paid"
-      ? `Paid with ${o.payment_method === "mpesa" ? "M-Pesa" : "card"}`
-      : o.payment_status === "pending"
-        ? "Check your phone to pay"
-        : o.payment_status === "failed"
-          ? "Payment didn’t go through"
-          : "Pay on handover";
+      ? "Paid"
+      : o.status === "cancelled"
+        ? null
+        : o.payment_method === "at_counter"
+          ? "Pay at the counter"
+          : o.mode === "dine_in"
+            ? "Pay when your food arrives"
+            : o.mode === "pickup"
+              ? "Pay when you collect"
+              : "Pay when the rider arrives";
+  // The where card's "Pay" row says the same as the chip, with how. "M-Pesa" never breaks at its hyphen.
+  const how = <>cash or <span className="whitespace-nowrap">M-Pesa</span></>;
+  const payRow: React.ReactNode =
+    o.payment_status === "paid"
+      ? "Paid"
+      : o.payment_method === "at_counter"
+        ? <>At the counter, {how}</>
+        : o.mode === "dine_in"
+          ? <>When your food arrives, {how}</>
+          : o.mode === "pickup"
+            ? <>When you collect, {how}</>
+            : <>When the rider arrives, {how}</>;
+  const headline = cancelled ? null : labels[o.status as Step];
+  const kitchenAddress = o.kitchen_address?.trim() || null;
+  // Never a dead link: Directions only with both an address and a maps link.
+  const mapsUrl = kitchenAddress && o.maps_url?.startsWith("https://") ? o.maps_url : null;
+  const waiting = o.status !== "completed" && !cancelled;
+  // The order-page ad (spec 2.11): dine-in and pickup, every status but cancelled. Never for delivery.
+  const ad = o.mode !== "delivery" && !cancelled ? await loadLiveAd("order") : null;
+  const rows: [string, React.ReactNode][] = [];
+  if (o.mode === "delivery") {
+    if (o.delivery_address?.trim()) rows.push(["Address", o.delivery_address]);
+    if (o.delivery_notes?.trim()) rows.push(["Notes for the rider", o.delivery_notes]);
+    rows.push(["Area", `${o.zone_name ?? "Delivery"} · delivery ${formatKes(o.delivery_fee_kes)}`]);
+  } else if (o.mode === "pickup") {
+    // A cancelled order isn't collected: no place, no ready time, no Directions (RQA28-06).
+    if (kitchenAddress && !cancelled) rows.push(["Collect from", kitchenAddress]);
+    if (o.pickup_at && !cancelled) rows.push(["Ready", `Around ${closingTime(o.pickup_at)}`]);
+  } else {
+    rows.push(["Table", o.table_label ?? "Your table"]);
+  }
+  // A cancelled pickup is never collected or paid for, so it has no Pay row either; with no rows the card goes.
+  if (!(cancelled && o.mode === "pickup")) rows.push(["Pay", payRow]);
+
+  const requests = o.mode === "dine_in" && !cancelled && o.placed_today && o.requests ? o.requests : null;
+  const requestOpen = !!requests && [requests.waiter, requests.bill].some((r) => r && !r.answered_at);
+  // spec-2.10: the window is the server's (rate_until from get_order_status), checked at render.
+  const completed = o.status === "completed";
+  const rateOpen = !!o.rate_until && Date.parse(o.rate_until) > Date.now();
 
   return (
     <Narrow>
-      <AutoRefresh active={o.status !== "completed" && o.status !== "cancelled"} />
+      <Arrive>
+      {/* Keeps refreshing while a table request waits, so "Answered" shows up even after Served. */}
+      <AutoRefresh active={(o.status !== "completed" && !cancelled) || requestOpen} />
       <section className="flex flex-col gap-1.5 rounded-b-[28px] bg-teal-deep md:rounded-[28px] px-5 pb-[26px] pt-[22px] text-white">
         <div className="flex items-center justify-between">
           <Image src="/brand/dausis-plate-icon.svg" alt="Dausis Plate" width={40} height={40} />
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[13px] font-semibold">
-            {o.payment_status === "paid" && <CheckIcon />}
-            {paymentChip}
-          </span>
+          {paymentChip && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[13px] font-semibold">
+              {o.payment_status === "paid" && <CheckIcon />}
+              {paymentChip}
+            </span>
+          )}
         </div>
+        {o.till_number && o.payment_status !== "paid" && o.status !== "cancelled" && <TillLine till={o.till_number} />}
         <span className="mt-3.5 font-script text-[30px] leading-none">Asante, {o.customer_name}!</span>
-        <span className="text-[15px] text-[#d7f0ee]">Order {o.code} · {where}</span>
-        {o.status === "cancelled" && <span className="mt-3 text-lg font-semibold">This order was cancelled. Call us if that’s a surprise.</span>}
-        {o.pickup_at && o.mode === "pickup" && <span className="mt-3 text-lg">Collect at {timeLabel(o.pickup_at)}</span>}
+        <span className="text-[15px] text-on-teal-soft [overflow-wrap:anywhere]">
+          Order <span className="whitespace-nowrap tabular-nums">{o.code}</span> · {where}
+        </span>
+        {headline && <StatusHeadline text={headline} sub={waiting ? "We’ll keep this page up to date." : "Enjoy your food."} />}
+        {cancelled && (
+          <div className="mt-3 flex flex-col gap-1">
+            <span className="text-lg font-semibold">{o.declined ? "We couldn’t take your order." : "Your order was cancelled."}</span>
+            {cancelLine && <span className="text-[15px] [overflow-wrap:anywhere]">{cancelLine}</span>}
+            {o.payment_status !== "paid" && <span className="text-[15px]">You haven’t been charged.</span>}
+          </div>
+        )}
       </section>
+
+      {requests ? (
+        <TableRequestButtons token={token} tableLabel={o.table_label ?? "your table"} requests={requests} />
+      ) : (
+        o.mode === "dine_in" &&
+        !cancelled &&
+        o.placed_today === false && <p className="mx-5 mt-5 text-[14px] text-ink-soft">Table requests work on the day of your order.</p>
+      )}
+
+      {o.phone && (
+        <p className="mx-5 mt-4 flex flex-wrap items-center gap-x-1.5 text-[15px] text-ink-soft">
+          Questions about your order?
+          <a href={`tel:${o.phone}`} className="press inline-flex min-h-11 items-center gap-1.5 font-semibold text-teal-deep underline-offset-2 hover:underline">
+            <PhoneIcon /> Call the kitchen · <span className="whitespace-nowrap tabular-nums">{formatKenyanPhone(o.phone)}</span>
+          </a>
+        </p>
+      )}
 
       <ol aria-label="Order progress" className="mx-5 mt-6 flex flex-col">
         {STEPS.map((s, i) => {
@@ -94,27 +241,112 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
                 ) : active ? (
                   <span className="flex size-7 items-center justify-center rounded-full border-[3px] border-coral bg-white"><span className="size-2.5 rounded-full bg-coral" /></span>
                 ) : (
-                  <span className="size-7 rounded-full border-2 border-line-deep bg-white" />
+                  <span className="size-7 rounded-full border-2 border-sand-deep bg-white" />
                 )}
                 {i < STEPS.length - 1 && <span className={`min-h-[34px] w-0.5 flex-1 ${done ? "bg-teal-deep" : "bg-sand-deep"}`} />}
               </div>
               <div className="pb-[18px] pt-[3px]">
                 <div className={`text-base ${active ? "font-bold" : done ? "font-semibold" : "font-semibold text-ink-soft"}`}>{labels[s]}</div>
                 {active && <div className="text-[13px] font-semibold text-coral-ink">In progress · since {timeLabel(o.status_changed_at)}</div>}
-                {i === 0 && <div className="text-[13px] text-ink-soft">{timeLabel(o.created_at)}</div>}
+                {i === 0 && !active && <div className="text-[13px] text-ink-soft">{timeLabel(o.created_at)}</div>}
               </div>
             </li>
           );
         })}
       </ol>
 
+      {completed && (
+        <>
+          <RatingCard token={token} dishes={o.rate_dishes ?? []} rating={o.rating ?? null} open={rateOpen} />
+          {o.google_review_url && <GoogleReviewCard url={o.google_review_url} />}
+        </>
+      )}
+
+      {rows.length > 0 && (
+        <section aria-labelledby="where-heading" className="mx-5 mt-5 rounded-[var(--r-lg)] bg-paper p-[18px] shadow-[var(--shadow-card)]">
+          <h2 id="where-heading" className="font-display text-[21px] leading-tight">
+            {o.mode === "delivery" ? "Delivering to" : o.mode === "pickup" ? "Pickup" : "At your table"}
+          </h2>
+          <dl className="mt-2 flex flex-col gap-2.5">
+            {rows.map(([k, v]) => (
+              <div key={k} className="flex flex-col gap-0.5">
+                <dt className="text-[13px] font-semibold text-ink-soft">{k}</dt>
+                <dd className="text-[15px] text-ink [overflow-wrap:anywhere]">{v}</dd>
+              </div>
+            ))}
+          </dl>
+          {o.mode === "pickup" && mapsUrl && !cancelled && (
+            <a
+              href={mapsUrl}
+              target="_blank"
+              rel="noopener"
+              aria-label="Directions to Dausis Plate (opens maps)"
+              className="press mt-2 inline-flex min-h-11 items-center gap-2 font-semibold text-teal-deep underline-offset-2 hover:underline"
+            >
+              <PinIcon /> Directions
+            </a>
+          )}
+          {o.mode === "dine_in" && kitchenAddress && (
+            <p className="mt-3 text-sm text-ink-soft [overflow-wrap:anywhere]">
+              Dausis Plate, {kitchenAddress}
+              {mapsUrl && (
+                <>
+                  {" · "}
+                  <a
+                    href={mapsUrl}
+                    target="_blank"
+                    rel="noopener"
+                    aria-label="Directions to Dausis Plate (opens maps)"
+                    className="inline-flex min-h-11 items-center font-semibold text-teal-deep underline underline-offset-2"
+                  >
+                    Directions
+                  </a>
+                </>
+              )}
+            </p>
+          )}
+        </section>
+      )}
+
+      {waiting && <SaveLink code={o.code} />}
+
       <section aria-label="Order summary" className="mx-5 mt-5 flex flex-col gap-2 rounded-[18px] border border-sand bg-white px-4 py-3.5 text-sm">
         {o.items.map((it, i) => (
-          <div key={i} className="flex justify-between gap-3">
-            <span>{it.quantity} × {it.name}{it.option_label ? ` (${it.option_label})` : ""}</span>
-            <span>{formatKes(it.unit_price_kes * it.quantity)}</span>
+          <div key={i} className="flex flex-wrap justify-between gap-x-3 gap-y-0.5">
+            <span className="min-w-0 [overflow-wrap:anywhere]">
+              {it.quantity} × {it.name}
+              {it.option_label ? ` (${it.option_label})` : ""}
+              {it.extras && it.extras.length > 0 ? ` ${it.extras.map((x) => `+ ${x.label}`).join(", ")}` : ""}
+            </span>
+            <span className="shrink-0 whitespace-nowrap">{formatKes(it.unit_price_kes * it.quantity)}</span>
+            {it.note?.trim() && <span className="basis-full text-[13px] text-amber-ink [overflow-wrap:anywhere]">Note: {it.note}</span>}
           </div>
         ))}
+        {o.combos.map((c, i) => (
+          <div key={`c${i}`} className="flex flex-wrap justify-between gap-x-3 gap-y-0.5">
+            <span className="min-w-0 [overflow-wrap:anywhere]">
+              {c.quantity} × {c.name}
+            </span>
+            <span className="shrink-0 whitespace-nowrap">{formatKes(c.unit_price_kes * c.quantity)}</span>
+            <ul className="basis-full border-l-2 border-sand pl-3 text-[13px] text-ink-soft">
+              {c.parts.map((p, j) => (
+                <li key={j} className="[overflow-wrap:anywhere]">
+                  {p.quantity > 1 ? `${p.quantity}\u00a0× ` : ""}
+                  {p.name}
+                  {p.option_label ? ` (${p.option_label})` : ""}
+                  {p.extras && p.extras.length > 0 ? ` ${p.extras.map((x) => `+ ${x.label}`).join(", ")}` : ""}
+                  {p.note?.trim() && <span className="block text-amber-ink">Note: {p.note}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+        {o.discount_kes > 0 && (
+          <div className="flex justify-between gap-3 text-teal-deep">
+            <span className="min-w-0 [overflow-wrap:anywhere]">Discount{o.discount_code ? ` (${o.discount_code})` : ""}</span>
+            <span className="shrink-0 whitespace-nowrap">−{formatKes(o.discount_kes)}</span>
+          </div>
+        )}
         {o.delivery_fee_kes > 0 && (
           <div className="flex justify-between text-ink-soft"><span>Delivery</span><span>{formatKes(o.delivery_fee_kes)}</span></div>
         )}
@@ -123,11 +355,10 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
       </section>
 
       <div className="mx-5 mt-6 flex gap-2.5">
-        <a href={`tel:${process.env.NEXT_PUBLIC_RESTAURANT_PHONE ?? ""}`} className="flex min-h-[52px] flex-1 items-center justify-center gap-2 rounded-2xl border-[1.5px] border-teal-deep bg-white font-semibold text-teal-deep">
-          <PhoneIcon /> Call us
-        </a>
-        <Link href="/" className="flex min-h-[52px] flex-1 items-center justify-center rounded-2xl bg-teal-deep font-semibold text-white">Back to menu</Link>
+        <Link href="/" className="flex min-h-[52px] flex-1 items-center justify-center rounded-2xl bg-teal-deep font-semibold text-white">{cancelled ? "Order again" : "Back to menu"}</Link>
       </div>
+      {ad && <NeighbourAd ad={ad} className="mx-5 mt-8" />}
+      </Arrive>
     </Narrow>
   );
 }

@@ -1,6 +1,8 @@
 const kes = new Intl.NumberFormat("en-KE", { maximumFractionDigits: 0 });
 
-export const formatKes = (amount: number) => `KSh ${kes.format(amount)}`;
+// A no-break space keeps "KSh" on the same line as the figure, so a large amount wraps as a
+// whole instead of leaving "KSh" alone on a line (2.1 break-ui: seven-figure owner tiles).
+export const formatKes = (amount: number) => `KSh\u00A0${kes.format(amount)}`;
 
 const TZ = "Africa/Nairobi";
 
@@ -50,3 +52,15 @@ export function minutesAgo(iso: string, now: Date = new Date()): string {
 
 /** "11:00:00" → "11:00" */
 export const hhmm = (t: string) => t.slice(0, 5);
+
+/** A closed date: "Fri 25 Dec", with the year only when it isn't this year. Here, not in the
+ *  client component, so the server page can call it too (RQA23-04). */
+export function closedDateLabel(day: string, today: string) {
+  const sameYear = day.slice(0, 4) === today.slice(0, 4);
+  // Built from parts: en-GB puts a comma after the weekday once the year is in.
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" }).formatToParts(
+    new Date(`${day}T12:00:00Z`),
+  );
+  const get = (t: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === t)?.value ?? "";
+  return [get("weekday"), get("day"), get("month"), sameYear ? "" : get("year")].filter(Boolean).join(" ");
+}

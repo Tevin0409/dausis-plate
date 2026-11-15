@@ -1,137 +1,161 @@
 "use client";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { PasswordInput } from "@/components/auth/password-input";
+import { errorLine, field, labelText, linkBtn, primary } from "@/components/ui-classes";
+import { Segments } from "@/components/ui-parts";
+import { AUTH, isRateLimited } from "@/lib/auth-messages";
 import { getBrowserClient } from "@/lib/supabase/client";
 
 type Mode = "password" | "link";
+type Problem = { field: "email" | "password"; text: string } | null;
 
-const input = "min-h-12 rounded-xl border border-line-deep px-3.5 text-base font-normal";
+const RESEND_SECONDS = 60;
 
-/** Turns Supabase auth errors into something the owner can act on. */
-function explain(e: { message: string; status?: number; code?: string }): { text: string; waitSeconds?: number } {
-  const wait = /after (\d+) seconds/.exec(e.message)?.[1];
-  if (wait) return { text: `Please wait ${wait} seconds before asking for another link.`, waitSeconds: Number(wait) };
-  if (e.code === "over_email_send_rate_limit" || e.status === 429) {
-    return { text: "Too many sign-in emails were sent in the last hour. Sign in with your password instead, or try the link again in about an hour." };
-  }
-  if (e.code === "invalid_credentials") return { text: "That email and password don’t match. If you haven’t set a password yet, use the email link once and set one in the dashboard." };
-  return { text: "Couldn’t sign in. Check your connection and try again." };
-}
-
-export function LoginForm({ next }: { next: string }) {
+/** spec-2.6 "Sign in (`/login`)". Errors sit under the field they're about. */
+export function LoginForm({ next, linkError, startWithLink }: { next: string; linkError: string | null; startWithLink: boolean }) {
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>("password");
+  const [mode, setMode] = useState<Mode>(startWithLink ? "link" : "password");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [state, setState] = useState<"idle" | "working" | "sent">("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [cooldown, setCooldown] = useState(0);
+  const [working, setWorking] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [problem, setProblem] = useState<Problem>(linkError ? { field: "email", text: linkError } : null);
+  const [wait, setWait] = useState(0);
 
   useEffect(() => {
-    if (cooldown <= 0) return;
-    const id = setTimeout(() => setCooldown((s) => s - 1), 1000);
+    if (wait <= 0) return;
+    const id = setTimeout(() => setWait((s) => s - 1), 1000);
     return () => clearTimeout(id);
-  }, [cooldown]);
+  }, [wait]);
+
+  function fail(p: NonNullable<Problem>) {
+    setProblem(p);
+    setWorking(false);
+    document.getElementById(`login-${p.field}`)?.focus();
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (state === "working" || cooldown > 0) return;
-    setState("working");
-    setError(null);
+    if (working || (mode === "link" && wait > 0)) return;
+    const address = email.trim();
+    if (!address) return fail({ field: "email", text: "Enter your email." });
+    setWorking(true);
+    setProblem(null);
     const auth = getBrowserClient().auth;
 
     if (mode === "password") {
-      const { error: err } = await auth.signInWithPassword({ email, password });
-      if (err) {
-        setError(explain(err).text);
-        setState("idle");
-        return;
+      if (!password) return fail({ field: "password", text: "Enter your password." });
+      const { error } = await auth.signInWithPassword({ email: address, password });
+      if (error) {
+        if (error.code === "invalid_credentials") return fail({ field: "password", text: AUTH.wrong });
+        if (error.code === "email_not_confirmed") return fail({ field: "email", text: AUTH.notConfirmed });
+        if (isRateLimited(error)) return fail({ field: "password", text: AUTH.rate });
+        return fail({ field: "password", text: AUTH.offline });
       }
+      // The dashboard sends a forced change (a temporary password) on to Set your password.
       router.replace(next);
       router.refresh();
       return;
     }
 
-    const { error: err } = await auth.signInWithOtp({
-      email,
+    const { error } = await auth.signInWithOtp({
+      email: address,
       options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`, shouldCreateUser: false },
     });
-    if (err) {
-      const { text, waitSeconds } = explain(err);
-      setError(text);
-      if (waitSeconds) setCooldown(waitSeconds);
-      setState("idle");
-      return;
+    // An email that isn't on the team is refused with otp_disabled; it gets the same "Check your
+    // email" line, so the page never says who is on the team.
+    if (error && error.code !== "otp_disabled" && error.code !== "user_not_found") {
+      return fail({ field: "email", text: isRateLimited(error) ? AUTH.rate : AUTH.offline });
     }
-    setState("sent");
-    setCooldown(60);
+    setWorking(false);
+    setSent(true);
+    setWait(RESEND_SECONDS);
   }
 
-  if (state === "sent") {
-    return (
-      <div className="flex flex-col gap-3">
-        <p className="rounded-xl bg-teal-tint px-4 py-3 text-[15px] text-teal-deeper">
-          Check {email} for your sign-in link. <b>Open it in this same browser</b>; links opened in the Gmail app or on another device won’t sign you in.
-        </p>
-        <button
-          type="button"
-          onClick={() => {
-            setState("idle");
-            setMode("password");
-          }}
-          className="self-start text-sm font-semibold text-teal-deep"
-        >
-          Use a password instead
-        </button>
-      </div>
+  const err = (f: "email" | "password") => (problem?.field === f ? problem.text : null);
+  const errLine = (f: "email" | "password") =>
+    err(f) && (
+      <p id={`login-${f}-err`} role="alert" className={errorLine}>
+        {err(f)}
+      </p>
     );
-  }
+
+  const label =
+    mode === "password" ? (working ? "Signing in…" : "Sign in") : working ? "Sending…" : wait > 0 ? `Send again in ${wait} s` : "Email me a link";
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-3">
-      <div role="radiogroup" aria-label="How to sign in" className="grid grid-cols-2 gap-1 rounded-xl bg-[#eef2f6] p-1">
-        {(
-          [
-            ["password", "Password"],
-            ["link", "Email me a link"],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            role="radio"
-            aria-checked={mode === id}
-            onClick={() => {
-              setMode(id);
-              setError(null);
-            }}
-            className={`min-h-10 rounded-[10px] text-sm font-semibold ${mode === id ? "bg-white text-teal-deep shadow-sm" : "text-ink-soft"}`}
-          >
-            {label}
-          </button>
-        ))}
+    <form onSubmit={submit} noValidate className="flex flex-col gap-5">
+      <Segments
+        label="How to sign in"
+        value={mode}
+        options={[
+          ["password", "Password"],
+          ["link", "Email me a link"],
+        ]}
+        onChange={(m) => {
+          setMode(m);
+          setProblem(null);
+        }}
+      />
+
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="login-email" className={labelText}>
+          Email
+        </label>
+        <input
+          id="login-email"
+          type="email"
+          value={email}
+          onChange={(e) => (setEmail(e.target.value), setProblem(null))}
+          autoComplete="username"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          enterKeyHint={mode === "password" ? "next" : "send"}
+          maxLength={254}
+          aria-invalid={err("email") ? true : undefined}
+          aria-describedby={err("email") ? "login-email-err" : undefined}
+          className={field}
+        />
+        {errLine("email")}
       </div>
 
-      <label className="flex flex-col gap-1.5 text-sm font-semibold">
-        Email
-        <input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} className={input} />
-      </label>
-
       {mode === "password" && (
-        <label className="flex flex-col gap-1.5 text-sm font-semibold">
-          Password
-          <input type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={input} />
-        </label>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="login-password" className={labelText}>
+            Password
+          </label>
+          <PasswordInput
+            id="login-password"
+            value={password}
+            onChange={(v) => (setPassword(v), setProblem(null))}
+            autoComplete="current-password"
+            enterKeyHint="go"
+            invalid={!!err("password")}
+            describedBy={err("password") ? "login-password-err" : undefined}
+          />
+          {errLine("password")}
+        </div>
       )}
 
-      {error && <p role="alert" className="rounded-xl bg-blush px-4 py-3 text-sm text-coral-ink">{error}</p>}
-
-      <button type="submit" disabled={state === "working" || cooldown > 0} className="min-h-12 rounded-xl bg-teal-deep font-bold text-white disabled:opacity-60">
-        {state === "working" ? "Signing in…" : cooldown > 0 ? `Try again in ${cooldown}s` : mode === "password" ? "Sign in" : "Email me a link"}
-      </button>
-      {mode === "link" && (
-        <p className="text-xs text-ink-soft">Emails are limited to a few an hour, so use a password for everyday sign-in.</p>
-      )}
+      <div className="flex flex-col gap-2">
+        <button type="submit" disabled={working || (mode === "link" && wait > 0)} className={`${primary} w-full`}>
+          {label}
+        </button>
+        {mode === "password" ? (
+          <Link href="/login/forgot" className={`${linkBtn} self-start text-[15px]`}>
+            Forgot password?
+          </Link>
+        ) : (
+          sent && (
+            <p role="status" className="note-in rounded-[var(--r-sm)] bg-teal-tint px-4 py-3 text-[15px] text-teal-deeper">
+              {AUTH.linkSent}
+            </p>
+          )
+        )}
+      </div>
     </form>
   );
 }

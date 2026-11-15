@@ -1,162 +1,155 @@
-import Link from "next/link";
+import { BoardFilters, BoardLayout, DoneList, Freshness, type Column } from "@/components/dashboard/board-layout";
+import { BoardNotices } from "@/components/dashboard/board-notices";
 import { LiveOrders } from "@/components/dashboard/live-orders";
-import type { Enums } from "@/lib/database.types";
-import { formatKes, minutesAgo, nairobiToday, timeLabel } from "@/lib/format";
-import { BoardActionForm, BoardNotices } from "@/components/dashboard/board-notices";
-import { SubmitButton } from "@/components/dashboard/submit-button";
+import { TableRequests } from "@/components/dashboard/table-requests";
+import { openRequests } from "@/lib/table-requests";
+import { DoneRow, Ticket, type BoardOrder } from "@/components/dashboard/ticket";
+import { doneRows, HEAD, OPEN, sortColumn, TITLES, type Mode, type Status } from "@/lib/board";
+import { nairobiToday } from "@/lib/format";
+import { closingTime, statusStrip } from "@/lib/kitchen";
+import { getKitchen } from "@/lib/kitchen-server";
 import { createClient } from "@/lib/supabase/server";
 import { must } from "@/lib/supabase/result";
-import { advanceOrder, cancelOrder, markPaid } from "../actions";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Live orders" };
+export const metadata = { title: "Orders" };
 
-type Status = Enums<"order_status">;
-type Mode = Enums<"order_mode">;
+const SELECT =
+  "id, code, status, mode, payment_method, payment_status, paid_with, total_kes, created_at, status_changed_at, pickup_at, delivery_address, delivery_notes, customer_name, customer_phone, table:dining_tables(label), zone:delivery_zones(name), items:order_items(name, option_label, quantity, note, extras:order_item_extras(label, sort_order)), " +
+  // 2.11: the code and its saving, and each combo with its dishes in the combo's order.
+  "discount_kes, discount_code, combos:order_combos!order_combos_order_id_fkey(name, quantity, sort_order, combo:combos(parts:combo_items(dish_id, sort_order)), " +
+  "items:order_items(dish_id, name, option_label, quantity, note, extras:order_item_extras(label, sort_order)))";
 
-const COLUMNS: { status: Status; title: string; pill: string; edge: string; action?: string; pending?: string }[] = [
-  { status: "new", title: "New", pill: "bg-blush text-coral-ink", edge: "border-t-coral", action: "Accept order", pending: "Accepting…" },
-  { status: "preparing", title: "Preparing", pill: "bg-amber-tint text-amber-ink", edge: "border-t-amber", action: "Mark ready", pending: "Marking ready…" },
-  { status: "ready", title: "Ready", pill: "bg-teal-tint text-teal-deeper", edge: "border-t-teal", action: "Handed over", pending: "Saving…" },
-  { status: "completed", title: "Completed", pill: "bg-[#eef2f6] text-ink-soft", edge: "border-t-line-deep" },
-];
+const EMPTY: Record<string, string> = {
+  new: "No new orders",
+  preparing: "Nothing cooking",
+  ready: "Nothing ready",
+  on_the_way: "No deliveries out",
+  completed: "Nothing done yet today",
+};
+const FOR: Record<Mode, string> = { dine_in: " for dine-in", pickup: " for pickup", delivery: " for delivery" };
 
-const PAY_LABEL: Record<Enums<"payment_method">, string> = { mpesa: "M-Pesa", card: "Card", on_handover: "On handover" };
+const headerDate = (now: Date) =>
+  new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Nairobi", weekday: "long", day: "numeric", month: "short" }).format(now);
+
+/** "Open until 21:00", or 2.2's closed line. Null if the kitchen status can't be read. */
+async function kitchenLine() {
+  try {
+    const { status: s } = await getKitchen();
+    return s.state === "open" && s.closes_at ? `Open until ${closingTime(s.closes_at)}` : statusStrip(s);
+  } catch {
+    return null;
+  }
+}
 
 export default async function OrdersPage({ searchParams }: { searchParams: Promise<{ mode?: string }> }) {
   const { mode: modeParam } = await searchParams;
   const mode: Mode | null = modeParam === "dine_in" || modeParam === "pickup" || modeParam === "delivery" ? modeParam : null;
   const supabase = await createClient();
-  const startOfDay = new Date(`${nairobiToday()}T00:00:00+03:00`).toISOString();
+  const now = new Date();
+  const startOfDay = new Date(`${nairobiToday(now)}T00:00:00+03:00`).toISOString();
 
-  let query = supabase
-    .from("orders")
-    .select(
-      "id, code, status, mode, payment_method, payment_status, total_kes, created_at, pickup_at, delivery_address, customer_name, customer_phone, table:dining_tables(label), zone:delivery_zones(name), items:order_items(name, option_label, quantity, note)",
-    )
-    .gte("created_at", startOfDay)
-    .neq("status", "cancelled")
-    .order("created_at", { ascending: true });
-  if (mode) query = query.eq("mode", mode);
-  const all = must(await query, "today’s orders");
+  // Open orders of any date (they stay past midnight), and orders done since midnight by when they
+  // were done. Never cancelled. All types, so New's ids for the chime ignore the filter.
+  // The header's count is every order placed today, declined or cancelled included (spec; RQA24-05).
+  const [rows, placedToday, kitchen, requestRows] = await Promise.all([
+    supabase
+      .from("orders")
+      .select(SELECT)
+      .or(`status.in.(${OPEN.join(",")}),and(status.eq.completed,status_changed_at.gte.${startOfDay})`)
+      .neq("status", "cancelled")
+      // A combo's dishes are under the combo, not among the order's own lines.
+      .is("items.order_combo_id", null)
+      .order("created_at", { ascending: true }),
+    supabase.from("orders").select("id", { count: "exact", head: true }).gte("created_at", startOfDay),
+    kitchenLine(),
+    supabase.rpc("open_table_requests"),
+  ]);
+  // spec-2.9: the first paint has the requests; a failed read leaves it to the 10 s poll.
+  const requests = requestRows.error ? null : (openRequests.safeParse(requestRows.data ?? []).data ?? null);
+  if (requestRows.error) console.error("[db] open_table_requests failed:", requestRows.error.code ?? "", requestRows.error.message);
+  const all = must(rows, "the board’s orders") as unknown as BoardOrder[];
+  const todayCount = placedToday.error ? null : (placedToday.count ?? 0);
+  if (placedToday.error) console.error("[db] counting today’s orders failed:", placedToday.error.code ?? "", placedToday.error.message);
 
-  const filters: { id: Mode | null; label: string }[] = [
-    { id: null, label: "All" },
-    { id: "dine_in", label: "Dine-in" },
-    { id: "pickup", label: "Pickup" },
-    { id: "delivery", label: "Delivery" },
-  ];
+  const shown = mode ? all.filter((o) => o.mode === mode) : all;
+  const of = (s: Status) => shown.filter((o) => o.status === s);
+  const empty = (s: Status) => `${EMPTY[s]}${mode ? FOR[mode] : ""}.`;
+
+  const columns: Column[] = OPEN.map((s) => {
+    const list = sortColumn(of(s));
+    return {
+      status: s,
+      count: list.length,
+      node: (
+        <>
+          <div className={`sticky top-0 z-10 bg-cream pb-0.5 ${s === "new" ? "hidden min-[600px]:block" : "hidden min-[1280px]:block"}`}>
+            <h2 className={`flex min-h-11 items-center justify-between rounded-[var(--r-md)] px-3.5 text-base font-bold ${HEAD[s]}`}>
+              {TITLES[s]}
+              <span className="tabular-nums">{list.length}</span>
+            </h2>
+          </div>
+          {list.length === 0 ? (
+            <p className="px-1 py-2 text-[15px] text-ink-soft">{empty(s)}</p>
+          ) : (
+            list.map((o) => <Ticket key={o.id} o={o} now={now} />)
+          )}
+        </>
+      ),
+    };
+  });
+
+  const done = doneRows(of("completed"));
+  const unpaid = done.filter((o) => o.payment_status !== "paid").length;
+  columns.push({
+    status: "completed",
+    count: done.length,
+    node: (
+      <>
+        <h2 className="flex min-h-11 flex-wrap items-center gap-x-3 px-1 text-base font-bold">
+          <span>
+            Done today · <span className="tabular-nums">{done.length}</span>
+          </span>
+          {unpaid > 0 && <span className="text-sm font-bold text-amber-ink">{unpaid} not paid yet</span>}
+        </h2>
+        {done.length === 0 ? (
+          <p className="px-1 py-2 text-[15px] text-ink-soft">{empty("completed")}</p>
+        ) : (
+          <DoneList rows={done.map((o) => ({ id: o.id, node: <DoneRow key={o.id} o={o} /> }))} />
+        )}
+      </>
+    ),
+  });
+
+  const keys = shown.map((o) => `${o.status}:${o.id}`);
+  const newOrderIds = all.filter((o) => o.status === "new").map((o) => o.id);
 
   return (
-    <div className="flex flex-col gap-[18px]">
-      <header className="flex flex-wrap items-center justify-between gap-3.5">
-        <div>
-          <h1 className="font-display text-[34px]">Live orders</h1>
-          <span className="text-sm text-ink-soft">Updates as orders come in · {all.length} orders today</span>
+    <div className="flex flex-col gap-4">
+      <header className="flex flex-col gap-3 min-[1280px]:flex-row min-[1280px]:items-end min-[1280px]:justify-between">
+        <div className="min-w-0">
+          <h1 className="font-display text-[34px] leading-tight">Orders</h1>
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-ink-soft">
+            <span>
+              {headerDate(now)}
+              {kitchen && ` · ${kitchen}`}
+              {todayCount !== null && ` · ${todayCount === 1 ? "1 order" : `${todayCount} orders`} today`}
+            </span>
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+              <span aria-hidden="true">·</span>
+              <Freshness renderedAt={now.toISOString()} />
+            </span>
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {filters.map((f) => (
-            <Link
-              key={f.label}
-              href={f.id ? `/dashboard/orders?mode=${f.id}` : "/dashboard/orders"}
-              aria-current={mode === f.id ? "page" : undefined}
-              className={`flex min-h-10 items-center rounded-full px-3.5 text-sm ${
-                mode === f.id ? "bg-ink font-semibold text-white" : "border border-line-deep bg-white font-medium"
-              }`}
-            >
-              {f.label}
-            </Link>
-          ))}
-          <LiveOrders />
+          <BoardFilters />
+          <LiveOrders newOrderIds={newOrderIds} />
         </div>
       </header>
 
-      <BoardNotices titles={Object.fromEntries(COLUMNS.map((c) => [c.status, c.title]))}>
-        <div className="flex flex-wrap items-start gap-4">
-          {COLUMNS.map((col) => {
-            const list = all.filter((o) => o.status === col.status);
-            const shown = col.status === "completed" ? list.slice(-6).reverse() : list;
-            return (
-              <section key={col.status} aria-label={col.title} className="flex min-w-0 flex-[1_1_220px] flex-col gap-2.5">
-                <div className="flex items-center justify-between">
-                  <span className={`inline-flex items-center rounded-full px-3 py-1.5 text-sm font-bold ${col.pill}`}>{col.title}</span>
-                  <span className="text-sm font-semibold text-ink-soft">{list.length}</span>
-                </div>
-                {shown.map((o) => {
-                  const where =
-                    o.mode === "dine_in"
-                      ? (o.table?.label ?? "Table")
-                      : o.mode === "pickup"
-                        ? `Pickup · ${o.pickup_at ? timeLabel(o.pickup_at) : "ASAP"}`
-                        : `Delivery · ${o.zone?.name ?? ""}`;
-                  const paid = o.payment_status === "paid";
-                  return (
-                    <article
-                      key={o.id}
-                      id={`order-${o.id}`}
-                      tabIndex={-1}
-                      className={`flex flex-col gap-2 rounded-2xl border border-t-4 border-line bg-white p-3.5 outline-none data-shown:focus:outline-2 data-shown:focus:outline-solid data-shown:focus:outline-offset-2 data-shown:focus:outline-teal-deep ${col.edge}`}
-                    >
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span className="text-base font-bold">{o.code}</span>
-                        <span className="text-[13px] text-ink-soft">{minutesAgo(o.created_at)}</span>
-                      </div>
-                      <span className="self-start rounded-lg bg-[#eef2f6] px-2.5 py-1 text-[13px] font-semibold">{where}</span>
-                      <ul className="text-sm leading-normal">
-                        {o.items.map((it, i) => (
-                          <li key={i}>
-                            {it.quantity} × {it.name}
-                            {it.option_label ? ` (${it.option_label})` : ""}
-                            {it.note && <span className="block text-[13px] text-coral-ink">“{it.note}”</span>}
-                          </li>
-                        ))}
-                      </ul>
-                      {o.mode === "delivery" && o.delivery_address && <p className="text-[13px] text-ink-soft">{o.delivery_address}</p>}
-                      <div className="flex items-center justify-between gap-2 text-[13px]">
-                        <span className={`font-semibold ${paid ? "text-teal-deeper" : o.payment_status === "failed" ? "text-coral-ink" : "text-ink-soft"}`}>
-                          {paid ? "Paid" : o.payment_status === "pending" ? "Awaiting" : o.payment_status === "failed" ? "Failed" : "Pay"} · {PAY_LABEL[o.payment_method]}
-                        </span>
-                        <span className="text-sm font-bold">{formatKes(o.total_kes)}</span>
-                      </div>
-                      <a href={`tel:${o.customer_phone}`} className="text-[13px] font-semibold text-teal-deep">{o.customer_name} · {o.customer_phone}</a>
-                      {col.action && (
-                        <BoardActionForm action={advanceOrder} className="flex flex-col gap-1.5">
-                          <input type="hidden" name="orderId" value={o.id} />
-                          <input type="hidden" name="from" value={o.status} />
-                          <SubmitButton
-                            pendingLabel={col.pending ?? "Saving…"}
-                            className={`min-h-11 w-full rounded-xl text-[15px] font-bold ${
-                              col.status === "new" ? "bg-teal-deep text-white" : "border-[1.5px] border-teal-deep bg-white text-teal-deep"
-                            }`}
-                          >
-                            {col.status === "ready" && o.mode === "delivery" ? "Out for delivery" : col.action}
-                          </SubmitButton>
-                        </BoardActionForm>
-                      )}
-                      {col.status !== "completed" && (
-                        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[13px] font-semibold">
-                          {!paid && (
-                            <BoardActionForm action={markPaid} className="flex flex-col">
-                              <input type="hidden" name="orderId" value={o.id} />
-                              <SubmitButton pendingLabel="Marking paid…" className="min-h-11 text-left text-teal-deep">Mark paid</SubmitButton>
-                            </BoardActionForm>
-                          )}
-                          {col.status === "new" && (
-                            <BoardActionForm action={cancelOrder} className="flex flex-col">
-                              <input type="hidden" name="orderId" value={o.id} />
-                              <input type="hidden" name="from" value={col.status} />
-                              <SubmitButton pendingLabel="Declining…" className="min-h-11 text-left text-coral-ink">Decline</SubmitButton>
-                            </BoardActionForm>
-                          )}
-                        </div>
-                      )}
-                    </article>
-                  );
-                })}
-              </section>
-            );
-          })}
-        </div>
+      <BoardNotices>
+        <TableRequests initial={requests} />
+        <BoardLayout columns={columns} keys={keys} />
       </BoardNotices>
     </div>
   );

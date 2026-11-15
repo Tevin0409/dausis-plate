@@ -3,6 +3,7 @@ import Link from "next/link";
 import { BackIcon, MinusIcon, PlusIcon } from "@/components/icons";
 import { formatKes } from "@/lib/format";
 import { useCart } from "./cart-provider";
+import { useKitchen } from "./kitchen-provider";
 
 export function ScreenHeader({ title, back }: { title: string; back: string }) {
   return (
@@ -33,28 +34,32 @@ export function Stepper({ value, onChange, label }: { value: number; onChange: (
 export function BottomBar({ children, inlineOnDesktop = false }: { children: React.ReactNode; inlineOnDesktop?: boolean | "padded" }) {
   return (
     <div className={`fixed inset-x-0 bottom-0 z-10 border-t border-sand bg-cream ${inlineOnDesktop ? "md:static md:border-0 md:bg-transparent" : ""}`}>
-      <div className={`mx-auto flex max-w-md gap-3 px-5 pb-6 pt-3.5 ${inlineOnDesktop ? `md:max-w-none md:pb-0 md:pt-6 ${inlineOnDesktop === "padded" ? "" : "md:px-0"}` : ""}`}>{children}</div>
+      {/* Below md the bar is fixed: it pads past the home indicator instead of a fixed pb-6. */}
+      <div className={`mx-auto flex max-w-md gap-3 px-5 pb-[calc(14px+env(safe-area-inset-bottom,0px))] pt-3.5 ${inlineOnDesktop ? `md:max-w-none md:pb-0 md:pt-6 ${inlineOnDesktop === "padded" ? "" : "md:px-0"}` : ""}`}>{children}</div>
     </div>
   );
 }
 
 /** Centred column for the ordering steps (cart, checkout, status). */
 export function Narrow({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto max-w-md pb-28 md:max-w-xl md:pt-6">{children}</div>;
+  // Bottom padding clears the fixed BottomBar below md, home indicator included.
+  return <div className="mx-auto max-w-md pb-[calc(112px+env(safe-area-inset-bottom,0px))] md:max-w-xl md:pb-28 md:pt-6">{children}</div>;
 }
 
+/** Phone: the bar under the menu (DESIGN.md "Cart bar"). Closed, it opens the saved order. */
 export function CartBar() {
-  const { count, subtotalKes } = useCart();
-  if (count === 0) return null;
+  const { lines, count, subtotalKes } = useCart();
+  const { open } = useKitchen();
+  if (lines.length === 0) return null;
   return (
     <div className="lg:hidden">
     <BottomBar>
-      <Link href="/cart" className="flex min-h-14 flex-1 items-center justify-between rounded-[18px] bg-teal-deep px-5 font-semibold text-white">
+      <Link href="/cart" className="flex min-h-14 flex-1 items-center justify-between rounded-full bg-teal-deep px-5 font-semibold text-white press select-none touch-manipulation">
         <span className="flex items-center gap-2.5">
           <span className="flex size-[26px] items-center justify-center rounded-full bg-white text-[13px] font-bold text-teal-deep">{count}</span>
-          View order
+          {open ? "View order" : "Your saved order"}
         </span>
-        <span>{formatKes(subtotalKes)}</span>
+        <span className="tabular-nums">{formatKes(subtotalKes)}</span>
       </Link>
     </BottomBar>
     </div>

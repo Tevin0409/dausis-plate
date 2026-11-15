@@ -38,7 +38,8 @@ describe("delete_dish", () => {
       const f = await seedFixtures(tx);
       await tx`
         insert into public.menu_entries (dish_id, kind, starts_on, ends_on, show_from, show_until)
-        values (${f.rotating.id}, 'day', public.nairobi_today() - 7, public.nairobi_today() - 7, '11:00', '20:00')`;
+        values (${f.rotating.id}, 'day', public.nairobi_today() - 7, public.nairobi_today() - 7, '11:00', '20:00'),
+               (${f.rotating.id}, 'day', public.nairobi_today() + 3, public.nairobi_today() + 3, '11:00', '20:00')`;
       await placeOrder(tx, dineIn(f, [{ dish_id: f.rotating.id, menu_entry_id: f.openEntry.id, quantity: 1 }]));
       expect(await deleteDish(tx, f.ownerId, f.rotating.id)).toEqual({ result: "archived" });
       expect(await state(tx, f.rotating.id)).toEqual({
@@ -50,6 +51,9 @@ describe("delete_dish", () => {
   test("if deleting the dish fails, its menu entries stay: nothing is half-removed", () =>
     inTx(async (tx) => {
       const f = await seedFixtures(tx);
+      await tx`
+        insert into public.menu_entries (dish_id, kind, starts_on, ends_on, show_from, show_until)
+        values (${f.rotating.id}, 'day', public.nairobi_today() + 3, public.nairobi_today() + 3, '11:00', '20:00')`;
       const before = await state(tx, f.rotating.id);
       // Stands in for any failure of the final delete (dropped connection, lock timeout, ...).
       await tx`create function public.test_fail_dish_delete() returns trigger language plpgsql as $$ begin raise exception 'simulated failure'; end $$`;
@@ -65,12 +69,23 @@ describe("delete_dish", () => {
       expect(await deleteDish(tx, f.ownerId, "00000000-0000-4000-8000-000000000000")).toEqual({ result: "missing" });
     }));
 
-  test("only staff may call it: a signed-in non-staff user is refused and nothing changes", () =>
+  test("only the owner may call it: a signed-in non-staff user is refused and nothing changes", () =>
     inTx(async (tx) => {
       const f = await seedFixtures(tx);
       const [stranger] = await tx`insert into auth.users (email) values ('stranger@test.local') returning id`;
       const before = await state(tx, f.rotating.id);
-      await expect(deleteDish(tx, stranger.id, f.rotating.id)).rejects.toThrow("Not allowed");
+      await expect(deleteDish(tx, stranger.id, f.rotating.id)).rejects.toThrow("Only the owner can do this.");
+      expect(await state(tx, f.rotating.id)).toEqual(before);
+    }));
+
+  test("staff are refused too (slice 2.3: deleting and archiving are the owner's)", () =>
+    inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      const [u] = await tx`insert into auth.users (email) values ('cook@test.local') returning id`;
+      await tx`insert into public.staff (user_id, role) values (${u.id}, 'staff')`;
+      await tx`insert into public.staff_grants (user_id, job) values (${u.id}, 'dishes_prices'), (${u.id}, 'everyday_menu')`;
+      const before = await state(tx, f.rotating.id);
+      await expect(deleteDish(tx, u.id, f.rotating.id)).rejects.toThrow("Only the owner can do this.");
       expect(await state(tx, f.rotating.id)).toEqual(before);
     }));
 
