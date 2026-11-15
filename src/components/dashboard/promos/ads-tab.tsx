@@ -6,7 +6,6 @@ import { NeighbourAd } from "@/components/shop/neighbour-ad";
 import { ctl, primary } from "@/components/ui-classes";
 import { PageNote } from "@/components/ui-parts";
 import type { LiveAd } from "@/lib/ads";
-import { formatKes } from "@/lib/format";
 import {
   AD_ACTION_LABEL,
   SPACE_HEAD,
@@ -15,7 +14,7 @@ import {
   STATUS_TONE,
   count,
   dateRange,
-  feeLabel,
+  priceLabel,
   rowAction,
   shortDate,
   type AdRow,
@@ -77,7 +76,7 @@ export function AdsTab({ ads, today }: { ads: AdRow[]; today: string }) {
 
       {ads.length === 0 ? (
         <p className="rounded-[18px] bg-paper p-5 text-[15px] text-ink-soft ring-1 ring-sand">
-          No ads yet. Neighbours pay you a flat fee to show a small card to your dine-in and pickup customers.
+          No ads yet. Neighbours pay you an agreed price to show a small card to your dine-in and pickup customers.
         </p>
       ) : (
         <AdList ads={ads.slice(0, shown)} onOpen={show} onNote={setNote} />
@@ -119,7 +118,7 @@ function SpaceCard({ space, ads }: { space: AdSpace; ads: AdRow[] }) {
           <>
             <NeighbourAd ad={asPreview(live)} preview className="bg-cream" />
             <p className="text-[14px] text-ink-soft">
-              Live until {shortDate(live.ends_on)} · {feeLabel(live.fee_kes, live.fee_period)}
+              Live until {shortDate(live.ends_on)} · {live.price_kes ? `${priceLabel(live.price_kes)} for the run` : priceLabel(live.price_kes)}
             </p>
           </>
         ) : (
@@ -154,7 +153,7 @@ function AdList({ ads, onOpen, onNote }: ListProps) {
             <th scope="col" className="px-4 py-3 font-semibold">Advertiser</th>
             <th scope="col" className="px-3 py-3 font-semibold">Space</th>
             <th scope="col" className="px-3 py-3 font-semibold">Dates</th>
-            <th scope="col" className="px-3 py-3 font-semibold">Fee</th>
+            <th scope="col" className="px-3 py-3 font-semibold">Price</th>
             <th scope="col" className="px-3 py-3 text-right font-semibold">Views</th>
             <th scope="col" className="px-3 py-3 text-right font-semibold">Taps</th>
             <th scope="col" className="px-4 py-3"><span className="sr-only">Action</span></th>
@@ -177,9 +176,7 @@ function AdList({ ads, onOpen, onNote }: ListProps) {
               </td>
               <td className="px-3 py-2 whitespace-nowrap">{SPACE_SHORT[a.space]}</td>
               <td className="px-3 py-2 whitespace-nowrap">{dateRange(a.starts_on, a.ends_on)}</td>
-              <td className="px-3 py-2 whitespace-nowrap">
-                {formatKes(a.fee_kes)} <span className="text-ink-soft">/ {a.fee_period}</span>
-              </td>
+              <td className={`px-3 py-2 whitespace-nowrap tabular-nums ${a.price_kes === null ? "text-ink-soft" : ""}`}>{priceLabel(a.price_kes)}</td>
               <td className="px-3 py-2 text-right tabular-nums">{count(a.views)}</td>
               <td className="px-3 py-2 text-right tabular-nums">{count(a.taps)}</td>
               <td className="px-4 py-2 text-right">
@@ -199,7 +196,7 @@ function AdList({ ads, onOpen, onNote }: ListProps) {
                 <StatusPill status={a.status} />
               </span>
               <span className="text-[13px] text-ink-soft">
-                {SPACE_SHORT[a.space]} · {dateRange(a.starts_on, a.ends_on)} · {feeLabel(a.fee_kes, a.fee_period)}
+                {SPACE_SHORT[a.space]} · {dateRange(a.starts_on, a.ends_on)} · <span className="whitespace-nowrap">{priceLabel(a.price_kes)}</span>
               </span>
               <span className="text-[13px] text-ink-soft tabular-nums">
                 {count(a.views)} {a.views === 1 ? "view" : "views"} · {count(a.taps)} {a.taps === 1 ? "tap" : "taps"}

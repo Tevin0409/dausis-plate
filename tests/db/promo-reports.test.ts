@@ -93,14 +93,15 @@ describe("report_promos_ads", () => {
       expect(r.combos.filter((c: Row) => c.combo === "Report combo")).toEqual([{ combo: "Report combo", sold: 2, revenue: 1500 }]);
     }));
 
-  test("ads: this period or each ad's whole run; ads with no views are left out", () =>
+  test("ads: this period or each ad's whole run, with the amount due counted once, where the run starts", () =>
     inTx(async (tx) => {
       const { f } = await setup(tx);
       const ads = await tx`
-        insert into public.ads (advertiser, line, link_label, link_url, space, starts_on, ends_on, approved_at)
-        values ('Report bakery', 'Bread', 'See', 'https://bakery.example', 'menu', '2020-03-25', '2020-04-10', now()),
-               ('Report tailor', 'Suits', 'See', 'https://tailor.example', 'order', '2020-03-20', '2020-03-31', now()),
-               ('Report quiet', 'Hush', 'See', 'https://quiet.example', 'menu', '2020-04-01', '2020-04-02', now())
+        insert into public.ads (advertiser, line, link_label, link_url, space, starts_on, ends_on, approved_at, price_kes)
+        values ('Report bakery', 'Bread', 'See', 'https://bakery.example', 'menu', '2020-03-25', '2020-04-10', now(), 3000),
+               ('Report tailor', 'Suits', 'See', 'https://tailor.example', 'order', '2020-03-20', '2020-03-31', now(), 1500),
+               ('Report quiet', 'Hush', 'See', 'https://quiet.example', 'menu', '2020-04-01', '2020-04-02', now(), 0),
+               ('Report draft', 'Soon', 'See', 'https://draft.example', 'order', '2020-04-01', '2020-04-05', null, null)
         returning id, advertiser`;
       const id = Object.fromEntries(ads.map((x: Row) => [x.advertiser, x.id]));
       await tx`insert into public.ad_daily_counts (ad_id, day, views, taps) values
@@ -108,10 +109,14 @@ describe("report_promos_ads", () => {
         (${id["Report tailor"]}, '2020-03-22', 80, 4), (${id["Report quiet"]}, ${DAY}, 0, 0)`;
       const run = async (whole: boolean) => {
         const [{ r }] = await asOwner(tx, f, (q) => q`select public.report_promos_ads(${DAY}::date, ${DAY}::date, ${whole}) r`);
-        return r.ads.filter((x: Row) => x.advertiser.startsWith("Report")).map((x: Row) => [x.advertiser, x.views, x.taps]);
+        return r.ads.filter((x: Row) => x.advertiser.startsWith("Report")).map((x: Row) => [x.advertiser, x.views, x.taps, x.price_kes, x.counted_here, x.amount_due]);
       };
-      expect(await run(false)).toEqual([["Report bakery", 60, 3]]);
-      expect(await run(true)).toEqual([["Report bakery", 100, 5], ["Report tailor", 80, 4]]);
+      // This period (1 Apr): the bakery's run started in March, so its price counts there ("—" here);
+      // the quiet ad has no views but its run starts today, so it's listed at its price (free). No draft.
+      expect(await run(false)).toEqual([["Report bakery", 60, 3, 3000, false, null], ["Report quiet", 0, 0, 0, true, 0]]);
+      // Each whole run: every approved ad that has started, at its price, with or without views.
+      expect(await run(true)).toEqual([
+        ["Report bakery", 100, 5, 3000, true, 3000], ["Report tailor", 80, 4, 1500, true, 1500], ["Report quiet", 0, 0, 0, true, 0]]);
     }));
 
   test("staff and anon are refused", () =>

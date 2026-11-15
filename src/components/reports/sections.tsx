@@ -10,7 +10,7 @@ import { StarRow } from "@/components/shop/rating-card";
 import { dishLine, ratingsHref, sentLabel, starsWord } from "@/lib/ratings";
 import { creditNoteAmount, drawerLine, netOf, plainSigned } from "@/lib/reports/money";
 import { bucketLabel, daysIn, grainFor, periodLabel, shortDay, type Period } from "@/lib/reports/period";
-import { runLabel, tapRate } from "@/lib/reports/promos";
+import { amountSort, amountTotal, runLabel, tapRate } from "@/lib/reports/promos";
 import {
   CANCEL_LABEL, MODE_LABEL, PAY_CHOICE_LABEL, WEEKDAY_LONG, WEEKDAY_SHORT, hourLabel, minutesLabel,
   type DeliveryReport, type DishesReport, type DishRow, type PromosReport, type RatingsReport, type SalesReport, type TimesReport,
@@ -523,12 +523,28 @@ export function PromosSection({ d, period, today }: { d: PromosReport; period: P
     { key: "r", head: "Revenue", cell: (r) => nb(r.revenue), num: true, sort: (r) => r.revenue },
   ];
   const adCols: Col<PromosReport["ads"][number]>[] = [
-    { key: "a", head: "Advertiser", cell: (r) => <span className="font-semibold [overflow-wrap:anywhere]">{r.advertiser}</span>, sticky: true, sort: (r) => r.advertiser },
+    { key: "a", head: "Advertiser", cell: (r) => <span className="font-semibold [overflow-wrap:anywhere]">{r.advertiser}</span>, sticky: true, sort: (r) => r.advertiser, total: "Total" },
     { key: "sp", head: "Space", cell: (r) => <span className="whitespace-nowrap">{SPACE_LABEL[r.space] ?? r.space}</span>, sort: (r) => r.space },
     { key: "r", head: "Runs", cell: (r) => <span className="whitespace-nowrap">{runLabel(r.starts_on, r.ends_on, today)}</span>, sort: (r) => r.starts_on },
     { key: "v", head: "Views", cell: (r) => nb(r.views), num: true, sort: (r) => r.views },
     { key: "t", head: "Taps", cell: (r) => nb(r.taps), num: true, sort: (r) => r.taps },
     { key: "tr", head: "Tap rate", cell: (r) => tapRate(r.taps, r.views), num: true, sort: (r) => (r.views < 50 ? -1 : r.taps / r.views) },
+    {
+      key: "due",
+      head: "Amount due",
+      // "—": the run started before this period, so its price counts there. "Not set": an ad with no price.
+      cell: (r) =>
+        !r.counted_here ? (
+          <><span aria-hidden="true">—</span><span className="sr-only">Counted in the period the run started</span></>
+        ) : r.amount_due === null ? (
+          <span className="text-ink-soft">Not set</span>
+        ) : (
+          nb(r.amount_due)
+        ),
+      num: true,
+      sort: amountSort,
+      total: nb(amountTotal(d.ads)),
+    },
   ];
   return (
     <div className="grid grid-cols-1 gap-3.5 min-[1024px]:grid-cols-2">
@@ -542,13 +558,22 @@ export function PromosSection({ d, period, today }: { d: PromosReport; period: P
           <ChartTable caption="Combos" cols={comboCols} rows={d.combos} rowKey={(r) => r.combo} defaultSort={{ key: "s", dir: "desc" }} />
         )}
       </Card>
-      <Card title="Ads, for invoicing" wide note="Counts are a fair guide, not an audit.">
+      <Card
+        title="Ads, for invoicing"
+        wide
+        note={
+          <>
+            Counts are a fair guide, not an audit.
+            <span className="block">{d.ads_whole_run ? "Amount due is each run’s agreed price." : "Amount due counts once, in the period the run starts."}</span>
+          </>
+        }
+      >
         <AdsRunChoice period={period} wholeRun={d.ads_whole_run} />
         {d.ads_whole_run && <p className="text-[13px] font-semibold text-ink-soft">Ignoring the period above</p>}
         {d.ads.length === 0 ? (
-          <Empty>{d.ads_whole_run ? "No ad has had views yet. Ads with no views aren’t listed." : `No ad views ${inPeriod}. Ads with no views aren’t listed.`}</Empty>
+          <Empty>{d.ads_whole_run ? "No ad has started yet." : `No ads ${inPeriod}. An ad shows here once it has views or its run starts ${period.from === period.to ? "that day" : "in the period"}.`}</Empty>
         ) : (
-          <ChartTable caption="Ads, for invoicing" cols={adCols} rows={d.ads} rowKey={(r) => r.id} defaultSort={{ key: "v", dir: "desc" }} />
+          <ChartTable caption="Ads, for invoicing" cols={adCols} rows={d.ads} rowKey={(r) => r.id} defaultSort={{ key: "v", dir: "desc" }} footer={d.ads.length > 1} />
         )}
       </Card>
     </div>

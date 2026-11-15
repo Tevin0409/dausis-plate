@@ -301,12 +301,24 @@ function rest(row: ChangeRow): Piece[] {
     // ── promos (slice 2.11)
     case "ad.create":
       return [t("added a draft ad from "), s, t(`${adWhere(a)}.`)];
-    case "ad.approve":
-      return [t("approved the ad from "), s, t(`${adWhere(a)}.`)];
+    case "ad.approve": {
+      // Entries from before the price (2.11 follow-up) carry no price_kes.
+      const price = num(a.price_kes);
+      const forWhat = !("price_kes" in a) || price === null ? "" : price === 0 ? ", for free" : `, for ${kes(price)}`;
+      return [t("approved the ad from "), s, t(`${adWhere(a)}${forWhat}.`)];
+    }
     case "ad.edit": {
-      if (a.to_draft === true) return [t("changed the ad from "), s, t(", so it’s a draft again until it’s approved.")];
-      if (isDay(a.ends_on) && a.ends_on !== b.ends_on) return [t("changed the ad from "), s, t(`: it now ends ${shortDate(a.ends_on)}.`)];
-      return [t("changed the ad from "), s, t(".")];
+      const price = "price_kes" in a && num(a.price_kes) !== num(b.price_kes);
+      const now = num(a.price_kes);
+      if (price && a.other === false) {
+        if (now === null) return [t("cleared the price of the ad from "), s, t(".")];
+        if (num(b.price_kes) === null) return [t("set the price of the ad from "), s, t(` to ${kes(now)}.`)];
+        return [t("changed the price of the ad from "), s, t(` from ${kes(b.price_kes)} to ${kes(now)}.`)];
+      }
+      const tail = !price ? "" : now === null ? " The price is cleared." : ` The price is now ${kes(now)}.`;
+      if (a.to_draft === true) return [t("changed the ad from "), s, t(`, so it’s a draft again until it’s approved.${tail}`)];
+      if (isDay(a.ends_on) && a.ends_on !== b.ends_on) return [t("changed the ad from "), s, t(`: it now ends ${shortDate(a.ends_on)}.${tail}`)];
+      return [t("changed the ad from "), s, t(`.${tail}`)];
     }
     case "ad.pause":
       return [t("paused the ad from "), s, t(".")];

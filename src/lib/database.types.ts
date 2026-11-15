@@ -47,17 +47,17 @@ export type Database = {
       ads: {
         Row: {
           advertiser: string; approved_at: string | null; approved_by: string | null; created_at: string; created_by: string | null;
-          ended_early_at: string | null; ends_on: string; fee_kes: number; fee_period: "week" | "month"; id: string; line: string;
+          ended_early_at: string | null; ends_on: string; id: string; line: string; price_kes: number | null;
           link_label: string; link_url: string; logo_key: string | null; logo_url: string | null; paused_at: string | null;
           place: string; space: Database["public"]["Enums"]["ad_space"]; starts_on: string; updated_at: string;
         };
         Insert: {
-          advertiser: string; ends_on: string; fee_kes?: number; fee_period?: "week" | "month"; id?: string; line: string;
+          advertiser: string; ends_on: string; id?: string; line: string; price_kes?: number | null;
           link_label: string; link_url: string; logo_key?: string | null; logo_url?: string | null; place?: string;
           space: Database["public"]["Enums"]["ad_space"]; starts_on: string;
         };
         Update: {
-          advertiser?: string; ends_on?: string; fee_kes?: number; fee_period?: "week" | "month"; line?: string;
+          advertiser?: string; ends_on?: string; line?: string; price_kes?: number | null;
           link_label?: string; link_url?: string; logo_key?: string | null; logo_url?: string | null; place?: string;
           space?: Database["public"]["Enums"]["ad_space"]; starts_on?: string;
         };
@@ -576,7 +576,7 @@ export type Database = {
         Returns: {
           id: string; advertiser: string; line: string; place: string; link_label: string; link_url: string;
           logo_key: string | null; logo_url: string | null; space: Database["public"]["Enums"]["ad_space"];
-          starts_on: string; ends_on: string; fee_kes: number; fee_period: "week" | "month";
+          starts_on: string; ends_on: string; price_kes: number | null;
           status: "draft" | "scheduled" | "live" | "paused" | "ended"; approved_at: string | null; created_at: string;
           views: number; taps: number; month_views: number; month_taps: number;
         }[];

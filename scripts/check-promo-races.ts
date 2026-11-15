@@ -120,9 +120,9 @@ try {
   await admin.begin(async (tx) => {
     await tx`select set_config('request.jwt.claims', ${JSON.stringify({ role: "authenticated", sub: owner })}, true), set_config('role', 'authenticated', true)`;
     for (const [i, id] of adIds.entries())
-      await tx`insert into public.ads (id, advertiser, line, link_label, link_url, space, starts_on, ends_on)
+      await tx`insert into public.ads (id, advertiser, line, link_label, link_url, space, starts_on, ends_on, price_kes)
                values (${id}, ${`Race ad ${i + 1}`}, 'Fresh bread every morning', 'See more', 'https://race.example', 'menu',
-                       public.nairobi_today() + 400, public.nairobi_today() + 410)`;
+                       public.nairobi_today() + 400, public.nairobi_today() + 410, 2000)`;
   });
   const asOwner: Claims = { role: "authenticated", sub: owner };
   const r3 = await race(adIds.map((id, i) => ({
@@ -144,11 +144,11 @@ try {
       await tx`delete from public.ads where id = any(${arr(editIds)}::uuid[])`;
       await tx`select set_config('session_replication_role', 'origin', true)`;
       await tx`select set_config('request.jwt.claims', ${JSON.stringify({ role: "authenticated", sub: owner })}, true), set_config('role', 'authenticated', true)`;
-      await tx`insert into public.ads (id, advertiser, line, link_label, link_url, space, starts_on, ends_on)
+      await tx`insert into public.ads (id, advertiser, line, link_label, link_url, space, starts_on, ends_on, price_kes)
                values (${editIds[0]!}, 'Race edit A', 'Fresh bread every morning', 'See more', 'https://race.example', 'order',
-                       public.nairobi_today() + 500, public.nairobi_today() + 501),
+                       public.nairobi_today() + 500, public.nairobi_today() + 501, 2000),
                       (${editIds[1]!}, 'Race edit B', 'Fresh bread every morning', 'See more', 'https://race.example', 'order',
-                       public.nairobi_today() + 502, public.nairobi_today() + 503)`;
+                       public.nairobi_today() + 502, public.nairobi_today() + 503, 2000)`;
       await tx`select public.ad_action(${editIds[0]!}::uuid, 'approve')`;
     });
     const r4 = await race([

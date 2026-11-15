@@ -200,13 +200,13 @@ begin
     end if;
   end loop;
 
-  insert into public.ads (advertiser, line, place, link_label, link_url, space, starts_on, ends_on, fee_kes, fee_period, approved_at)
+  insert into public.ads (advertiser, line, place, link_label, link_url, space, starts_on, ends_on, price_kes, approved_at)
     values ('Sunrise Bakery', 'Fresh bread every morning', 'Next door', 'See today’s bread', 'https://sunrise.example/bread',
-            'menu', v_today - 40, v_today - 15, 2000, 'month', now() - interval '41 days')
+            'menu', v_today - 40, v_today - 15, 2000, now() - interval '41 days')
     returning id into v_menu_ad;
-  insert into public.ads (advertiser, line, place, link_label, link_url, space, starts_on, ends_on, fee_kes, fee_period, approved_at)
-    values ('Mama Mboga Greens', 'Sukuma and spinach, picked today', 'Two doors down', 'Order greens', 'https://mboga.example',
-            'order', v_today - 14, v_today + 16, 500, 'week', now() - interval '15 days')
+  insert into public.ads (advertiser, line, place, link_label, link_url, space, starts_on, ends_on, price_kes, approved_at)
+    values ('Mama Mboga Greens', 'Sukuma and spinach, picked today', 'Two doors down', 'Order greens', 'https://mboga.example/',
+            'order', v_today - 14, v_today + 16, 2000, now() - interval '15 days')
     returning id into v_order_ad;
   insert into public.ad_daily_counts (ad_id, day, views, taps)
     select v_menu_ad, d, 20 + abs(hashtext(d::text)) % 40, abs(hashtext(d::text || 't')) % 5

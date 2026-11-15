@@ -100,7 +100,15 @@ export type PromosReport = {
   codes: { code: string; active: boolean; uses: number; discount: number; sales: number }[];
   combos: { combo: string; sold: number; revenue: number }[];
   ads_whole_run: boolean;
-  ads: { id: string; advertiser: string; space: "menu" | "order"; starts_on: string; ends_on: string; views: number; taps: number }[];
+  ads: {
+    id: string; advertiser: string; space: "menu" | "order"; starts_on: string; ends_on: string; views: number; taps: number;
+    /** The agreed price for the run (null only on a draft). */
+    price_kes: number | null;
+    /** Whether the price counts here: always over the whole run; in a period, only when the run starts in it. */
+    counted_here: boolean;
+    /** price_kes when counted here, else null. */
+    amount_due: number | null;
+  }[];
 };
 
 export type OrderSheetData = {
