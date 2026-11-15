@@ -1,6 +1,6 @@
 "use client";
 import { useState, useTransition } from "react";
-import { PAGE_SIZE, type OwnerRating, type RatingFilter } from "@/lib/ratings";
+import { PAGE_SIZE, type OwnerRating, type RatingDates, type RatingFilter } from "@/lib/ratings";
 import { btnQuiet } from "../settings/ui";
 import { loadMoreRatings } from "./actions";
 import { OwnerRatingCard } from "./rating-card";
@@ -8,7 +8,7 @@ import { OwnerRatingCard } from "./rating-card";
 type Row = OwnerRating & { added?: boolean };
 
 /** The list, newest first, 30 at a time. Cards from "Show 30 more" fade in (opacity only, no stagger). */
-export function RatingsList({ show, initial, seenAt, empty }: { show: RatingFilter; initial: OwnerRating[]; seenAt: string | null; empty: string }) {
+export function RatingsList({ show, dates, initial, seenAt, empty }: { show: RatingFilter; dates: RatingDates; initial: OwnerRating[]; seenAt: string | null; empty: string }) {
   const [seenFirst] = useState(seenAt); // a refresh brings the new visit time; "New" is against the last one
   const [more, setMore] = useState<Row[]>([]);
   const [hasMore, setHasMore] = useState(initial.length === PAGE_SIZE);
@@ -21,7 +21,7 @@ export function RatingsList({ show, initial, seenAt, empty }: { show: RatingFilt
     if (!last) return;
     setError(false);
     start(async () => {
-      const res = await loadMoreRatings(show, last.sent_at).catch(() => ({ ok: false }) as const);
+      const res = await loadMoreRatings(show, last.sent_at, dates).catch(() => ({ ok: false }) as const);
       if (!res.ok) {
         setError(true);
         return;

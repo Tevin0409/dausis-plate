@@ -156,3 +156,44 @@ from (select e.*, (public.nairobi_today() - e.starts_on) as g from public.menu_e
 join public.dishes d on d.id = e.dish_id
 where d.name = 'Kienyeji Chicken Stew' and e.starts_on < public.nairobi_today();
 end $$;
+
+-- Ratings (2.10) for the Reports Ratings tab (spec-2.12 seed: 2 hidden, 3 replied). About one in four
+-- completed orders before today is rated, a couple of hours after it was placed (some the next day).
+-- Days 14 to 21 ago have none, so "Ratings by week" shows a gap. The dishes' public totals are then
+-- counted from the not-hidden ratings, as the rating RPCs would have left them.
+do $$ begin if coalesce(current_setting('dausis.skip_report_seed', true), '') = 'on' then return; end if;
+insert into public.order_ratings (order_id, stars, comment, created_at, hidden_at, reply, replied_at)
+select o.id,
+  (array[5, 4, 5, 3, 5, 4, 2, 5, 4, 5, 1, 4])[1 + o.n % 12],
+  case o.n % 12
+    when 0 then 'The pilau was just like home. Thank you Mama!'
+    when 3 then 'Good food but it took a while to come out.'
+    when 6 then 'Chapati was a bit hard today.'
+    when 8 then 'Best kienyeji chicken in town, generous plate too.'
+    when 10 then 'Cold when it reached me. Not happy.'
+    when 11 then 'Nice.'
+  end,
+  o.created_at + case when o.n % 5 = 0 then interval '20 hours' else interval '2 hours' end,
+  case when o.n in (22) then o.created_at + interval '1 day' end,
+  case when o.n in (27, 30) then 'Thank you for telling us. We have spoken to the kitchen and it won''t happen again.' end,
+  case when o.n in (27, 30) then o.created_at + interval '26 hours' end
+from (
+  select o.*, row_number() over (order by o.created_at) as n
+  from public.orders o
+  where o.status = 'completed' and (o.created_at at time zone 'Africa/Nairobi')::date < public.nairobi_today()
+    and (o.created_at at time zone 'Africa/Nairobi')::date not between public.nairobi_today() - 21 and public.nairobi_today() - 14
+) o
+where o.n % 4 <> 1
+on conflict do nothing;
+-- One of each in the latest comments, so Reports' Recent comments shows the Hidden pill and a reply.
+update public.order_ratings set hidden_at = created_at + interval '3 hours'
+where order_id = (select order_id from public.order_ratings where stars = 1 and comment is not null and hidden_at is null order by created_at desc limit 1);
+update public.order_ratings set reply = 'Sorry it took long. Saturdays are busy, we are adding a cook.', replied_at = created_at + interval '4 hours'
+where order_id = (select order_id from public.order_ratings where stars = 3 and comment is not null and reply is null order by created_at desc limit 1);
+update public.dishes d set rating_count = coalesce(t.n, 0), rating_total = coalesce(t.s, 0)
+from (select dd.id, x.n, x.s from public.dishes dd left join (
+        select i.dish_id, count(*) as n, sum(r.stars) as s
+        from public.order_ratings r join (select distinct order_id, dish_id from public.order_items) i on i.order_id = r.order_id
+        where r.hidden_at is null group by 1) x on x.dish_id = dd.id) t
+where t.id = d.id;
+end $$;

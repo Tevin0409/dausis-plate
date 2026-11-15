@@ -1,14 +1,14 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useRef } from "react";
-import { FILTERS, type RatingFilter } from "@/lib/ratings";
+import { FILTERS, ratingsHref, type RatingDates, type RatingFilter } from "@/lib/ratings";
 
 const SEG =
   "press flex min-h-11 flex-none items-center rounded-full px-4 text-[15px] font-semibold whitespace-nowrap touch-manipulation select-none [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-deep";
 
 /** The four-part filter. It switches at once (no motion) and lives in the URL; at 375 it scrolls sideways,
  *  with the chosen part brought into view. */
-export function FilterBar({ show }: { show: RatingFilter }) {
+export function FilterBar({ show, dates }: { show: RatingFilter; dates: RatingDates }) {
   const on = useRef<HTMLAnchorElement>(null);
   useEffect(() => {
     on.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -22,7 +22,7 @@ export function FilterBar({ show }: { show: RatingFilter }) {
             <Link
               key={f.key}
               ref={current ? on : undefined}
-              href={f.key === "all" ? "/dashboard/ratings" : `/dashboard/ratings?show=${f.key}`}
+              href={ratingsHref(f.key, dates)}
               aria-current={current ? "page" : undefined}
               scroll={false}
               className={`${SEG} ${current ? "bg-paper text-ink shadow-[var(--shadow-card)]" : "text-ink-soft hover:text-ink"}`}

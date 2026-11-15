@@ -58,6 +58,8 @@ describe("who can call what", () => {
         ["report_dishes", (q) => q`select public.report_dishes(current_date - 1, current_date)`],
         ["report_times", (q) => q`select public.report_times(current_date - 1, current_date)`],
         ["report_delivery", (q) => q`select public.report_delivery(current_date - 1, current_date)`],
+        ["report_ratings", (q) => q`select public.report_ratings(current_date - 1, current_date)`],
+        ["list_ratings with dates", (q) => q`select * from public.list_ratings('all', null, current_date - 1, current_date)`],
         ["report_order", (q) => q`select public.report_order(${o.code})`],
         ["orders csv", (q) => q`select * from public.report_orders_csv(current_date - 1, current_date)`],
         ["credit notes csv", (q) => q`select * from public.report_credit_notes_csv(current_date - 1, current_date)`],
@@ -504,6 +506,58 @@ describe("report_dishes: sold-out days and the usual time (RW2B-03)", () => {
       await tx`update public.menu_entry_days set plates_sold = 2 where entry_id = ${f.openEntry.id}`;
       await tx`update public.menu_entry_days set sold_out_at = null where entry_id = ${f.openEntry.id}`;
       expect((await dish(tx, f, "Test rotating")).sold_out_days).toBe(0);
+    });
+  });
+});
+
+describe("report_ratings and the dishes' ratings (wave 2 step 4)", () => {
+  // Ratings count on the Nairobi day they were SENT (the orders are placed today); hidden ones are out
+  // of every average and count. March 2020: Mon 2, 9, 16 and 23 are the period's four weeks.
+  test("hand-counted: average, hidden, replies, weeks with gaps, recent comments, per dish", async () => {
+    await inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      const a = await order(tx, f, "Amina");
+      const both = await placeOrder(tx, dineIn(f, [{ dish_id: f.regular.id, quantity: 1 }, { dish_id: f.rotating.id, menu_entry_id: f.openEntry.id, quantity: 1 }]));
+      const [{ id: bId }] = await tx`select id from public.orders where public_token = ${both.public_token}`;
+      const only = await placeOrder(tx, dineIn(f, [{ dish_id: f.rotating.id, menu_entry_id: f.openEntry.id, quantity: 1 }]));
+      const [{ id: cId }] = await tx`select id from public.orders where public_token = ${only.public_token}`;
+      const d = await order(tx, f, "Baraka");
+      const e = await order(tx, f, "Chebet");
+      const rate = (id: string, stars: number, at: string, comment: string | null, extra: { hidden?: string; reply?: string } = {}) =>
+        tx`insert into public.order_ratings (order_id, stars, comment, created_at, hidden_at, reply, replied_at)
+           values (${id}, ${stars}, ${comment}, ${at}::timestamptz, ${extra.hidden ?? null}::timestamptz, ${extra.reply ?? null}, ${extra.reply ? at : null}::timestamptz)`;
+      await rate(a.id, 5, "2020-03-02 10:00+03", "Lovely", { reply: "Thank you, come again" });
+      await rate(bId, 3, "2020-03-04 00:30+03", "Too salty"); // 3 Mar in UTC, 4 Mar in Nairobi
+      await rate(cId, 1, "2020-03-10 12:00+03", "Cold", { hidden: "2020-03-11 09:00+03" });
+      await rate(d.id, 4, "2020-03-23 12:00+03", null);
+      await rate(e.id, 2, "2020-03-30 00:10+03", "Late"); // 29 Mar in UTC, 30 Mar in Nairobi: outside
+
+      const [{ r }] = (await as(tx, f.ownerId, (q) => q`select public.report_ratings('2020-03-02', '2020-03-29') as r`)) as unknown as [{ r: any }]; // eslint-disable-line @typescript-eslint/no-explicit-any
+      expect(r).toMatchObject({ avg: 4, count: 3, hidden: 1, with_comment: 3, replied: 1 });
+      // 9 Mar has only the hidden rating and 16 Mar none: both are gaps (no row), never zeros.
+      expect(r.by_week).toEqual([{ week: "2020-03-02", avg: 4, count: 2 }, { week: "2020-03-23", avg: 4, count: 1 }]);
+      expect(r.recent.map((x: { code: string }) => x.code)).toEqual([only.code, both.code, a.code]);
+      expect(r.recent[0]).toMatchObject({ stars: 1, comment: "Cold", hidden: true, reply: null, dishes: ["Test rotating"] });
+      expect([...r.recent[1].dishes].sort()).toEqual(["Test regular", "Test rotating"]);
+      expect(r.recent[2]).toMatchObject({ hidden: false, reply: "Thank you, come again" });
+
+      // All hidden: nothing counted, the hidden ones still counted apart.
+      const [{ r: h }] = (await as(tx, f.ownerId, (q) => q`select public.report_ratings('2020-03-10', '2020-03-10') as r`)) as unknown as [{ r: any }]; // eslint-disable-line @typescript-eslint/no-explicit-any
+      expect(h).toMatchObject({ avg: null, count: 0, hidden: 1, by_week: [] });
+
+      // Per dish, for the period, from the 1st rating: the regular had a 5, 3 and 4; the rotating dish a 3
+      // (its 1 is hidden). Both are listed though none of their plates were sold in March 2020.
+      const [{ r: dishes }] = (await as(tx, f.ownerId, (q) => q`select public.report_dishes('2020-03-02', '2020-03-29') as r`)) as unknown as [{ r: { dishes: { name: string; plates: number; rating_avg: number | null; rating_count: number }[] } }];
+      const by = (name: string) => dishes.dishes.find((x) => x.name === name);
+      expect(by("Test regular")).toMatchObject({ rating_avg: 4, rating_count: 3, plates: 0 });
+      expect(by("Test rotating")).toMatchObject({ rating_avg: 3, rating_count: 1, plates: 0 });
+      expect(by("Test late")).toBeUndefined();
+
+      // The Ratings screen, opened from Reports on the same period.
+      const listed = (await as(tx, f.ownerId, (q) => q`select code from public.list_ratings('all', null, '2020-03-02', '2020-03-29')`)) as { code: string }[];
+      expect(listed.map((x) => x.code).sort()).toEqual([a.code, both.code, only.code, d.code].sort());
+      const hiddenOnly = (await as(tx, f.ownerId, (q) => q`select code from public.list_ratings('hidden', null, '2020-03-02', '2020-03-29')`)) as { code: string }[];
+      expect(hiddenOnly.map((x) => x.code)).toEqual([only.code]);
     });
   });
 });

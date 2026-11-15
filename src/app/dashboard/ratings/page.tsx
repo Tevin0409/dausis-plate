@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
 import { after } from "next/server";
-import { FILTERS, parseFilter, summaryLine, type OwnerRating } from "@/lib/ratings";
+import Link from "next/link";
+import { FILTERS, parseDates, parseFilter, summaryLine, type OwnerRating } from "@/lib/ratings";
+import { periodLabel } from "@/lib/reports/period";
+import { nairobiToday } from "@/lib/format";
 import { createClient, getStaff } from "@/lib/supabase/server";
 import { RatingsList } from "./ratings-list";
 import { FilterBar } from "./filter-bar";
@@ -8,7 +11,7 @@ import { FilterBar } from "./filter-bar";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Ratings" };
 
-type Props = { searchParams: Promise<{ show?: string | string[] }> };
+type Props = { searchParams: Promise<{ show?: string | string[]; from?: string | string[]; to?: string | string[] }> };
 
 /** spec-2.10 "Owner: Ratings". Owner only; staff are sent to the board. */
 export default async function RatingsPage({ searchParams }: Props) {
@@ -16,10 +19,13 @@ export default async function RatingsPage({ searchParams }: Props) {
   if (!staff) redirect("/login");
   if (staff.role !== "owner") redirect("/dashboard");
 
-  const show = parseFilter((await searchParams).show);
+  const sp = await searchParams;
+  const show = parseFilter(sp.show);
+  // Reports' "All ratings" opens this screen on its period (spec-2.12 Ratings).
+  const dates = parseDates(sp.from, sp.to);
   const db = await createClient();
   const [list, summary, me] = await Promise.all([
-    db.rpc("list_ratings", { p_show: show }),
+    db.rpc("list_ratings", { p_show: show, p_from: dates?.from ?? null, p_to: dates?.to ?? null }),
     db.rpc("ratings_summary"),
     db.from("staff").select("ratings_seen_at").eq("user_id", staff.id).maybeSingle(),
   ]);
@@ -36,7 +42,7 @@ export default async function RatingsPage({ searchParams }: Props) {
   });
 
   const rows = (list.data ?? []) as OwnerRating[];
-  const empty = FILTERS.find((f) => f.key === show)!.empty;
+  const empty = dates ? "No ratings like this sent in these dates." : FILTERS.find((f) => f.key === show)!.empty;
 
   return (
     <div className="mx-auto flex max-w-[720px] flex-col gap-4 pb-6">
@@ -44,8 +50,16 @@ export default async function RatingsPage({ searchParams }: Props) {
         <h1 className="font-display text-[34px] leading-tight">Ratings</h1>
         <p className="mt-1 text-[15px] text-ink-soft">{summaryLine(summary.data?.[0] ?? null)}</p>
       </header>
-      <FilterBar show={show} />
-      <RatingsList key={show} show={show} initial={rows} seenAt={me.data?.ratings_seen_at ?? null} empty={empty} />
+      {dates && (
+        <p className="-mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[14px] font-semibold tabular-nums">
+          <span>Sent {periodLabel({ range: "custom", ...dates }, nairobiToday())}</span>
+          <Link href={show === "all" ? "/dashboard/ratings" : `/dashboard/ratings?show=${show}`} scroll={false} className="press inline-flex min-h-11 items-center text-teal-deep focus-visible:outline-2 focus-visible:outline-teal-deep [&:hover]:underline">
+            Show all dates
+          </Link>
+        </p>
+      )}
+      <FilterBar show={show} dates={dates} />
+      <RatingsList key={`${show}${dates?.from ?? ""}${dates?.to ?? ""}`} show={show} dates={dates} initial={rows} seenAt={me.data?.ratings_seen_at ?? null} empty={empty} />
     </div>
   );
 }

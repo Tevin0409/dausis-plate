@@ -4,7 +4,7 @@ import type { DishRow } from "@/lib/reports/types";
 
 const dish = (id: string, name: string, per_day: number | null, days_on = 5): DishRow => ({
   id, name, per_day, days_on, is_regular: false, plates: 0, revenue: 0,
-  limit_days: null, limit_used_avg: null, limit_avg: null, sold_out_days: 0, usual_sold_out_minutes: null,
+  limit_days: null, limit_used_avg: null, limit_avg: null, sold_out_days: 0, usual_sold_out_minutes: null, rating_avg: null, rating_count: 0,
 });
 const names = (r: DishRow[]) => r.map((d) => d.name);
 

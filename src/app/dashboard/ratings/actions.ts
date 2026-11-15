@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient, getStaff } from "@/lib/supabase/server";
 import { isUuid } from "@/lib/supabase/result";
-import { COMMENT_MAX, REPLY_FAILED, REPLY_LONG, type OwnerRating, type RatingFilter, parseFilter } from "@/lib/ratings";
+import { COMMENT_MAX, REPLY_FAILED, REPLY_LONG, type OwnerRating, type RatingDates, type RatingFilter, parseDates, parseFilter } from "@/lib/ratings";
 
 type Db = Awaited<ReturnType<typeof createClient>>;
 
@@ -27,10 +27,11 @@ function refreshRatings() {
 export type LoadResult = { ok: true; rows: OwnerRating[] } | { ok: false };
 
 /** The next 30, older than `before` (the last card's send time). */
-export async function loadMoreRatings(show: RatingFilter, before: string): Promise<LoadResult> {
+export async function loadMoreRatings(show: RatingFilter, before: string, dates: RatingDates = null): Promise<LoadResult> {
   const db = await ownerClient();
   if (!db || Number.isNaN(Date.parse(before))) return { ok: false };
-  const { data, error } = await db.rpc("list_ratings", { p_show: parseFilter(show), p_before: before });
+  const d = parseDates(dates?.from, dates?.to);
+  const { data, error } = await db.rpc("list_ratings", { p_show: parseFilter(show), p_before: before, p_from: d?.from ?? null, p_to: d?.to ?? null });
   if (error) {
     console.error("[action] loadMoreRatings failed:", error.code ?? "", error.message);
     return { ok: false };

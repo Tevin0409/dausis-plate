@@ -77,8 +77,8 @@ export async function GET(req: NextRequest) {
       const { data, error } = await supabase.rpc("report_dishes", range);
       if (error) throw error;
       const r = data as unknown as DishesReport;
-      const dishes = toCsv(["Dish", "Plates", "Dish sales (KSh)", "Days on the menu", "Plates per day", "Average plate limit", "Average plates sold on limit days", "Days sold out", "Usual sold-out time"],
-        r.dishes.map((d) => [d.name, d.plates, d.revenue, d.days_on, d.per_day, d.limit_avg, d.limit_used_avg, d.sold_out_days, minutesLabel(d.usual_sold_out_minutes) === "—" ? "" : minutesLabel(d.usual_sold_out_minutes)]));
+      const dishes = toCsv(["Dish", "Plates", "Dish sales (KSh)", "Days on the menu", "Plates per day", "Average plate limit", "Average plates sold on limit days", "Days sold out", "Usual sold-out time", "Rating (stars)", "Ratings"],
+        r.dishes.map((d) => [d.name, d.plates, d.revenue, d.days_on, d.per_day, d.limit_avg, d.limit_used_avg, d.sold_out_days, minutesLabel(d.usual_sold_out_minutes) === "—" ? "" : minutesLabel(d.usual_sold_out_minutes), d.rating_count > 0 ? d.rating_avg : "", d.rating_count]));
       const days = toCsv(["Date", "Dish", "Plates", "Plate limit", "Sold out at", "Sold out then back on"],
         r.days.map((d) => [d.day, d.dish, d.plates, d.limit, d.sold_out_minutes === null ? "" : minutesLabel(d.sold_out_minutes), d.back_on ? "Yes" : ""]));
       return send(fileName("dishes", p.from, p.to, "zip"), zip([
