@@ -470,6 +470,36 @@ html:has(.board) {
   opacity: 1;
   transform: none;
 }
+/* Special tiles at large text (break-ui, 2026-11-15). The plate sits beside the name in a fixed
+   150 px, so when the text grows (a phone's larger text setting, or browser zoom) the name column
+   shrinks to a word or less and names split mid-word. The query is in em, which here is the tile
+   list's own font size, so it follows the text: at the default size a 320 px phone keeps the side
+   layout (288 px tile > 272 px); from about 125-150% text the plate moves above the name, still
+   bleeding off the same edge, and the name gets the tile's full width. Week tiles keep their small
+   76 px plate, which leaves room. */
+.dish-tiles {
+  container-type: inline-size;
+}
+@container (width < 17em) {
+  .dish-tile-special {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding-inline: 18px;
+  }
+  .dish-tile-special > .dish-tile-plate {
+    position: relative;
+    inset: auto;
+    width: 132px;
+    height: 132px;
+    align-self: flex-end;
+    margin: 0 -34px 12px 0;
+  }
+  .dish-tile-special.is-flip > .dish-tile-plate {
+    align-self: flex-start;
+    margin: 0 0 12px -34px;
+  }
+}
 @media (hover: hover) and (pointer: fine) {
   .add-btn:not(:disabled):not([data-added]):hover {
     background-color: var(--color-teal-deeper);
