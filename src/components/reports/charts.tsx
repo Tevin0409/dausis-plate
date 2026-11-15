@@ -397,7 +397,7 @@ export function ChartTable<T>({ cols, rows, rowKey, caption, onRow, rowLabel, de
     : rows;
   return (
     <div className="relative">
-      <div ref={wrap} tabIndex={0} role="region" aria-label="Table, scrolls sideways" className="rpt-table overflow-x-auto focus-visible:outline-2 focus-visible:outline-teal-deep" onScroll={() => wide && setWide(false)}>
+      <div ref={wrap} tabIndex={0} role="region" aria-label="Table, scrolls sideways" className="rpt-table relative overflow-x-auto focus-visible:outline-2 focus-visible:outline-teal-deep" onScroll={() => wide && setWide(false)}>
         <table className="w-full border-collapse text-[14px] tabular-nums">
           <caption className="sr-only">{caption}</caption>
           <thead>
