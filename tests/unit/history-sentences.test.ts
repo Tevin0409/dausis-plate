@@ -124,3 +124,25 @@ describe("days", () => {
     expect(g.map((x) => [x.day, x.rows.map((r) => r.id)])).toEqual([["2026-11-08", [3]], ["2026-11-07", [2, 1]]]);
   });
 });
+
+describe("ad price (spec-2.11-ad-price)", () => {
+  const ad = { space: "menu", starts_on: "2026-11-01", ends_on: "2026-11-30" };
+  const t = (action: string, before: Record<string, unknown> | null, after: Record<string, unknown>) =>
+    text({ area: "promos", action, subject_label: "Sunrise Bakery", actor_name: "Mama", before, after });
+  test("approving names the price, or free", () => {
+    expect(t("ad.approve", null, { ...ad, price_kes: 3000 })).toBe("Mama approved the ad from Sunrise Bakery, on the menu, 1–30 Nov, for KSh 3,000.");
+    expect(t("ad.approve", null, { ...ad, price_kes: 0 })).toBe("Mama approved the ad from Sunrise Bakery, on the menu, 1–30 Nov, for free.");
+  });
+  test("a price-only edit: set, changed, cleared", () => {
+    expect(t("ad.edit", { ...ad, price_kes: null }, { ...ad, price_kes: 3000, other: false, to_draft: false })).toBe("Mama set the price of the ad from Sunrise Bakery to KSh 3,000.");
+    expect(t("ad.edit", { ...ad, price_kes: 3000 }, { ...ad, price_kes: 3500, other: false, to_draft: false })).toBe(
+      "Mama changed the price of the ad from Sunrise Bakery from KSh 3,000 to KSh 3,500.");
+    expect(t("ad.edit", { ...ad, price_kes: 3000 }, { ...ad, price_kes: null, other: false, to_draft: false })).toBe("Mama cleared the price of the ad from Sunrise Bakery.");
+  });
+  test("the price with another change follows that change's line", () => {
+    expect(t("ad.edit", { ...ad, price_kes: 3000 }, { ...ad, ends_on: "2026-12-07", price_kes: 3500, other: true, to_draft: false })).toBe(
+      "Mama changed the ad from Sunrise Bakery: it now ends 7 Dec. The price is now KSh 3,500.");
+    expect(t("ad.edit", { ...ad, price_kes: 3000 }, { ...ad, price_kes: 3000, other: true, to_draft: true })).toBe(
+      "Mama changed the ad from Sunrise Bakery, so it’s a draft again until it’s approved.");
+  });
+});

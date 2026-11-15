@@ -127,6 +127,46 @@ describe("save_discount_code", () => {
       expect(row).toEqual({ active: false, value: 15, max_uses: 80, min_order_kes: 800 });
     }));
 
+  // Tevin 2026-11-15 (2A): uses on cancelled orders don't count, so such a code is editable again.
+  test("a code used only by cancelled orders can change everything again", () =>
+    inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      const id = await save(tx, f.ownerId, karibu());
+      await use(tx, f, id, { status: "cancelled" });
+      await use(tx, f, id, { status: "cancelled", phone: "0722000000" });
+      expect(await trySave(tx, f.ownerId, karibu({ id, code: "KARIBU20", value: 20, cap_kes: 400 }))).toBeNull();
+      // The trigger agrees on any other path.
+      await tx.savepoint((sp) => sp`update public.discount_codes set kind = 'amount', value = 150, cap_kes = null where id = ${id}`);
+      const [row] = await tx`select code, kind, value, cap_kes from public.discount_codes where id = ${id}`;
+      expect(row).toEqual({ code: "KARIBU20", kind: "amount", value: 150, cap_kes: null });
+    }));
+
+  test("one live use beside a cancelled one still locks what it gives", () =>
+    inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      const id = await save(tx, f.ownerId, karibu());
+      await use(tx, f, id, { status: "cancelled" });
+      await use(tx, f, id, { phone: "0722000000" });
+      expect(await trySave(tx, f.ownerId, karibu({ id, value: 20 }))).toMatchObject({
+        detail: "code_used", message: "Used 1 time, so what it gives can’t change. Make a new code instead." });
+      await expect(tx.savepoint((sp) => sp`update public.discount_codes set value = 50 where id = ${id}`)).rejects.toThrow("what it gives can’t change");
+    }));
+
+  test("an edit refused while the order is live goes through once that order is cancelled", () =>
+    inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      const id = await save(tx, f.ownerId, karibu());
+      const order = await use(tx, f, id);
+      expect(await trySave(tx, f.ownerId, karibu({ id, value: 20 }))).toMatchObject({ detail: "code_used" });
+      expect(await as(tx, f.ownerId, (q) => q`select public.cancel_order(${order}, 'new'::public.order_status, 'customer_asked'::public.cancel_reason, null)`)).toBeNull();
+      expect(await trySave(tx, f.ownerId, karibu({ id, value: 20 }))).toBeNull();
+      const [row] = await tx`select value from public.discount_codes where id = ${id}`;
+      expect(row!.value).toBe(20);
+      // The cancelled order keeps the saving it showed.
+      const [o] = await tx`select discount_kes from public.orders where id = ${order}`;
+      expect(o!.discount_kes).toBe(100);
+    }));
+
   test("History: created, edited only when something changed, on and off once each", () =>
     inTx(async (tx) => {
       const f = await seedFixtures(tx);

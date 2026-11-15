@@ -1,14 +1,14 @@
 "use client";
 import { useRef, useState, useTransition } from "react";
-import { adAction, deleteAd, saveAd, type AdField, type AdResult } from "@/app/dashboard/promos/actions";
+import { adAction, deleteAd, saveAd, saveAdPrice, type AdField, type AdResult } from "@/app/dashboard/promos/actions";
 import { PhotoUpload } from "@/components/dashboard/photo-upload";
 import { PlannerSheet } from "@/components/dashboard/planner/sheet";
 import { useReportRefusal } from "@/components/dashboard/refusal-note";
 import { PanelHeading } from "@/components/dashboard/tables/ui";
 import { NeighbourAd } from "@/components/shop/neighbour-ad";
 import { ctl, danger, errorLine, field, hint, labelText, primary, quiet } from "@/components/ui-classes";
-import { addDays } from "@/lib/format";
-import { AD_LIMITS, SPACE_HEAD, SPACE_IN, count, linkForField, parseAdLink, shortDate, type AdRow, type AdSpace, type FeePeriod } from "@/lib/promos";
+import { addDays, formatKes } from "@/lib/format";
+import { AD_LIMITS, PRICE_KEPT, PRICE_NEEDED, SPACE_HEAD, SPACE_IN, count, dateRange, linkForField, parseAdLink, parseAdPrice, shortDate, type AdRow, type AdSpace } from "@/lib/promos";
 import { StatusPill, asPreview } from "./ads-tab";
 
 const REFRESH_AFTER_REFUSAL_MS = 3000;
@@ -22,14 +22,13 @@ type Values = {
   space: AdSpace;
   starts_on: string;
   ends_on: string;
-  fee_kes: string;
-  fee_period: FeePeriod;
+  price_kes: string;
 };
 /** What customers see: changing any of these sends an approved ad back to Draft (the ads guard). */
 const SEEN: (keyof Values)[] = ["advertiser", "line", "place", "link_label", "link", "space", "starts_on"];
 
 function startValues(ad: AdRow | null, today: string): Values {
-  if (!ad) return { advertiser: "", line: "", place: "", link_label: "", link: "", space: "menu", starts_on: today, ends_on: addDays(today, 29), fee_kes: "", fee_period: "month" };
+  if (!ad) return { advertiser: "", line: "", place: "", link_label: "", link: "", space: "menu", starts_on: today, ends_on: addDays(today, 29), price_kes: "" };
   return {
     advertiser: ad.advertiser,
     line: ad.line,
@@ -39,8 +38,7 @@ function startValues(ad: AdRow | null, today: string): Values {
     space: ad.space,
     starts_on: ad.starts_on,
     ends_on: ad.ends_on,
-    fee_kes: String(ad.fee_kes),
-    fee_period: ad.fee_period,
+    price_kes: ad.price_kes === null ? "" : String(ad.price_kes),
   };
 }
 
@@ -73,6 +71,7 @@ export function AdSheet({
   const [savedId, setSavedId] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const form = useRef<HTMLFormElement>(null);
+  const priceInput = useRef<HTMLInputElement>(null);
   const reportRefusal = useReportRefusal();
 
   const status = ad?.status ?? "draft";
@@ -81,6 +80,21 @@ export function AdSheet({
   const approved = !draft && !ended;
   const seenChanged = approved && SEEN.some((k) => v[k].trim() !== first.current[k].trim());
   const name = v.advertiser.trim() || "this ad";
+  const price = parseAdPrice(v.price_kes);
+  const savedPrice = parseAdPrice(first.current.price_kes);
+  const priceChanged = price.ok && savedPrice.ok && price.value !== savedPrice.value;
+  /** The price's own line under the field, with focus moved there so it's read and fixed at once. */
+  const priceProblem = (text: string) => {
+    setErr({ field: "price", text });
+    setAsk(null);
+    priceInput.current?.focus();
+  };
+  // The price is needed to approve, and an approved ad keeps one; a draft may wait.
+  const checkPrice = (needed: boolean, missing = PRICE_NEEDED) => {
+    if (!price.ok) return priceProblem(price.error), false;
+    if (needed && price.value === null) return priceProblem(missing), false;
+    return true;
+  };
 
   const set = <K extends keyof Values>(k: K, value: Values[K]) => {
     setV((o) => ({ ...o, [k]: value }));
@@ -96,10 +110,12 @@ export function AdSheet({
 
   function submit(intent: "save" | "approve") {
     if (pending || uploading || !form.current) return;
+    if (!checkPrice(intent === "approve" || !draft, intent === "approve" ? PRICE_NEEDED : PRICE_KEPT)) return;
     const data = new FormData(form.current);
     data.set("intent", intent);
     start(async () => {
-      const r = await saveAd(null, data);
+      // An ended ad is read-only but for its price, which Mama may still correct for her invoice.
+      const r = ended && ad ? await saveAdPrice(ad.id, v.price_kes) : await saveAd(null, data);
       if (!r.ok) {
         if (r.id && !ad) setSavedId(r.id);
         return fail(r);
@@ -109,7 +125,11 @@ export function AdSheet({
         return onDone(`Approved. ${v.advertiser.trim()} shows ${SPACE_IN[v.space]} ${when}.`);
       }
       if (!ad) return onDone(`Saved ${v.advertiser.trim()} as a draft. Approve it when you’re ready.`);
-      onDone(seenChanged ? `Saved. ${v.advertiser.trim()} is a draft again until you approve it.` : `Saved ${v.advertiser.trim()}.`);
+      if (seenChanged) return onDone(`Saved. ${v.advertiser.trim()} is a draft again until you approve it.`);
+      if (priceChanged && price.ok && price.value !== null) {
+        return onDone(`Saved. The price for ${v.advertiser.trim()} is now ${price.value === 0 ? "free" : formatKes(price.value)}.`);
+      }
+      onDone(`Saved ${v.advertiser.trim()}.`);
     });
   }
 
@@ -127,6 +147,7 @@ export function AdSheet({
     const link = parseAdLink(v.link);
     if (!link.ok) return setErr({ field: "link", text: link.error });
     if (v.ends_on < v.starts_on) return setErr({ field: "dates", text: "The end date is before the start date." });
+    if (!checkPrice(true)) return;
     setErr(null);
     setAsk("approve");
   }
@@ -146,10 +167,22 @@ export function AdSheet({
   const errFor = (f: AdField) => (err?.field === f ? err.text : null);
   const busy = pending || uploading;
 
-  const footer = ended ? null : ask === "approve" ? (
+  const footer = ended ? (
+    <div className="flex flex-col gap-2">
+      {errFor("form") && (
+        <p role="alert" className={errorLine}>
+          {errFor("form")}
+        </p>
+      )}
+      <button type="button" onClick={() => submit("save")} aria-disabled={busy || undefined} className={`${primary} aria-disabled:opacity-60`}>
+        {pending ? "Saving…" : "Save price"}
+      </button>
+    </div>
+  ) : ask === "approve" ? (
     <div className="flex flex-col gap-3">
       <p className="text-[15px] font-semibold text-ink [overflow-wrap:anywhere]">
-        Show {name} {SPACE_IN[v.space]} from {shortDate(v.starts_on)} to {shortDate(v.ends_on)}?
+        Show {name} {SPACE_IN[v.space]} from <span className="whitespace-nowrap">{shortDate(v.starts_on)}</span> to <span className="whitespace-nowrap">{shortDate(v.ends_on)}</span>,{" "}
+        {price.ok && price.value === 0 ? "for free" : `for ${price.ok && price.value !== null ? formatKes(price.value) : ""}`}?
       </p>
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={() => submit("approve")} aria-disabled={busy || undefined} className={`${primary} flex-1 aria-disabled:opacity-60`}>
@@ -230,7 +263,7 @@ export function AdSheet({
         }
         onClose={onClose}
       />
-      {ended && <p className="mt-4 rounded-[var(--r-sm)] bg-sand px-4 py-3 text-[15px] text-ink">This ad has ended. Its counts stay here for invoicing.</p>}
+      {ended && <p className="mt-4 rounded-[var(--r-sm)] bg-sand px-4 py-3 text-[15px] text-ink">This ad has ended. Its counts stay here for invoicing. You can still correct the price.</p>}
 
       <form
         ref={form}
@@ -324,40 +357,41 @@ export function AdSheet({
             ) : null}
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="ad-fee" className={labelText}>
-              Fee (KSh)
-            </label>
-            <div className="grid grid-cols-[minmax(0,1fr)_8.5rem] gap-2">
-              <input
-                id="ad-fee"
-                name="fee_kes"
-                value={v.fee_kes}
-                onChange={(e) => set("fee_kes", e.target.value)}
-                inputMode="numeric"
-                autoComplete="off"
-                enterKeyHint="done"
-                placeholder="2000"
-                aria-invalid={errFor("fee") ? true : undefined}
-                aria-describedby="ad-fee-note"
-                className={field}
-              />
-              <select
-                name="fee_period"
-                aria-label="Fee period"
-                value={v.fee_period}
-                onChange={(e) => set("fee_period", e.target.value as FeePeriod)}
-                className={`${field} pr-2`}
-              >
-                <option value="week">a week</option>
-                <option value="month">a month</option>
-              </select>
-            </div>
-            <p id="ad-fee-note" role={errFor("fee") ? "alert" : undefined} className={errFor("fee") ? errorLine : hint}>
-              {errFor("fee") ?? "For your records. Customers never see it."}
-            </p>
-          </div>
         </fieldset>
+
+        {/* Outside the ended fieldset: an ended ad's price can still be corrected. */}
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="ad-price" className={labelText}>
+            Price for the run (KSh)
+          </label>
+          <input
+            ref={priceInput}
+            id="ad-price"
+            name="price_kes"
+            value={v.price_kes}
+            onChange={(e) => set("price_kes", e.target.value)}
+            inputMode="numeric"
+            autoComplete="off"
+            enterKeyHint="done"
+            placeholder="3000"
+            aria-invalid={errFor("price") ? true : undefined}
+            aria-describedby="ad-price-note"
+            className={`${field} tabular-nums`}
+          />
+          {errFor("price") ? (
+            <p id="ad-price-note" role="alert" className={errorLine}>
+              {errFor("price")}
+            </p>
+          ) : (
+            <div id="ad-price-note" className={`${hint} flex flex-col gap-1 [overflow-wrap:anywhere]`}>
+              <p>
+                What {v.advertiser.trim() || "they"} {v.advertiser.trim() ? "pays" : "pay"} for {v.starts_on && v.ends_on && v.ends_on >= v.starts_on ? <span className="whitespace-nowrap">{dateRange(v.starts_on, v.ends_on)}</span> : "the run"}. For your
+                invoice. Customers never see it.
+              </p>
+              {ad && v.ends_on !== first.current.ends_on && <p>Changed the dates? Change the price too if you agreed more.</p>}
+            </div>
+          )}
+        </div>
 
         <section aria-label="Preview" className="flex flex-col gap-2 border-t border-sand pt-5">
           <span className={labelText}>What customers see</span>

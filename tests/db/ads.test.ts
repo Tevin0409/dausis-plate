@@ -38,10 +38,10 @@ const day = (offset: number) => `(public.nairobi_today() + ${offset})`;
 
 async function newAd(tx: Tx, owner: string, a: Partial<Record<string, unknown>> & { space: "menu" | "order"; from: number; to: number }) {
   const [row] = await run(tx, owner, (q) => q`
-    insert into public.ads (advertiser, line, place, link_label, link_url, space, starts_on, ends_on, fee_kes, fee_period)
+    insert into public.ads (advertiser, line, place, link_label, link_url, space, starts_on, ends_on, price_kes)
     values (${a.advertiser ?? "Sunrise Bakery"}, ${a.line ?? "Fresh bread every morning"}, ${a.place ?? "Next door"},
             ${a.link_label ?? "See today's bread"}, ${a.link_url ?? "https://sunrise.example/bread"}, ${a.space}::public.ad_space,
-            public.nairobi_today() + ${a.from}::int, public.nairobi_today() + ${a.to}::int, 2000, 'month')
+            public.nairobi_today() + ${a.from}::int, public.nairobi_today() + ${a.to}::int, ${"price" in a ? (a.price as number | null) : 2000})
     returning *`);
   return row!;
 }
@@ -133,12 +133,12 @@ describe("ads: approving and the one-ad-per-space rule", () => {
 });
 
 describe("ads: editing and deleting", () => {
-  test("a customer-visible edit sends an approved ad back to draft; end date and fee don't", async () => {
+  test("a customer-visible edit sends an approved ad back to draft; end date and price don't", async () => {
     await inTx(async (tx) => {
       const f = await seedFixtures(tx);
       const a = await newAd(tx, f.ownerId, { space: "menu", from: 0, to: 10 });
       await act(tx, f.ownerId, a.id, "approve");
-      await run(tx, f.ownerId, (q) => q`update public.ads set ends_on = ends_on + 5, fee_kes = 2500 where id = ${a.id} returning id`);
+      await run(tx, f.ownerId, (q) => q`update public.ads set ends_on = ends_on + 5, price_kes = 2500 where id = ${a.id} returning id`);
       expect(await status(tx, f.ownerId, a.id)).toBe("live");
       for (const change of [
         { line: "Now with mandazi" },
@@ -161,7 +161,7 @@ describe("ads: editing and deleting", () => {
       const log = await tx`select action, after from public.change_log where subject_id = ${a.id} order by id`;
       expect(log.map((l: Row) => l.action)).toContain("ad.approve");
       expect(log.filter((l: Row) => l.action === "ad.edit" && l.after.to_draft).length).toBeGreaterThanOrEqual(8);
-      expect(log.find((l: Row) => l.action === "ad.edit")!.after.to_draft).toBe(false); // the end date and fee edit
+      expect(log.find((l: Row) => l.action === "ad.edit")!.after.to_draft).toBe(false); // the end date and price edit
     });
   });
 
@@ -239,8 +239,8 @@ describe("ads: editing and deleting", () => {
       expect(await bad("link_url", "javascript:alert(1)")).toBe("23514");
       expect(await bad("link_url", "tel:0712345678")).toBe("23514");
       expect(await bad("ends_on", "2030-01-01")).toBe("23514");
-      expect(await bad("fee_kes", -1)).toBe("23514");
-      expect(await bad("fee_period", "day")).toBe("23514");
+      expect(await bad("price_kes", -1)).toBe("23514");
+      expect(await bad("price_kes", 10_000_001)).toBe("23514");
       expect(await bad("advertiser", "x".repeat(32))).toBeUndefined();
       expect(await bad("link_url", "tel:+254712345678")).toBeUndefined();
     });
@@ -248,7 +248,7 @@ describe("ads: editing and deleting", () => {
 });
 
 describe("ads: what customers see and the counts", () => {
-  test("live_ads shows only the live ad: no drafts, paused, scheduled or ended, never the fee or a web address", async () => {
+  test("live_ads shows only the live ad: no drafts, paused, scheduled or ended, never the price or a web address", async () => {
     await inTx(async (tx) => {
       const f = await seedFixtures(tx);
       const live = await newAd(tx, f.ownerId, { space: "menu", from: 0, to: 5 });
@@ -259,7 +259,7 @@ describe("ads: what customers see and the counts", () => {
       const menu = await run(tx, null, (q) => q`select * from public.live_ads('menu')`);
       expect(menu).toHaveLength(1);
       expect(menu[0]).toMatchObject({ id: live.id, link_kind: "web", link_tel: null, advertiser: "Sunrise Bakery" });
-      expect(Object.keys(menu[0]!)).not.toContain("fee_kes");
+      expect(Object.keys(menu[0]!)).not.toContain("price_kes");
       expect(JSON.stringify(menu[0])).not.toContain("sunrise.example");
       expect(await run(tx, null, (q) => q`select * from public.live_ads('order')`)).toHaveLength(0);
 
@@ -352,6 +352,60 @@ describe("Mama's pick", () => {
         { area: "promos", action: "promo.pick_on" },
         { area: "promos", action: "promo.pick_off" },
       ]);
+    });
+  });
+});
+
+// Follow-up (spec-2.11-ad-price.md; Tevin 2026-11-15): one agreed price per run.
+describe("ads: the price for the run", () => {
+  test("a draft may wait for its price; approving needs one, and 0 is free", async () => {
+    await inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      const a = await newAd(tx, f.ownerId, { space: "menu", from: 0, to: 10, price: null });
+      expect(await act(tx, f.ownerId, a.id, "approve")).toMatchObject({
+        detail: "ad_price", message: "Add the price you agreed before approving. Use 0 if it’s free." });
+      expect(await status(tx, f.ownerId, a.id)).toBe("draft");
+      await run(tx, f.ownerId, (q) => q`update public.ads set price_kes = 0 where id = ${a.id} returning id`);
+      expect(await act(tx, f.ownerId, a.id, "approve")).toBeNull();
+      const [log] = await tx`select after from public.change_log where subject_id = ${a.id} and action = 'ad.approve'`;
+      expect(log!.after.price_kes).toBe(0);
+      expect(log!.after).not.toHaveProperty("fee_kes");
+    });
+  });
+
+  test("the price changes on a live and an ended ad, keeps the approval, and can't be cleared once approved", async () => {
+    await inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      const a = await newAd(tx, f.ownerId, { space: "menu", from: 0, to: 10, price: 3000 });
+      await act(tx, f.ownerId, a.id, "approve");
+      await run(tx, f.ownerId, (q) => q`update public.ads set price_kes = 3500 where id = ${a.id} returning id`);
+      expect(await status(tx, f.ownerId, a.id)).toBe("live");
+      const clear = await as(tx, f.ownerId, (q) => q`update public.ads set price_kes = null where id = ${a.id}`);
+      expect(clear).toMatchObject({ code: "23514" });
+      expect(clear!.message).toContain("ads_price_when_approved");
+
+      await act(tx, f.ownerId, a.id, "end");
+      await run(tx, f.ownerId, (q) => q`update public.ads set price_kes = 1000 where id = ${a.id} returning id`);
+      expect(await status(tx, f.ownerId, a.id)).toBe("ended");
+      // The rest of an ended ad stays read-only.
+      expect(await as(tx, f.ownerId, (q) => q`update public.ads set line = 'New line' where id = ${a.id}`)).toMatchObject({ message: "This ad has ended. Make a new ad instead." });
+
+      const edits = await tx`select before, after from public.change_log where subject_id = ${a.id} and action = 'ad.edit' order by id`;
+      expect(edits.map((e: Row) => [e.before.price_kes, e.after.price_kes, e.after.other, e.after.to_draft])).toEqual([
+        [3000, 3500, false, false],
+        [3500, 1000, false, false],
+      ]);
+    });
+  });
+
+  test("a draft's price can be cleared, and a price with another change is one edit", async () => {
+    await inTx(async (tx) => {
+      const f = await seedFixtures(tx);
+      const a = await newAd(tx, f.ownerId, { space: "order", from: 0, to: 10, price: 2000 });
+      await run(tx, f.ownerId, (q) => q`update public.ads set price_kes = null where id = ${a.id} returning id`);
+      await run(tx, f.ownerId, (q) => q`update public.ads set price_kes = 2500, ends_on = ends_on + 3 where id = ${a.id} returning id`);
+      const edits = await tx`select before, after from public.change_log where subject_id = ${a.id} and action = 'ad.edit' order by id`;
+      expect(edits.map((e: Row) => [e.before.price_kes, e.after.price_kes, e.after.other])).toEqual([[2000, null, false], [null, 2500, true]]);
     });
   });
 });
