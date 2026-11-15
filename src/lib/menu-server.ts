@@ -17,7 +17,7 @@ export const loadMenu = cache(async () => {
     supabase.rpc("customer_menu"),
     supabase
       .from("dishes")
-      .select("id, name, description, price_kes, photo_thumb_url, category, unavailable_on, sort_order")
+      .select("id, name, description, price_kes, photo_thumb_url, category, unavailable_on, sort_order, rating_count, rating_total")
       .eq("is_regular", true)
       .eq("archived", false)
       .order("sort_order"),

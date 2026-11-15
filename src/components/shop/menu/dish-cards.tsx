@@ -3,6 +3,7 @@ import { Plate } from "@/components/plate";
 import type { MenuDish } from "@/lib/menu-model";
 import { formatKes } from "@/lib/format";
 import { AddButton } from "../add-button";
+import { RatingMeta } from "../rating-meta";
 import { DishPills } from "./pills";
 
 export const dishHref = (d: MenuDish) => (d.entryId ? `/dish/${d.dishId}?entry=${d.entryId}` : `/dish/${d.dishId}`);
@@ -73,8 +74,9 @@ export function DishTile({ dish, open, day, index }: CardProps & { index: number
           <p className="line-clamp-3 text-sm text-ink-soft [overflow-wrap:anywhere]">{dish.description}</p>
         )}
         {dish.hours && <p className="text-[13px] font-semibold text-ink-soft">{dish.hours}</p>}
-        <div className="mt-auto flex items-center gap-3.5 pt-1">
+        <div className="mt-auto flex flex-wrap items-center gap-x-3.5 gap-y-1 pt-1">
           <span className="text-lg font-bold tabular-nums">{formatKes(dish.priceKes)}</span>
+          <RatingMeta avg={dish.ratingAvg} count={dish.ratingCount} />
           <Action dish={dish} />
         </div>
       </div>
@@ -95,7 +97,10 @@ export function DishRow({ dish, soldOutLine }: CardProps) {
           <span className="line-clamp-2 text-[13.5px] text-ink-soft [overflow-wrap:anywhere]">{dish.soldOut ? soldOutLine : dish.description}</span>
         )}
         {/* Phone: the price sits under the name (DESIGN.md "Dish row"); a computer has room on the right. */}
-        <span className="text-[15px] font-bold tabular-nums lg:hidden">{formatKes(dish.priceKes)}</span>
+        <span className="flex flex-wrap items-center gap-x-2.5">
+          <span className="text-[15px] font-bold tabular-nums lg:hidden">{formatKes(dish.priceKes)}</span>
+          <RatingMeta avg={dish.ratingAvg} count={dish.ratingCount} />
+        </span>
       </div>
       <div className="flex flex-none items-center gap-3">
         <span className="hidden text-base font-bold tabular-nums lg:inline">{formatKes(dish.priceKes)}</span>

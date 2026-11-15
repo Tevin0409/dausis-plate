@@ -39,6 +39,21 @@ export type Database = {
         Update: { active?: boolean; id?: string; label?: string; qr_token?: string };
         Relationships: [];
       };
+      table_requests: {
+        Row: {
+          auto_cleared: boolean;
+          cleared_at: string | null;
+          cleared_by: string | null;
+          created_at: string;
+          id: string;
+          kind: Database["public"]["Enums"]["table_request_kind"];
+          order_id: string | null;
+          table_id: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
       dish_options: {
         Row: {
           archived: boolean; dish_id: string; id: string; is_default: boolean; kind: "choice" | "extra"; label: string;
@@ -72,6 +87,8 @@ export type Database = {
           photo_thumb_url: string | null;
           photo_url: string | null;
           price_kes: number;
+          rating_count: number;
+          rating_total: number;
           sort_order: number;
           unavailable_on: string | null;
           updated_at: string;
@@ -169,9 +186,9 @@ export type Database = {
         ];
       };
       menu_entry_days: {
-        Row: { day: string; entry_id: string; plates_sold: number; sold_out_manual: boolean };
-        Insert: { day: string; entry_id: string; plates_sold?: number; sold_out_manual?: boolean };
-        Update: { day?: string; entry_id?: string; plates_sold?: number; sold_out_manual?: boolean };
+        Row: { day: string; entry_id: string; plates_sold: number; sold_out_at: string | null; sold_out_manual: boolean };
+        Insert: { day: string; entry_id: string; plates_sold?: number; sold_out_at?: string | null; sold_out_manual?: boolean };
+        Update: { day?: string; entry_id?: string; plates_sold?: number; sold_out_at?: string | null; sold_out_manual?: boolean };
         Relationships: [
           { foreignKeyName: "menu_entry_days_entry_id_fkey"; columns: ["entry_id"]; isOneToOne: false; referencedRelation: "menu_entries"; referencedColumns: ["id"] },
           { foreignKeyName: "menu_entry_days_entry_id_fkey"; columns: ["entry_id"]; isOneToOne: false; referencedRelation: "todays_menu"; referencedColumns: ["entry_id"] },
@@ -257,6 +274,7 @@ export type Database = {
           prev_status: Database["public"]["Enums"]["order_status"] | null;
           paid_at: string | null;
           paid_from: Database["public"]["Enums"]["payment_status"] | null;
+          paid_with: Database["public"]["Enums"]["paid_with"] | null;
           delivery_zone_id: string | null;
           id: string;
           idempotency_key: string | null;
@@ -288,6 +306,7 @@ export type Database = {
           prev_status?: Database["public"]["Enums"]["order_status"] | null;
           paid_at?: string | null;
           paid_from?: Database["public"]["Enums"]["payment_status"] | null;
+          paid_with?: Database["public"]["Enums"]["paid_with"] | null;
           delivery_zone_id?: string | null;
           id?: string;
           idempotency_key?: string | null;
@@ -319,6 +338,7 @@ export type Database = {
           prev_status?: Database["public"]["Enums"]["order_status"] | null;
           paid_at?: string | null;
           paid_from?: Database["public"]["Enums"]["payment_status"] | null;
+          paid_with?: Database["public"]["Enums"]["paid_with"] | null;
           delivery_zone_id?: string | null;
           id?: string;
           idempotency_key?: string | null;
@@ -341,6 +361,24 @@ export type Database = {
           { foreignKeyName: "orders_delivery_zone_id_fkey"; columns: ["delivery_zone_id"]; isOneToOne: false; referencedRelation: "delivery_zones"; referencedColumns: ["id"] },
           { foreignKeyName: "orders_table_id_fkey"; columns: ["table_id"]; isOneToOne: false; referencedRelation: "dining_tables"; referencedColumns: ["id"] },
         ];
+      };
+      credit_notes: {
+        Row: {
+          id: string;
+          number: number;
+          order_id: string;
+          amount_kes: number;
+          reason: string;
+          issued_at: string;
+          issued_by: string;
+          refunded_with: Database["public"]["Enums"]["paid_with"];
+          voided_at: string | null;
+          voided_by: string | null;
+          void_reason: string | null;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [{ foreignKeyName: "credit_notes_order_id_fkey"; columns: ["order_id"]; isOneToOne: false; referencedRelation: "orders"; referencedColumns: ["id"] }];
       };
       opening_hours: {
         Row: { weekday: number; is_open: boolean; opens: string; closes: string };
@@ -365,6 +403,7 @@ export type Database = {
           phone: string | null;
           address: string | null;
           maps_url: string | null;
+          google_review_url: string | null;
           updated_at: string;
         };
         Insert: { id?: boolean; last_orders_minutes?: number; closed_early_on?: string | null; closed_early_at?: string | null; closed_early_by?: string | null; till_number?: string | null; phone?: string | null; address?: string | null; maps_url?: string | null; updated_at?: string };
@@ -374,7 +413,7 @@ export type Database = {
       staff: {
         Row: {
           created_at: string; display_name: string | null; invited_at: string | null; must_change_password: boolean;
-          role: Database["public"]["Enums"]["staff_role"]; user_id: string;
+          role: Database["public"]["Enums"]["staff_role"]; user_id: string; ratings_seen_at: string | null;
         };
         Insert: {
           created_at?: string; display_name?: string | null; invited_at?: string | null; must_change_password?: boolean;
@@ -384,6 +423,23 @@ export type Database = {
           created_at?: string; display_name?: string | null; invited_at?: string | null; must_change_password?: boolean;
           role?: Database["public"]["Enums"]["staff_role"]; user_id?: string;
         };
+        Relationships: [];
+      };
+      // spec-2.10: owners read; every write goes through rate_order / set_rating_hidden / reply_to_rating.
+      order_ratings: {
+        Row: {
+          order_id: string;
+          stars: number;
+          comment: string | null;
+          created_at: string;
+          hidden_at: string | null;
+          hidden_by: string | null;
+          reply: string | null;
+          replied_at: string | null;
+          replied_by: string | null;
+        };
+        Insert: never;
+        Update: never;
         Relationships: [];
       };
     };
@@ -406,6 +462,8 @@ export type Database = {
           plates_per_day: number | null;
           plates_sold: number | null;
           price_kes: number | null;
+          rating_avg: number | null;
+          rating_count: number | null;
           show_from: string | null;
           show_until: string | null;
           sold_out: boolean | null;
@@ -421,11 +479,44 @@ export type Database = {
       history_people: { Args: never; Returns: { actor: string; actor_name: string; on_team: boolean }[] };
       has_permission: { Args: { p_permission: string }; Returns: boolean };
       kitchen_status: { Args: never; Returns: Json };
+      request_table_help: {
+        Args: { p_token: string; p_kind: Database["public"]["Enums"]["table_request_kind"] };
+        Returns: { asked_at: string; created: boolean }[];
+      };
+      request_waiter_at_table: { Args: { p_qr_token: string }; Returns: { asked_at: string; created: boolean }[] };
+      table_waiter_status: { Args: { p_qr_token: string }; Returns: Json };
+      open_table_requests: { Args: never; Returns: Json };
+      clear_table_request: { Args: { p_id: string }; Returns: boolean };
+      undo_clear_table_request: { Args: { p_id: string }; Returns: undefined };
+      mark_orders_paid: { Args: { p_ids: string[]; p_with: Database["public"]["Enums"]["paid_with"] }; Returns: Json };
+      unmark_orders_paid: { Args: { p_items: Json }; Returns: undefined };
       regular_on_sale: { Args: { p_unavailable_on: string | null }; Returns: boolean };
       reopen_today: { Args: never; Returns: Json };
       save_opening_hours: { Args: { p_days: Json; p_last_orders_minutes: number }; Returns: Json };
       set_regular_on_sale: { Args: { p_dish: string; p_on_sale: boolean }; Returns: undefined };
       set_till_number: { Args: { p_till: string }; Returns: string | null };
+      rate_order: { Args: { p_token: string; p_stars: number; p_comment: string | null }; Returns: Json };
+      list_ratings: {
+        Args: { p_show?: string; p_before?: string | null };
+        Returns: {
+          order_id: string;
+          code: string;
+          first_name: string;
+          sent_at: string;
+          stars: number;
+          dishes: string[];
+          comment: string | null;
+          hidden_at: string | null;
+          reply: string | null;
+          replied_at: string | null;
+          is_new: boolean;
+        }[];
+      };
+      ratings_summary: { Args: never; Returns: { avg_stars: number | null; visible: number; hidden: number }[] };
+      set_rating_hidden: { Args: { p_order_id: string; p_hidden: boolean }; Returns: boolean };
+      reply_to_rating: { Args: { p_order_id: string; p_reply: string | null }; Returns: Json };
+      mark_ratings_seen: { Args: never; Returns: undefined };
+      set_google_review_url: { Args: { p_url: string }; Returns: string | null };
       advance_order: { Args: { p_order: string; p_from: Database["public"]["Enums"]["order_status"]; p_to: Database["public"]["Enums"]["order_status"] }; Returns: number };
       cancel_order: {
         Args: { p_order: string; p_from: Database["public"]["Enums"]["order_status"]; p_reason: Database["public"]["Enums"]["cancel_reason"]; p_note?: string | null };
@@ -477,6 +568,7 @@ export type Database = {
           photo_key: string | null; category: Database["public"]["Enums"]["dish_category"]; price_kes: number;
           plates_per_day: number | null; plates_sold: number; plates_left: number | null; sold_out: boolean; open_now: boolean;
           auto_hide_sold_out: boolean; photo_url: string | null; photo_thumb_url: string | null;
+          rating_avg: number | null; rating_count: number;
         }[];
       };
       menu_day: { Args: never; Returns: string };
@@ -486,7 +578,16 @@ export type Database = {
       kitchen_place: { Args: never; Returns: Json };
       is_owner: { Args: never; Returns: boolean };
       is_staff: { Args: never; Returns: boolean };
-      mark_order_paid: { Args: { p_order: string }; Returns: number | null };
+      mark_order_paid: { Args: { p_order: string; p_with: Database["public"]["Enums"]["paid_with"] }; Returns: number | null };
+      issue_credit_note: { Args: { p_order: string; p_amount: number; p_reason: string; p_refunded_with: Database["public"]["Enums"]["paid_with"] }; Returns: Json };
+      void_credit_note: { Args: { p_id: string; p_reason: string }; Returns: undefined };
+      report_sales: { Args: { p_from: string; p_to: string; p_cmp_from?: string | null; p_cmp_to?: string | null }; Returns: Json };
+      report_order: { Args: { p_code: string }; Returns: Json };
+      report_dishes: { Args: { p_from: string; p_to: string }; Returns: Json };
+      report_times: { Args: { p_from: string; p_to: string }; Returns: Json };
+      report_delivery: { Args: { p_from: string; p_to: string }; Returns: Json };
+      report_orders_csv: { Args: { p_from: string; p_to: string }; Returns: Json[] };
+      report_credit_notes_csv: { Args: { p_from: string; p_to: string }; Returns: Json[] };
       nairobi_time: { Args: never; Returns: string };
       nairobi_today: { Args: never; Returns: string };
       place_order: { Args: { p: Json }; Returns: { code: string; public_token: string; replayed: boolean; total_kes: number }[] };
@@ -494,7 +595,7 @@ export type Database = {
       set_entry_sold_out: { Args: { p_entry: string; p_sold_out: boolean }; Returns: undefined };
     };
     Enums: {
-      change_area: "menu" | "orders" | "tables" | "team" | "settings";
+      change_area: "menu" | "orders" | "tables" | "team" | "settings" | "ratings";
       dish_category: "mains" | "sides" | "breakfast" | "drinks";
       entry_kind: "day" | "week";
       order_mode: "dine_in" | "pickup" | "delivery";
@@ -502,8 +603,10 @@ export type Database = {
       cancel_reason: "sold_out" | "too_busy" | "cant_deliver" | "customer_asked" | "no_show" | "other";
       payment_method: "mpesa" | "card" | "on_handover" | "at_counter";
       payment_status: "pending" | "paid" | "failed" | "unpaid";
+      paid_with: "cash" | "mpesa" | "card";
       staff_grant: "everyday_menu" | "dishes_prices" | "tables_delivery" | "close_early";
       staff_role: "owner" | "staff";
+      table_request_kind: "waiter" | "bill";
     };
     CompositeTypes: {
       [_ in never]: never;
@@ -518,8 +621,6 @@ export type Enums<T extends keyof PublicSchema["Enums"]> = PublicSchema["Enums"]
 
 type ViewRow = PublicSchema["Views"]["todays_menu"]["Row"];
 /** Postgres reports every view column as nullable; these ones never are (inner join + not-null columns). */
-type NeverNull = Exclude<keyof ViewRow, "plates_left" | "plates_per_day" | "photo_key" | "photo_url" | "photo_thumb_url">;
-export type TodaysMenuRow = { [K in NeverNull]: NonNullable<ViewRow[K]> } & Pick<
-  ViewRow,
-  "plates_left" | "plates_per_day" | "photo_key" | "photo_url" | "photo_thumb_url"
->;
+type Nullable = "plates_left" | "plates_per_day" | "photo_key" | "photo_url" | "photo_thumb_url" | "rating_avg";
+type NeverNull = Exclude<keyof ViewRow, Nullable>;
+export type TodaysMenuRow = { [K in NeverNull]: NonNullable<ViewRow[K]> } & Pick<ViewRow, Nullable>;

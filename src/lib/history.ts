@@ -7,7 +7,7 @@ import { REASON_LABEL, TITLES } from "@/lib/board";
 import type { Grant } from "@/lib/permissions";
 import { daysLabel } from "@/lib/planner";
 
-export const AREAS = ["menu", "orders", "tables", "team", "settings"] as const;
+export const AREAS = ["menu", "orders", "tables", "team", "settings", "ratings"] as const;
 export type Area = (typeof AREAS)[number];
 
 export type ChangeRow = {
@@ -162,8 +162,16 @@ function rest(row: ChangeRow): Piece[] {
       const why = reason === "other" ? str(a.note) : reason ? (REASON_LABEL as Record<string, string>)[reason] : null;
       return why ? [t(verb), code, t(`: ${why.replace(/[.\s]+$/, "")}.`)] : [t(verb), code, t(".")];
     }
-    case "order.paid":
-      return [t("marked "), code, t(" paid.")];
+    case "order.paid": {
+      const w = str(a.with);
+      return [t("marked "), code, t(w ? ` paid: ${w === "mpesa" ? "M-Pesa" : w === "cash" ? "cash" : w}.` : " paid.")];
+    }
+    case "credit_note.issue":
+      return [t("issued credit note "), { text: str(a.code) ?? "", bold: true }, t(" for "), code, t(`: ${kes(a.amount)}.`)];
+    case "credit_note.void": {
+      const why = str(a.reason);
+      return [t("voided credit note "), { text: str(a.code) ?? "", bold: true }, t(" for "), code, t(why ? `: ${why.replace(/[.\s]+$/, "")}.` : ".")];
+    }
     case "order.paid_undo":
       return [t("undid marking "), code, t(" paid.")];
 
@@ -252,6 +260,23 @@ function rest(row: ChangeRow): Piece[] {
     }
     case "settings.phone":
       return [t(str(a.phone) ? (str(b.phone) ? "changed the kitchen phone." : "added the kitchen phone.") : "removed the kitchen phone.")];
+    case "settings.google_review":
+      return [t("changed the Google review link.")]; // the spec's one line for saving or clearing
+
+    // ── ratings (spec-2.10). The reply text is never copied here.
+    case "ratings.hide": {
+      const n = num(a.stars);
+      return [t("hid the rating for "), code, t(n ? ` (${n} ★).` : ".")];
+    }
+    case "ratings.show":
+      return [t("showed the rating for "), code, t(" again.")];
+    case "ratings.reply":
+      return [t("replied to "), code, t("’s rating.")];
+    case "ratings.reply_change":
+      return [t("changed the reply to "), code, t(".")];
+    case "ratings.reply_remove":
+      return [t("removed the reply to "), code, t(".")];
+
     case "kitchen.close_early":
       return [t(`closed the kitchen early${str(a.at) ? ` at ${timeLabel(str(a.at)!)}` : ""}.`)];
     case "kitchen.reopen":

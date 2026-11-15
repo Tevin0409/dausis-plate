@@ -2,6 +2,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useTableRequests } from "./table-requests-provider";
 import {
   AccountIcon,
   CalendarIcon,
@@ -14,6 +15,8 @@ import {
   ReceiptIcon,
   SettingsIcon,
   SignOutIcon,
+  ChartIcon,
+  StarIcon,
 } from "@/components/icons";
 import { signOut } from "@/app/dashboard/actions";
 import { SubmitButton } from "./submit-button";
@@ -44,6 +47,8 @@ const ITEMS: Item[] = [
   { href: "/dashboard/team", label: "Team", Icon: PeopleIcon, shows: (w) => w.role === "owner", railOnly: true },
   // Staff with Close early see Settings for its card (spec-2.3); the other cards stay read-only.
   { href: "/dashboard/settings", label: "Settings", Icon: SettingsIcon, shows: (w) => can(w, "close_early") },
+  { href: "/dashboard/reports", label: "Reports", Icon: ChartIcon, shows: (w) => w.role === "owner", railOnly: true },
+  { href: "/dashboard/ratings", label: "Ratings", Icon: StarIcon, shows: (w) => w.role === "owner", railOnly: true },
   { href: "/dashboard/history", label: "History", Icon: ClockIcon, shows: (w) => w.role === "owner", railOnly: true },
 ];
 
@@ -68,9 +73,17 @@ function Badge({ count }: { count: number | null }) {
   );
 }
 
-function ordersLabel(count: number | null) {
-  if (count === null) return "Orders, new order count failed";
-  return count > 0 ? `Orders, ${count} new` : undefined;
+function ordersLabel(count: number | null, requests: number) {
+  const asking = requests === 1 ? "1 table request" : `${requests} table requests`;
+  if (count === null) return requests > 0 ? `Orders, new order count failed, ${asking}` : "Orders, new order count failed";
+  const parts = [count > 0 && `${count} new`, requests > 0 && asking].filter(Boolean);
+  return parts.length ? `Orders, ${parts.join(", ")}` : undefined;
+}
+
+/** spec-2.9: the Orders badge counts new orders and open table requests, on every dashboard page. */
+function useOrdersBadge(newOrders: number | null) {
+  const requests = useTableRequests()?.count ?? 0;
+  return { total: newOrders === null ? null : newOrders + requests, label: ordersLabel(newOrders, requests) };
 }
 
 
@@ -78,6 +91,7 @@ type NavProps = { newOrders: number | null; role: Role; grants: readonly Grant[]
 
 export function DashboardRail({ newOrders, role, grants, name, email }: NavProps) {
   const path = usePathname();
+  const badge = useOrdersBadge(newOrders);
   const items = visible({ role, grants });
   const row = `${NAV_TOUCH} ${FOCUS} flex w-20 flex-col items-center justify-center gap-1 rounded-[14px] text-[12.5px] font-semibold`;
   return (
@@ -93,12 +107,12 @@ export function DashboardRail({ newOrders, role, grants, name, email }: NavProps
               key={item.href}
               href={item.href}
               aria-current={on ? "page" : undefined}
-              aria-label={item.href === "/dashboard/orders" ? ordersLabel(newOrders) : undefined}
+              aria-label={item.href === "/dashboard/orders" ? badge.label : undefined}
               className={`${row} h-16 [@media(max-height:800px)]:h-14 ${on ? SELECTED : UNSELECTED}`}
             >
               <span className="relative flex">
                 <item.Icon size={22} />
-                {item.href === "/dashboard/orders" && <Badge count={newOrders} />}
+                {item.href === "/dashboard/orders" && <Badge count={badge.total} />}
               </span>
               {item.label}
             </Link>
@@ -137,6 +151,7 @@ export function DashboardRail({ newOrders, role, grants, name, email }: NavProps
 
 export function DashboardTabBar({ newOrders, role, grants }: Pick<NavProps, "newOrders" | "role" | "grants">) {
   const path = usePathname();
+  const badge = useOrdersBadge(newOrders);
   const items = visible({ role, grants }).filter((i) => !i.railOnly);
   // With Settings in the bar (the owner, or staff with Close early), the Tables tab moves into More
   // below 600 px, so More looks selected there, while aria-current stays on the (hidden) Tables tab.
@@ -157,12 +172,12 @@ export function DashboardTabBar({ newOrders, role, grants }: Pick<NavProps, "new
             key={item.href}
             href={item.href}
             aria-current={on ? "page" : undefined}
-            aria-label={item.href === "/dashboard/orders" ? ordersLabel(newOrders) : undefined}
+            aria-label={item.href === "/dashboard/orders" ? badge.label : undefined}
             className={`${tab} ${movesToMore ? "hidden min-[600px]:flex" : ""} ${on ? SELECTED : UNSELECTED}`}
           >
             <span className="relative flex">
               <item.Icon size={22} />
-              {item.href === "/dashboard/orders" && <Badge count={newOrders} />}
+              {item.href === "/dashboard/orders" && <Badge count={badge.total} />}
             </span>
             {item.label}
           </Link>

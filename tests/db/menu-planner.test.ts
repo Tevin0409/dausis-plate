@@ -42,6 +42,10 @@ async function refusal(p: Promise<unknown>): Promise<Refusal> {
 const arr = (days: string[]) => `{${days.join(",")}}`;
 
 async function dates(tx: Tx) {
+  // RW2B-04: the planner's fixtures own every future menu row. seed.sql (2.8) puts a sample dish on
+  // tomorrow's menu, which on a Sunday is next Monday, the planner's day(0). Remove the sample's
+  // future rows inside this test's transaction (rolled back after); today's rows stay.
+  await tx`delete from public.menu_entries where starts_on > public.nairobi_today()`;
   const [d] = await tx`
     select public.nairobi_today()::text as today,
            (date_trunc('week', public.nairobi_today()) + interval '7 days')::date::text as mon`;

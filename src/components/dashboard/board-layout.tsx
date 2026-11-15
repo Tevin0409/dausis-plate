@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { DONE_ROWS, HEAD, PHONE_VIEWS, phoneView, STALE_AFTER_MS, TABLET_VIEWS, tabletView, TITLES, type Status } from "@/lib/board";
 import { timeLabel } from "@/lib/format";
 import { useBoard } from "./board-notices";
+import { useTableRequests } from "./table-requests-provider";
 
 // spec-2.4 "Layouts". One grid for every width; the server renders every column and this part
 // decides which show:
@@ -77,6 +78,7 @@ export function BoardLayout({ columns, keys }: { columns: Column[]; keys: string
           current={pv}
           count={count}
           onChoose={choose}
+          data-board-views
           className="sticky top-[env(safe-area-inset-top,0px)] z-20 -mx-4 grid grid-cols-5 gap-1 bg-cream px-4 py-2 min-[600px]:hidden"
         />
         <ViewButtons
@@ -115,15 +117,18 @@ function ViewButtons({
   count,
   onChoose,
   className,
+  "data-board-views": marker,
 }: {
   views: Status[];
   current: Status;
   count: (s: Status) => number;
   onChoose: (s: Status) => void;
   className: string;
+  /** The phone's sticky row, measured by 2.9's request pill. */
+  "data-board-views"?: boolean;
 }) {
   return (
-    <div role="group" aria-label="Show column" className={className}>
+    <div role="group" aria-label="Show column" data-board-views={marker ? "" : undefined} className={className}>
       {views.map((s) => (
         <button
           key={s}
@@ -245,13 +250,16 @@ export function Freshness({ renderedAt }: { renderedAt: string }) {
     setArrived(Date.now());
     setStale(false);
   }
+  // spec-2.9: the older of the board's refresh and the table requests' poll, so neither can fail unseen.
+  const polled = useTableRequests()?.lastOk ?? null;
+  const oldest = polled === null ? arrived : Math.min(arrived, polled);
   useEffect(() => {
-    const check = () => setStale(Date.now() - arrived > STALE_AFTER_MS);
+    const check = () => setStale(Date.now() - oldest > STALE_AFTER_MS);
     check();
     const t = setInterval(check, 15_000);
     return () => clearInterval(t);
-  }, [arrived]);
-  const at = timeLabel(renderedAt);
+  }, [oldest]);
+  const at = oldest < arrived ? timeLabel(new Date(oldest).toISOString()) : timeLabel(renderedAt);
   return stale ? (
     <span role="status" className="inline-flex min-h-6 items-center rounded-full bg-amber-tint px-2.5 text-[14px] font-bold text-amber-ink">
       Not updated since {at}. Check the connection.

@@ -46,6 +46,7 @@
   --dur-sheet: 280ms;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
 body {
@@ -131,11 +132,70 @@ body {
   transition: opacity var(--dur-exit) var(--ease-out);
 }
 
+/* Table request strip (spec-2.9 Motion): a request that arrives while the board is open enters from
+   8 px above; Done sends it back the same way. Only new arrivals carry .request-in, so opening the
+   board or unfolding "more" doesn't animate. */
+.request-strip {
+  transition:
+    opacity var(--dur-exit) var(--ease-out),
+    transform var(--dur-exit) var(--ease-out);
+}
+.request-strip.request-in {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .request-strip.request-in {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+.request-strip[data-leaving] {
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+  /* Also when the strip is still .request-in: it leaves at the exit speed. */
+  transition:
+    opacity var(--dur-exit) var(--ease-out),
+    transform var(--dur-exit) var(--ease-out);
+}
+
+/* The phone's sticky "Table 4 called a waiter" pill: fade in with 6 px translate, fade out. */
+.request-pill {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .request-pill {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+.request-pill[data-leaving] {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-exit) var(--ease-out);
+}
+
 @media (prefers-reduced-motion: reduce) {
   /* Reduced motion: the press still answers, by dimming instead of shrinking. */
   .press:active {
     transform: none;
     opacity: 0.8;
+  }
+  /* Fade only. */
+  .request-strip.request-strip,
+  .request-strip.request-strip[data-leaving],
+  .request-pill.request-pill {
+    transform: none;
+  }
+  @starting-style {
+    .request-strip.request-strip.request-in,
+    .request-pill.request-pill {
+      transform: none;
+    }
   }
   .board-notice {
     transition: opacity var(--dur-small) var(--ease-out);
@@ -471,4 +531,119 @@ html:has(.board) {
 }
 .no-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+/* Reports (spec-2.12 Motion). Reports is a reading screen, so little moves: the tooltip fades in with a
+   2 px rise from its bar, and the cards fade in when a period or tab's data arrives. Both use
+   --dur-small and --ease-out; nothing else on the screen animates (bars never grow, figures never tick).
+   Press feedback is the shared .press class. The order sheet reuses .planner-* above. */
+.rpt-tip {
+  transform-origin: 50% 100%;
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .rpt-tip {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+.rpt-in {
+  transition: opacity var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .rpt-in {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rpt-tip {
+    transition: opacity var(--dur-small) var(--ease-out);
+  }
+  @starting-style {
+    .rpt-tip {
+      transform: none;
+    }
+  }
+}
+/* The tab strip scrolls on its own and shows no scrollbar. */
+.rpt-strip {
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+}
+.rpt-strip::-webkit-scrollbar {
+  display: none;
+}
+.rpt-table {
+  overscroll-behavior-x: contain;
+}
+
+/* Ratings (spec-2.10 Motion). Star press: .94, since 3 % can't be seen on a 52 px button. The fill
+   changes at once. Touch: no tap flash, no double-tap delay, no text selection on a long press. */
+.star-btn {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-press) var(--ease-out);
+}
+.star-btn:active {
+  transform: scale(0.94);
+}
+@media (hover: hover) and (pointer: fine) {
+  .star-btn:hover {
+    background: var(--color-cream);
+  }
+}
+/* Rating card → thanks card: a crossfade in one place. The form fades out; the thanks card fades
+   in from 6 px below. Only after a send in this tab (.rate-in), never on page load. */
+.rate-out {
+  transition: opacity var(--dur-exit) var(--ease-out);
+}
+.rate-out[data-leaving] {
+  opacity: 0;
+  pointer-events: none;
+}
+.rate-in {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .rate-in {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+/* Owner's Ratings screen: a hidden card's content steps back to 60 %, and back again. */
+.rating-dim {
+  transition: opacity var(--dur-small) var(--ease-in-out);
+}
+[data-hidden] .rating-dim {
+  opacity: 0.6;
+}
+/* A reply just sent, and the cards "Show 30 more" brings: opacity only, no stagger. Only on elements
+   that are new in this visit (the class is added by the client), never on page load. */
+.fade-in {
+  transition: opacity var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .fade-in {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .star-btn:active {
+    transform: none;
+  }
+  .rate-in {
+    transition: opacity var(--dur-small) var(--ease-out);
+  }
+  @starting-style {
+    .rate-in {
+      transform: none;
+    }
+  }
 }

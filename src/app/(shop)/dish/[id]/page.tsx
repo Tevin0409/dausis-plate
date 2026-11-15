@@ -3,9 +3,11 @@ import { Plate } from "@/components/plate";
 import { BackToMenu, DishForm } from "@/components/shop/dish-form";
 import { MenuFrame } from "@/components/shop/menu/menu-view";
 import { DishPills } from "@/components/shop/menu/pills";
+import { RatingMeta } from "@/components/shop/rating-meta";
 import { formatKes } from "@/lib/format";
 import type { MenuDish } from "@/lib/menu-model";
 import { loadMenu } from "@/lib/menu-server";
+import { dishAverage } from "@/lib/ratings";
 import { createClient } from "@/lib/supabase/server";
 import { isUuid, must } from "@/lib/supabase/result";
 
@@ -21,7 +23,7 @@ export default async function DishPage({ params, searchParams }: Props) {
   const supabase = await createClient();
 
   const [dishResult, optionsResult, menu] = await Promise.all([
-    supabase.from("dishes").select("id, name, description, price_kes, photo_url, photo_thumb_url, is_regular").eq("id", id).maybeSingle(),
+    supabase.from("dishes").select("id, name, description, price_kes, photo_url, photo_thumb_url, is_regular, rating_count, rating_total").eq("id", id).maybeSingle(),
     supabase
       .from("dish_options")
       .select("id, label, price_delta_kes, is_default, kind, out_on")
@@ -76,6 +78,8 @@ export default async function DishPage({ params, searchParams }: Props) {
             <div className="flex flex-col gap-2.5">
               {md && <DishPills dish={md} open={model.open} day={model.dayName} />}
               <h1 className="font-display text-[28px] leading-[1.08] [overflow-wrap:anywhere] xl:text-[34px]">{dish.name}</h1>
+              {/* spec-2.10: the average from the 3rd visible rating, under the name. */}
+              <RatingMeta avg={dishAverage(dish.rating_count, dish.rating_total)} count={dish.rating_count} />
               {dish.description && <p className="text-[15.5px] leading-normal text-ink-soft [overflow-wrap:anywhere]">{dish.description}</p>}
               {md?.hours && <p className="text-[14px] text-ink-soft">{md.hours}</p>}
               <p className="text-[22px] font-bold tabular-nums">{formatKes(price)}</p>

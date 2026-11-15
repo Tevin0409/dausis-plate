@@ -6,15 +6,27 @@ const row = (o: Partial<CustomerMenuRow>): CustomerMenuRow => ({
   menu_day: "2026-11-13", entry_id: "e1", kind: "day", starts_on: "2026-11-13", ends_on: "2026-11-13",
   show_from: "00:00:00", show_until: "23:59:59", sort_order: 0, dish_id: "d1", name: "Fish Curry", description: "",
   photo_key: null, category: "mains", price_kes: 650, plates_per_day: 30, plates_sold: 0, plates_left: 30,
-  sold_out: false, open_now: true, auto_hide_sold_out: false, photo_url: null, photo_thumb_url: null, ...o,
+  sold_out: false, open_now: true, auto_hide_sold_out: false, photo_url: null, photo_thumb_url: null,
+  rating_avg: null, rating_count: 0, ...o,
 });
 const reg = (o: Partial<RegularDish>): RegularDish => ({
   id: "r1", name: "Chapati", description: "", price_kes: 50, photo_thumb_url: null, category: "sides",
-  unavailable_on: null, sort_order: 0, ...o,
+  unavailable_on: null, sort_order: 0, rating_count: 0, rating_total: 0, ...o,
 });
 const base = { optionDishIds: new Set<string>(), open: true, today: "2026-11-13", menuDay: "2026-11-13" };
 
 describe("buildMenu", () => {
+  test("spec-2.10: each dish carries its public average from the 3rd rating, specials and regulars alike", () => {
+    const m = buildMenu({
+      ...base,
+      rows: [row({ rating_avg: 4.3, rating_count: 3 }), row({ entry_id: "e2", dish_id: "d2", rating_avg: null, rating_count: 2 })],
+      regulars: [reg({ rating_count: 3, rating_total: 13 }), reg({ id: "r2", rating_count: 2, rating_total: 10 })],
+    });
+    const all = m.sections.flatMap((x) => x.dishes);
+    expect(all.map((d) => [d.key, d.ratingAvg, d.ratingCount])).toEqual([
+      ["e1", 4.3, 3], ["e2", null, 2], ["r1", 4.3, 3], ["r2", null, 2],
+    ]);
+  });
   test("sections in menu order, with today's words", () => {
     const m = buildMenu({
       ...base,

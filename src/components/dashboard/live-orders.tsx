@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { newIds } from "@/lib/board";
 import { getBrowserClient } from "@/lib/supabase/client";
 import { Switch } from "./switch";
+import { useTableRequests } from "./table-requests-provider";
 
 /**
  * Keeps the board current and chimes for new orders (spec-2.4 "When it chimes"). Realtime and a
@@ -13,7 +14,11 @@ import { Switch } from "./switch";
  */
 export function LiveOrders({ newOrderIds }: { newOrderIds: string[] }) {
   const router = useRouter();
-  const [sound, setSound] = useState(true);
+  // One switch for both chimes (spec-2.9); it lives in the dashboard's requests provider.
+  const shared = useTableRequests();
+  const [localSound, setLocalSound] = useState(true);
+  const sound = shared?.sound ?? localSound;
+  const setSound = shared?.setSound ?? setLocalSound;
   const soundRef = useRef(sound);
   const seen = useRef<Set<string> | null>(null);
 
@@ -49,13 +54,17 @@ export function LiveOrders({ newOrderIds }: { newOrderIds: string[] }) {
   }, [router]);
 
   return (
+    <>
+    <span id="sound-covers" hidden>New orders and table requests</span>
     <Switch
       checked={sound}
       onChange={setSound}
+      describedBy="sound-covers"
       className="min-h-11 gap-2.5 bg-paper py-1 pr-1.5 pl-4 text-sm font-semibold ring-1 ring-line-deep ring-inset"
     >
-      New-order sound
+      Sound
     </Switch>
+    </>
   );
 }
 

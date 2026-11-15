@@ -52,7 +52,7 @@ const undo = (tx: Tx, who: string, id: string, status: string, version: number) 
   call(tx, who, (q) => q`select public.undo_order_move(${id}::uuid, ${status}::public.order_status, ${version}::int)`);
 /** Mark paid; returns the version its Undo needs, or null if it was already paid (nothing to undo). */
 const markPaid = async (tx: Tx, who: string, id: string) => {
-  const [r] = (await call(tx, who, (q) => q`select public.mark_order_paid(${id}::uuid) as v`)) as { v: number | null }[];
+  const [r] = (await call(tx, who, (q) => q`select public.mark_order_paid(${id}::uuid, 'cash') as v`)) as { v: number | null }[];
   return r!.v;
 };
 const unmarkPaid = (tx: Tx, who: string | null, id: string, version: number) =>
@@ -233,7 +233,7 @@ describe("Mark paid and its undo", () => {
       expect(await refusal(unmarkPaid(tx, s, x.id, v))).toBeNull();
       expect(await row(tx, x.id)).toMatchObject({ payment_status: "failed", paid_at: null, paid_from: null });
       expect((await log(tx)).map((r) => [r.action, r.after])).toEqual([
-        ["order.paid", { payment: "paid" }],
+        ["order.paid", { payment: "paid", with: "cash" }],
         ["order.paid_undo", { payment: "failed" }],
       ]);
     }));

@@ -13,6 +13,7 @@ import { TillCard } from "./till-card";
 import { PhoneCard } from "./phone-card";
 import { AddressCard } from "./address-card";
 import { formatKenyanPhone } from "@/lib/kitchen-phone";
+import { GoogleReviewCard } from "./google-review-card";
 import { hint, tile, tileHeading } from "./ui";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +42,7 @@ export default async function SettingsPage() {
   const [hoursResult, datesResult, settingsResult, pickupsResult] = await Promise.all([
     supabase.from("opening_hours").select("weekday, is_open, opens, closes"),
     supabase.from("closed_dates").select("day, note").gt("day", today).order("day"),
-    supabase.from("kitchen_settings").select("till_number, last_orders_minutes, phone, address, maps_url").maybeSingle(),
+    supabase.from("kitchen_settings").select("till_number, last_orders_minutes, phone, address, maps_url, google_review_url").maybeSingle(),
     supabase
       .from("orders")
       .select("id", { count: "exact", head: true })
@@ -92,7 +93,10 @@ export default async function SettingsPage() {
           </div>
           <div className="order-4 xl:order-none">
             {owner ? (
-              <TillCard initial={settings?.till_number ?? null} />
+              <div className="flex flex-col gap-5">
+                <TillCard initial={settings?.till_number ?? null} />
+                <GoogleReviewCard initial={settings?.google_review_url ?? null} />
+              </div>
             ) : (
               <section className={tile}>
                 <h2 className={tileHeading}>M-Pesa till number</h2>

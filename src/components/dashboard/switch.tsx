@@ -15,12 +15,15 @@ export function Switch({
   label,
   children,
   className = "",
+  describedBy,
 }: {
   checked: boolean;
   onChange: (on: boolean) => void;
   label?: string;
   children?: React.ReactNode;
   className?: string;
+  /** Id of a longer description (2.9: "Sound" covers new orders and table requests). */
+  describedBy?: string;
 }) {
   return (
     <button
@@ -28,6 +31,7 @@ export function Switch({
       role="switch"
       aria-checked={checked}
       aria-label={children ? undefined : label}
+      aria-describedby={describedBy}
       onClick={() => onChange(!checked)}
       className={`switch press flex touch-manipulation items-center rounded-full select-none [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-deep ${className}`}
     >

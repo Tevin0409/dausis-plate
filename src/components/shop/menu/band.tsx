@@ -2,6 +2,8 @@
 import Image from "next/image";
 import { ClockIcon, TableIcon } from "@/components/icons";
 import { bandStatus, menuNotice } from "@/lib/kitchen";
+import type { WaiterStatus } from "@/lib/table-requests";
+import { MenuCallWaiter } from "../menu-call-waiter";
 import { useCart } from "../cart-provider";
 import { useKitchen } from "../kitchen-provider";
 
@@ -19,7 +21,7 @@ const firstSentence = (text: string) => {
  * The band (spec-2.8 "The band"; DESIGN.md menu order): teal deep, 28 px bottom corners, not sticky.
  * Closed means the table is gone: no chip, no "Karibu, Table 4", no table line.
  */
-export function MenuBand({ dayName, address, zones }: { dayName: string; address: string | null; zones: string[] }) {
+export function MenuBand({ dayName, address, zones, waiter }: { dayName: string; address: string | null; zones: string[]; waiter?: WaiterStatus }) {
   const { status, open, now } = useKitchen();
   const { table: savedTable } = useCart();
   const table = open ? savedTable : null;
@@ -59,6 +61,12 @@ export function MenuBand({ dayName, address, zones }: { dayName: string; address
             <p className="font-script text-[30px] leading-none text-blush">{table ? `Karibu, ${table.label}` : "Karibu"}</p>
             <h1 className="mt-1 font-display text-[32px] leading-tight lg:text-[40px]">{dayName}’s menu</h1>
             <p className="mt-1 text-sm text-on-teal-soft">{where}</p>
+            {/* spec-2.9 Q1 B: only at a table, only while open (a closed kitchen has no table). */}
+            {table && waiter !== undefined && (
+              <div className="mt-3.5">
+                <MenuCallWaiter initial={waiter} onBand />
+              </div>
+            )}
           </div>
           <div role="status" className="lg:max-w-[420px]">
             {notice?.tone === "closed" && (

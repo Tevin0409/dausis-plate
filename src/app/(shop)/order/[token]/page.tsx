@@ -7,6 +7,8 @@ import { CheckIcon, PhoneIcon, PinIcon } from "@/components/icons";
 import { AutoRefresh } from "@/components/shop/auto-refresh";
 import { Arrive, StatusHeadline } from "@/components/shop/arrive";
 import { SaveLink } from "@/components/shop/save-link";
+import { GoogleReviewCard, RatingCard } from "@/components/shop/rating-card";
+import { TableRequestButtons } from "@/components/shop/table-request-buttons";
 import { TillLine } from "@/components/shop/till-line";
 import { Narrow } from "@/components/shop/ui";
 import { customerCancelText } from "@/lib/board";
@@ -14,6 +16,8 @@ import { formatKes, timeLabel } from "@/lib/format";
 import { closingTime } from "@/lib/kitchen";
 import { createClient } from "@/lib/supabase/server";
 import { must } from "@/lib/supabase/result";
+import { customerRating } from "@/lib/ratings";
+import { customerRequests } from "@/lib/table-requests";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +43,9 @@ const status = z.object({
   declined: z.boolean().nullish(),
   // Only while unpaid and not cancelled, and only if Mama has set one (get_order_status decides).
   till_number: z.string().nullable().optional(),
+  // spec-2.9: table requests work only on the order's own day, at its table.
+  placed_today: z.boolean().optional(),
+  requests: customerRequests.optional(),
   // spec-2.6: the kitchen phone (null when Mama hasn't set one) and each line's extras.
   phone: z.string().nullable().optional(),
   // 2.8: where the food is. Delivery carries the customer's address and notes; the others the kitchen's.
@@ -46,6 +53,11 @@ const status = z.object({
   delivery_notes: z.string().nullable().optional(),
   kitchen_address: z.string().nullable().optional(),
   maps_url: z.string().nullable().optional(),
+  // spec-2.10: the customer's own rating (never its comment), and what the rating card needs.
+  rating: customerRating.optional(),
+  rate_dishes: z.array(z.string()).optional(),
+  rate_until: z.string().nullable().optional(),
+  google_review_url: z.string().nullable().optional(),
   items: z.array(
     z.object({
       name: z.string(),
@@ -138,10 +150,17 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
   // A cancelled pickup is never collected or paid for, so it has no Pay row either; with no rows the card goes.
   if (!(cancelled && o.mode === "pickup")) rows.push(["Pay", payRow]);
 
+  const requests = o.mode === "dine_in" && !cancelled && o.placed_today && o.requests ? o.requests : null;
+  const requestOpen = !!requests && [requests.waiter, requests.bill].some((r) => r && !r.answered_at);
+  // spec-2.10: the window is the server's (rate_until from get_order_status), checked at render.
+  const completed = o.status === "completed";
+  const rateOpen = !!o.rate_until && Date.parse(o.rate_until) > Date.now();
+
   return (
     <Narrow>
       <Arrive>
-      <AutoRefresh active={o.status !== "completed" && o.status !== "cancelled"} />
+      {/* Keeps refreshing while a table request waits, so "Answered" shows up even after Served. */}
+      <AutoRefresh active={(o.status !== "completed" && !cancelled) || requestOpen} />
       <section className="flex flex-col gap-1.5 rounded-b-[28px] bg-teal-deep md:rounded-[28px] px-5 pb-[26px] pt-[22px] text-white">
         <div className="flex items-center justify-between">
           <Image src="/brand/dausis-plate-icon.svg" alt="Dausis Plate" width={40} height={40} />
@@ -154,7 +173,7 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
         </div>
         {o.till_number && o.payment_status !== "paid" && o.status !== "cancelled" && <TillLine till={o.till_number} />}
         <span className="mt-3.5 font-script text-[30px] leading-none">Asante, {o.customer_name}!</span>
-        <span className="text-[15px] text-on-teal-soft">
+        <span className="text-[15px] text-on-teal-soft [overflow-wrap:anywhere]">
           Order <span className="whitespace-nowrap tabular-nums">{o.code}</span> · {where}
         </span>
         {headline && <StatusHeadline text={headline} sub={waiting ? "We’ll keep this page up to date." : "Enjoy your food."} />}
@@ -166,6 +185,14 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
           </div>
         )}
       </section>
+
+      {requests ? (
+        <TableRequestButtons token={token} tableLabel={o.table_label ?? "your table"} requests={requests} />
+      ) : (
+        o.mode === "dine_in" &&
+        !cancelled &&
+        o.placed_today === false && <p className="mx-5 mt-5 text-[14px] text-ink-soft">Table requests work on the day of your order.</p>
+      )}
 
       {o.phone && (
         <p className="mx-5 mt-4 flex flex-wrap items-center gap-x-1.5 text-[15px] text-ink-soft">
@@ -201,6 +228,13 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
           );
         })}
       </ol>
+
+      {completed && (
+        <>
+          <RatingCard token={token} dishes={o.rate_dishes ?? []} rating={o.rating ?? null} open={rateOpen} />
+          {o.google_review_url && <GoogleReviewCard url={o.google_review_url} />}
+        </>
+      )}
 
       {rows.length > 0 && (
         <section aria-labelledby="where-heading" className="mx-5 mt-5 rounded-[var(--r-lg)] bg-paper p-[18px] shadow-[var(--shadow-card)]">
