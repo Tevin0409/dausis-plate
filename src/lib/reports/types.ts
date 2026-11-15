@@ -66,6 +66,9 @@ export type DishRow = {
   limit_avg: number | null;
   sold_out_days: number;
   usual_sold_out_minutes: number | null;
+  /** Not-hidden ratings sent in the period on orders that had the dish; shown from the 1st here. */
+  rating_avg: number | null;
+  rating_count: number;
 };
 export type DishDay = { dish: string; day: string; plates: number; limit: number | null; sold_out_at: string | null; sold_out_minutes: number | null; out: boolean; back_on: boolean };
 export type DishesReport = { dishes: DishRow[]; days: DishDay[] };
@@ -74,6 +77,19 @@ export type TimesReport = {
   days: number;
   by_hour: { hour: number; orders: number; per_day: number }[];
   by_weekday_hour: { weekday: number; hour: number; orders: number; avg: number }[];
+};
+
+/** report_ratings: counted on the Nairobi day each rating was sent. Hidden ratings are out of avg, count and by_week. */
+export type RatingsReport = {
+  avg: number | null;
+  count: number;
+  hidden: number;
+  with_comment: number;
+  replied: number;
+  /** Weeks (Mondays) with at least one counted rating; a week with none has no row. */
+  by_week: { week: string; avg: number; count: number }[];
+  /** The latest 10 with a comment, hidden ones included. */
+  recent: { code: string; stars: number; comment: string; sent_at: string; hidden: boolean; reply: string | null; replied_at: string | null; dishes: string[] }[];
 };
 
 export type DeliveryReport = { zones: { zone: string; orders: number; fees: number; food: number }[] };

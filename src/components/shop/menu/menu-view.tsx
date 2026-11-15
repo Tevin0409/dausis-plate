@@ -26,7 +26,7 @@ function Section({ section, model, soldOutLine }: { section: MenuSection; model:
         {section.aside && <span className="flex-none text-[13px] font-semibold text-ink-soft">{section.aside}</span>}
       </div>
       {tiles ? (
-        <div className="flex flex-col gap-4 px-4 lg:px-0">
+        <div className="dish-tiles flex flex-col gap-4 px-4 lg:px-0">
           {section.dishes.map((d, i) => (
             <DishTile key={d.key} dish={d} open={model.open} day={model.dayName} index={i} soldOutLine={soldOutLine} />
           ))}

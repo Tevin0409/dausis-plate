@@ -1,17 +1,20 @@
 "use client";
 // The open section's cards (spec-2.12 "Sections"). Client components so the charts and tables can carry
 // their tooltips, sorting and row taps; they get plain data from the server page.
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { rankDishes } from "@/lib/reports/rank";
-import { formatKes } from "@/lib/format";
+import { addDays, formatKes, weekStart } from "@/lib/format";
+import { StarRow } from "@/components/shop/rating-card";
+import { dishLine, ratingsHref, sentLabel, starsWord } from "@/lib/ratings";
 import { creditNoteAmount, drawerLine, netOf, plainSigned } from "@/lib/reports/money";
-import { bucketLabel, grainFor, periodLabel, shortDay, type Period } from "@/lib/reports/period";
+import { bucketLabel, daysIn, grainFor, periodLabel, shortDay, type Period } from "@/lib/reports/period";
 import {
   CANCEL_LABEL, MODE_LABEL, PAY_CHOICE_LABEL, WEEKDAY_LONG, WEEKDAY_SHORT, hourLabel, minutesLabel,
-  type DeliveryReport, type DishesReport, type DishRow, type SalesReport, type TimesReport,
+  type DeliveryReport, type DishesReport, type DishRow, type RatingsReport, type SalesReport, type TimesReport,
 } from "@/lib/reports/types";
-import { BarChart, ChartCard, ChartTable, HBarChart, HeatGrid, Meter, type Col } from "./charts";
+import { BarChart, ChartCard, ChartTable, HBarChart, HeatGrid, LineChart, Meter, type Col } from "./charts";
 import { DownloadLink } from "./controls";
 
 const nb = (n: number) => new Intl.NumberFormat("en-KE", { maximumFractionDigits: 0 }).format(n);
@@ -275,6 +278,7 @@ export function DishesSection({ d, period, today }: { d: DishesReport; period: P
     { key: "l", head: "Limit used", cell: (r) => (r.limit_avg === null || r.limit_used_avg === null ? "—" : <Meter value={r.limit_used_avg} max={r.limit_avg} label={`${r.limit_used_avg} of ${r.limit_avg}`} />), sort: (r) => (r.limit_avg ? (r.limit_used_avg ?? 0) / r.limit_avg : -1) },
     { key: "s", head: "Sold out", cell: (r) => (r.sold_out_days > 0 ? `${r.sold_out_days} of ${r.limit_days ?? r.days_on} days${r.usual_sold_out_minutes !== null ? ` · usually ${minutesLabel(r.usual_sold_out_minutes)}` : ""}` : "—"), sort: (r) => r.sold_out_days },
     { key: "r", head: "Dish sales", cell: (r) => nb(r.revenue), num: true, sort: (r) => r.revenue },
+    { key: "ra", head: "Rating", cell: (r) => ratingCell(r), num: true, sort: (r) => (r.rating_avg === null ? -1 : r.rating_avg + r.rating_count / 1e6) },
   ];
   const List = ({ title, rows, none }: { title: string; rows: DishRow[]; none: string }) => (
     <Card title={title}>
@@ -374,10 +378,125 @@ export function DeliverySection({ d, period, today }: { d: DeliveryReport; perio
   );
 }
 
-// ───────────────────────── Ratings, Promos & ads (their slices merge later) ─────────────────────────
-export function RatingsSection() {
-  return <div className="grid grid-cols-1 gap-3.5 min-[1024px]:grid-cols-2"><Card title="Ratings"><Empty>No ratings in this period.</Empty></Card></div>;
+/** "4.6 ★ · 12": the period's not-hidden ratings on orders with the dish, from the 1st (Mama's own view). */
+function ratingCell(r: DishRow) {
+  if (r.rating_avg === null || r.rating_count === 0) return "—";
+  return (
+    <span className="whitespace-nowrap">
+      {Number(r.rating_avg).toFixed(1)} <span aria-hidden="true" className="text-amber">★</span>
+      <span className="sr-only"> stars</span> · {nb(r.rating_count)}
+      <span className="sr-only"> {r.rating_count === 1 ? "rating" : "ratings"}</span>
+    </span>
+  );
 }
+
+// ───────────────────────── Ratings ─────────────────────────
+const hiddenTail = (n: number) => (n > 0 ? `\u00a0·\u00a0${nb(n)}\u00a0hidden` : "");
+
+export function RatingsSection({ d, period, today }: { d: RatingsReport; period: Period; today: string }) {
+  const open = useOpenOrder();
+  if (d.count === 0 && d.hidden === 0) return <Empty>No ratings {period.from === period.to ? `on ${periodLabel(period, today)}` : "in this period"}.</Empty>;
+
+  // One slot per week (Mondays) the period touches; a week with no counted ratings is a gap.
+  const showWeeks = daysIn(period.from, period.to) >= 21 && d.count > 0;
+  const byWeek = new Map(d.by_week.map((w) => [w.week, w]));
+  const weeks: string[] = [];
+  for (let w = weekStart(period.from); w <= period.to; w = addDays(w, 7)) weeks.push(w);
+  const points = weeks.map((w) => {
+    const r = byWeek.get(w);
+    return {
+      key: w,
+      label: bucketLabel("week", w),
+      short: bucketLabel("week", w, true),
+      value: r ? Number(r.avg) : null,
+      tip: r ? `${bucketLabel("week", w)} · ${Number(r.avg).toFixed(1)} ★ · ${plural(r.count, "rating")}` : `${bucketLabel("week", w)} · No ratings`,
+    };
+  });
+  const allRatings = ratingsHref("all", { from: period.from, to: period.to });
+
+  return (
+    <div className="grid grid-cols-1 gap-3.5 min-[1024px]:grid-cols-2">
+      <Card title="Average rating" note="Hidden ratings are left out, as on the menu. Counted on the day each was sent.">
+        {d.count === 0 || d.avg === null ? (
+          <p className="text-[17px] font-semibold tabular-nums">No ratings counted{hiddenTail(d.hidden)}</p>
+        ) : (
+          <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 tabular-nums">
+            <span className="font-display text-[34px] leading-none">
+              {Number(d.avg).toFixed(1)}
+              <span aria-hidden="true" className="ml-1 text-[28px] text-amber">★</span>
+              <span className="sr-only"> stars</span>
+            </span>
+            <span className="text-[15px] font-semibold text-ink-soft">from {plural(d.count, "rating")}{hiddenTail(d.hidden)}</span>
+          </p>
+        )}
+      </Card>
+      <Card title="Replies">
+        <p className="text-[17px] font-semibold tabular-nums">
+          {d.with_comment === 0 ? "No comments in this period." : `Replied to ${nb(d.replied)} of ${plural(d.with_comment, "comment")}.`}
+        </p>
+      </Card>
+
+      {showWeeks && (
+        <ChartCard
+          id="ratings-week"
+          className="min-[1024px]:col-span-2"
+          title="Ratings by week, average stars"
+          note="Weeks start on Monday. A week with no ratings is left as a gap."
+          chart={<LineChart data={points} title="Ratings by week" />}
+          table={
+            <ChartTable
+              caption="Ratings by week"
+              rows={points}
+              rowKey={(r) => r.key}
+              cols={[
+                { key: "w", head: "Week", cell: (r) => r.label, sticky: true },
+                { key: "a", head: "Average stars", cell: (r) => (r.value === null ? "—" : r.value.toFixed(1)), num: true },
+                { key: "n", head: "Ratings", cell: (r) => nb(byWeek.get(r.key)?.count ?? 0), num: true },
+              ]}
+            />
+          }
+        />
+      )}
+
+      <Card title="Recent comments" wide note={d.recent.length === 10 ? "The latest 10 with a comment." : undefined}>
+        {d.recent.length === 0 ? <Empty>No comments in this period.</Empty> : (
+          <ol className="flex flex-col divide-y divide-line">
+            {d.recent.map((r) => (
+              <li key={`${r.code}${r.sent_at}`} data-hidden={r.hidden ? "" : undefined} className="flex flex-col gap-0.5 py-3 first:pt-0 last:pb-0">
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                  <span className="rating-dim inline-flex items-center gap-2">
+                    <StarRow stars={r.stars} size={15} />
+                    <span className="sr-only">{starsWord(r.stars)}.</span>
+                  </span>
+                  <span className="rating-dim text-[13px] text-ink-soft tabular-nums">
+                    {sentLabel(r.sent_at)} ·{" "}
+                    <button type="button" onClick={() => open(r.code)} className="press inline-flex min-h-11 items-center font-semibold text-teal-deep focus-visible:outline-2 focus-visible:outline-teal-deep [&:hover]:underline" aria-label={`Open order ${r.code}`}>{r.code}</button>
+                  </span>
+                  {r.hidden && <span className="rounded-full bg-sand px-2.5 py-0.5 text-[12px] font-semibold text-ink-soft">Hidden · not in the averages</span>}
+                </div>
+                <div className="rating-dim flex flex-col gap-1.5">
+                  {r.dishes.length > 0 && <p className="text-[13px] text-ink-soft [overflow-wrap:anywhere]">{dishLine(r.dishes)}</p>}
+                  <blockquote className="whitespace-pre-line text-[15px] leading-relaxed [overflow-wrap:anywhere]">“{r.comment}”</blockquote>
+                  {r.reply && (
+                    <div className="rounded-xl bg-teal-tint p-3.5">
+                      <p className="text-[13px] font-semibold text-ink-soft">Your reply{r.replied_at ? ` · ${sentLabel(r.replied_at)}` : ""}</p>
+                      <p className="mt-1 whitespace-pre-line text-[15px] [overflow-wrap:anywhere]">{r.reply}</p>
+                    </div>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+        <Link href={allRatings} className="press -mb-1 inline-flex min-h-11 items-center self-start text-[14px] font-semibold text-teal-deep focus-visible:outline-2 focus-visible:outline-teal-deep touch-manipulation [&:hover]:underline">
+          All ratings in this period
+        </Link>
+      </Card>
+    </div>
+  );
+}
+
+// ───────────────────────── Promos & ads (2.11 merges later) ─────────────────────────
 export function PromosSection() {
   return (
     <div className="grid grid-cols-1 gap-3.5 min-[1024px]:grid-cols-2">

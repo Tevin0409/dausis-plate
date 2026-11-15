@@ -131,6 +131,103 @@ export function BarChart({ data, tone = "teal", height = 180, title }: { data: D
   );
 }
 
+/**
+ * A line on a fixed axis (Ratings by week: 1 to 5 stars). One point per slot; a slot with no value is a
+ * gap in the line, never a zero. Same hit areas, keys and live region as BarChart.
+ */
+export function LineChart({ data, tone = "amber", height = 180, title, min = 1, max = 5 }: {
+  data: (Omit<Datum, "value"> & { value: number | null })[];
+  tone?: Tone;
+  height?: number;
+  title: string;
+  min?: number;
+  max?: number;
+}) {
+  const [box, w] = useWidth();
+  const [active, setActive] = useState<number | null>(null);
+  const live = useId();
+  const padL = 34;
+  const padR = 10;
+  const padB = 22;
+  const padT = 14;
+  const plotW = Math.max(w - padL - padR, 10);
+  const plotH = height - padB - padT;
+  const n = data.length;
+  const slot = n ? plotW / n : plotW;
+  const lines = Array.from({ length: max - min + 1 }, (_, i) => min + i);
+  const every = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(plotW / 56))));
+  const x = (i: number) => padL + i * slot + slot / 2;
+  const y = (v: number) => padT + plotH - ((Math.min(Math.max(v, min), max) - min) / (max - min)) * plotH;
+  // Runs of weeks with a value; each run is one path, so an empty week breaks the line.
+  const runs: number[][] = [];
+  data.forEach((d, i) => {
+    if (d.value === null) return;
+    const last = runs[runs.length - 1];
+    if (last && last[last.length - 1] === i - 1) last.push(i);
+    else runs.push([i]);
+  });
+  let latest = -1;
+  for (let i = n - 1; i >= 0; i--) if (data[i]!.value !== null) { latest = i; break; }
+
+  const onKey = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (!n) return;
+      const k = e.key;
+      if (k === "ArrowRight" || k === "ArrowLeft" || k === "Home" || k === "End") {
+        e.preventDefault();
+        setActive((a) => (k === "Home" ? 0 : k === "End" ? n - 1 : Math.min(n - 1, Math.max(0, (a ?? (k === "ArrowRight" ? -1 : n)) + (k === "ArrowRight" ? 1 : -1)))));
+      } else if (k === "Escape") setActive(null);
+    },
+    [n],
+  );
+
+  const at = active !== null ? data[active] : undefined;
+  return (
+    <div
+      ref={box}
+      className="relative w-full touch-manipulation select-none [-webkit-tap-highlight-color:transparent] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-deep"
+      tabIndex={0}
+      role="group"
+      aria-label={`${title}. Use the arrow keys to move between weeks.`}
+      aria-describedby={live}
+      onKeyDown={onKey}
+      onBlur={() => setActive(null)}
+      onPointerLeave={(e) => e.pointerType === "mouse" && setActive(null)}
+    >
+      <span id={live} role="status" aria-live="polite" className="sr-only">{at?.tip ?? ""}</span>
+      {w > 0 && (
+        <svg width={w} height={height} aria-hidden="true" className="block">
+          {lines.map((v) => (
+            <g key={v}>
+              <line x1={padL} x2={w - padR} y1={y(v)} y2={y(v)} stroke="var(--color-line)" strokeWidth={1} />
+              <text x={padL - 8} y={y(v) + 4} textAnchor="end" fontSize={11} fill="var(--color-ink-soft)" className="tabular-nums">{v}</text>
+            </g>
+          ))}
+          {active !== null && <line x1={x(active)} x2={x(active)} y1={padT} y2={padT + plotH} stroke="var(--color-sand-deep)" strokeWidth={1} />}
+          {runs.filter((r) => r.length > 1).map((r) => (
+            <polyline key={r[0]} points={r.map((i) => `${x(i)},${y(data[i]!.value!)}`).join(" ")} fill="none" stroke={FILL[tone]} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+          ))}
+          {data.map((d, i) => {
+            const label = i % every === 0 || i === n - 1;
+            const crowd = i === n - 1 && i % every !== 0 && i - Math.floor(i / every) * every < every * 0.6;
+            return (
+              <g key={d.key}>
+                {label && !crowd && <text x={x(i)} y={height - 5} textAnchor="middle" fontSize={11} fill="var(--color-ink-soft)">{d.short ?? d.label}</text>}
+                {d.value !== null && <circle cx={x(i)} cy={y(d.value)} r={active === i ? 5.5 : 4} fill={FILL[tone]} stroke="var(--color-paper)" strokeWidth={2} />}
+                {i === latest && d.value !== null && active === null && (
+                  <text x={x(i)} y={y(d.value) - 9} textAnchor={i > n - 2 && n > 1 ? "end" : "middle"} fontSize={12} fontWeight={700} fill="var(--color-ink)" className="tabular-nums">{d.value.toFixed(1)}</text>
+                )}
+                <rect x={padL + i * slot} y={0} width={slot} height={padT + plotH} fill="transparent" onPointerEnter={(e) => e.pointerType === "mouse" && setActive(i)} onPointerDown={(e) => setActive((a) => (e.pointerType !== "mouse" && a === i ? null : i))} />
+              </g>
+            );
+          })}
+        </svg>
+      )}
+      {at && w > 0 && <Tip x={x(active!)} y={at.value === null ? padT + plotH / 2 : y(at.value)} width={w} text={at.tip} />}
+    </div>
+  );
+}
+
 /** A rect with only the data end (the top) rounded, anchored on the baseline. */
 function roundTop(x: number, y: number, w: number, h: number, r: number) {
   const rr = Math.min(r, h, w / 2);

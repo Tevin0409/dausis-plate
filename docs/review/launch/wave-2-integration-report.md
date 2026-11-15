@@ -158,3 +158,71 @@ What held up:
 - **Counts:** a count of 1 or 2 never shows, because the average needs 3 ratings. The screen-reader label still says "rating" or "ratings" correctly.
 
 No break-ui fixes in code: #1 is a 2.8 layout decision and #2 is a schema rule, both open for orch.lead.
+
+## Step 4: the Reports Ratings tab (fix-wave-2b.md Step 4)
+
+Uncommitted, waiting for review.r1's re-check.
+
+**Database** (`supabase/migrations/20261116100400_report_ratings.sql`, a new migration; no committed one edited)
+- `report_ratings(p_from, p_to)` follows the other report RPCs: `report_guard`, security definer, `search_path = ''`, a 10 s timeout, revoked from public and anon, granted to authenticated. It returns:
+  - `avg` (hidden left out), `count`, `hidden`;
+  - `with_comment`, `replied`;
+  - `by_week` (Mondays, not hidden; a week with no counted rating has no row);
+  - `recent` (the latest 10 with a comment, hidden ones included with `hidden`, plus the reply and the distinct dish names).
+  - A rating counts on the Nairobi day of `order_ratings.created_at` (sent), not the order's day.
+- `report_dishes` is the RW2B-03 body plus `rating_avg` and `rating_count`: the average of the not-hidden ratings sent in the period on orders that had the dish (once per distinct dish), shown from the 1st rating. A dish rated in the period stays listed even with no plates sold in it.
+- `list_ratings` gains optional `p_from` and `p_to` (Nairobi days sent), so "All ratings in this period" opens 2.10's screen on the same period. The argument list changed, so it is dropped and created again with the same grants.
+
+**App**
+- `RatingsSection` has five cards:
+  - **Average rating:** "3.8 ★ from 119 ratings · 2 hidden", with an amber star. When every rating is hidden it says "No ratings counted · 3 hidden".
+  - **Replies:** "Replied to 3 of 80 comments."
+  - **Ratings by week:** from 21 days; shorter periods show the figure only.
+  - **Recent comments:** a hidden one is dimmed with 2.10's pill, the reply sits in the teal-tint panel, and the order code opens the order sheet.
+  - **All ratings in this period:** a link to the Ratings screen.
+  - A period with no ratings says "No ratings in this period."
+- `LineChart` (charts.tsx):
+  - a 2 px amber line on a fixed 1–5 axis, with 8 px markers and a 2 px paper ring;
+  - a week with no ratings breaks the line and its tooltip says "No ratings";
+  - only the latest value is labelled;
+  - like `BarChart`: one Tab stop, arrow/Home/End keys, a live region, tap and hover tooltips, and Show as table.
+  - No new motion: it reuses `.rpt-tip`, and the section uses `.rpt-in`.
+- **Dishes:** a "Rating" column ("3.9 ★ · 22", "—" when there are none), sortable. The dishes CSV gains "Rating (stars)" and "Ratings". The spec lists no CSV for the Ratings tab, so it has no Export button.
+- **Ratings screen:** reads `?from&to`, shows "Sent 5 Oct – 15 Nov · Show all dates", and keeps the dates in the filter links and in "Show 30 more".
+- **Seed:** ratings on about 3 in 4 completed orders before today, with exactly 2 hidden and 3 replied (spec-2.12 seed item 7). One hidden and one reply are among the latest comments. Days 14–21 ago have none, so the weekly chart shows a gap. The dishes' public totals are recounted from the not-hidden ratings.
+
+**Tests**
+- `report_ratings` and `list_ratings` with dates are added to "staff and anon are refused every report…".
+- A new hand-counted case in March 2020 covers:
+  - avg, count, hidden, comments, replies;
+  - a rating sent at 00:30 Nairobi that falls on the next day, and one just outside the period;
+  - weeks with only a hidden rating or none show as gaps;
+  - recent order, hidden flag, reply and dishes;
+  - "all hidden" gives `avg null, count 0, hidden 1`;
+  - per-dish ratings, including dishes with no plates in the period;
+  - `list_ratings` with dates, plus the Hidden filter.
+
+**Checks**
+- typecheck 0, lint 0 (no warnings), build 0 (with the server stopped).
+- Full suite on slot 1: **534 pass, 0 fail**.
+- Slot 1 is reset to the seed.
+
+**Evidence** (`evidence-wave-2-integration/`)
+- `step4-contact-sheet.png`, at 375:
+  - six weeks with the gap, the Hidden pill and a reply;
+  - this week (figure only);
+  - a week with no ratings;
+  - the Ratings screen opened with dates.
+  - It also has the Dishes Rating column at 1280.
+- `step4-ratings-1280.png`.
+- `step4-breakui-320.png`.
+
+**break-ui (320 px)**
+
+Worst case: a 500-character unbroken comment, a 480-character reply, a 42-character dish name.
+- No sideways scroll (scrollWidth 320), and the comment and reply wrap inside the card.
+- Fragile, a decision rather than a fix: a 500-character comment shows in full in Recent comments, so one card can get very tall. The spec says to show the comment, so I left it. A 4-line clamp with "All ratings" for the full text is the alternative.
+- Held up: no ratings, all hidden, a week with no ratings, one-week periods, "1 rating" and "1 comment" plurals.
+
+- **Decided (orch.lead, 11-15 04:28Z):** keep long comments in full in Recent comments, as the spec says. It shows only 10 and is there to be read. No clamp.
+- **RW2B-05 (review.r1 Re-check 3, low), fixed:** a malformed date in the Ratings screen URL (`?from=2026-99-01`) threw a RangeError. `parseDates` now uses `isDay` from `src/lib/reports/period.ts`, so a bad date shows all dates instead. Test: `tests/unit/ratings-dates.test.ts`. Typecheck, lint and build pass; the full suite is 538 pass, 0 fail.

@@ -48,6 +48,8 @@ export function DishTile({ dish, open, day, index }: CardProps & { index: number
   return (
     <article
       className={`dish-card relative overflow-hidden rounded-[var(--r-lg)] bg-paper p-[18px] shadow-[var(--shadow-card)] ${
+        week ? "" : `dish-tile-special ${flip ? "is-flip" : ""}`
+      } ${
         week ? "min-h-[112px] lg:min-h-[196px] xl:min-h-[200px]" : "min-h-[176px] lg:min-h-[196px] xl:min-h-[200px]"
       } ${week ? `pr-[104px] ${flip ? "max-lg:pl-[18px]" : ""}` : flip ? "pl-[124px]" : "pr-[124px]"} ${
         flip ? "lg:pl-[150px] lg:pr-[18px] xl:pl-[200px]" : "lg:pr-[150px] xl:pr-[200px]"
@@ -57,7 +59,7 @@ export function DishTile({ dish, open, day, index }: CardProps & { index: number
         id={dish.dishId}
         photo={dish.photo}
         dim={dish.soldOut}
-        className={`absolute ${
+        className={`dish-tile-plate absolute ${
           week
             ? "right-[14px] top-[18px] size-[76px]"
             : `${flip ? "-left-[34px]" : "-right-[34px]"} top-[18px] size-[150px]`

@@ -497,7 +497,7 @@ export type Database = {
       set_till_number: { Args: { p_till: string }; Returns: string | null };
       rate_order: { Args: { p_token: string; p_stars: number; p_comment: string | null }; Returns: Json };
       list_ratings: {
-        Args: { p_show?: string; p_before?: string | null };
+        Args: { p_show?: string; p_before?: string | null; p_from?: string | null; p_to?: string | null };
         Returns: {
           order_id: string;
           code: string;
@@ -586,6 +586,7 @@ export type Database = {
       report_dishes: { Args: { p_from: string; p_to: string }; Returns: Json };
       report_times: { Args: { p_from: string; p_to: string }; Returns: Json };
       report_delivery: { Args: { p_from: string; p_to: string }; Returns: Json };
+      report_ratings: { Args: { p_from: string; p_to: string }; Returns: Json };
       report_orders_csv: { Args: { p_from: string; p_to: string }; Returns: Json[] };
       report_credit_notes_csv: { Args: { p_from: string; p_to: string }; Returns: Json[] };
       nairobi_time: { Args: never; Returns: string };

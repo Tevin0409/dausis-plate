@@ -2,6 +2,7 @@
 // Ratings screen. Every rule lives in the database (rate_order, list_ratings, set_rating_hidden,
 // reply_to_rating); this file only words what it returns.
 import { z } from "zod";
+import { isDay } from "@/lib/reports/period";
 
 export const COMMENT_MAX = 500;
 /** The counter appears from here (spec: "At 400 characters a counter appears"). */
@@ -112,6 +113,24 @@ export type OwnerRating = {
   replied_at: string | null;
   is_new: boolean;
 };
+
+/** The days a rating was sent, from Reports' "All ratings" link (?from=&to=, Nairobi days). Both or neither. */
+export type RatingDates = { from: string; to: string } | null;
+/** A malformed or impossible day (2026-99-01, 2026-02-31) gives null: the screen shows all dates. */
+export function parseDates(from: unknown, to: unknown): RatingDates {
+  return isDay(from) && isDay(to) && from <= to ? { from, to } : null;
+}
+/** The Ratings screen's address for a filter, keeping the dates. */
+export function ratingsHref(show: RatingFilter, dates: RatingDates): string {
+  const q = new URLSearchParams();
+  if (show !== "all") q.set("show", show);
+  if (dates) {
+    q.set("from", dates.from);
+    q.set("to", dates.to);
+  }
+  const s = q.toString();
+  return s ? `/dashboard/ratings?${s}` : "/dashboard/ratings";
+}
 
 export const PAGE_SIZE = 30;
 export const REPLY_LONG = "Replies can be at most 500 characters.";
