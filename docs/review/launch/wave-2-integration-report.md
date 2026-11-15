@@ -75,3 +75,86 @@ Each merge commit's body lists how its conflicts were resolved. 2.6's reduced-mo
 
 ## Step 3 (next)
 feature/ratings is committed (695753d). Step 3 merges it and rebuilds 2.10's get_order_status on the composed one, in a migration after 20261116100200. The contract test then gains the rating fields. That waits for review.r1's re-check of this step.
+
+---
+
+# Step 3: 2.10 ratings on the combined branch
+
+Step 2's fixes are committed: 8ab7dd9, 9802d6a, 4aaf77e, 62b5c7d, df71c7e (review.r1 approved).
+
+## Merge (committed, Tevin as author)
+**7254e08** merges `feature/ratings` (695753d). Its body lists the conflict resolutions:
+- Menu and dish pages: 2.8's menu kept. The dish page shows 2.10's rating line under the name.
+- Order page: 2.10's rating and Google cards sit right below the status band (spec-2.10), then 2.8's where card and save link. The page schema has every slice's fields.
+- More and nav: Reports and Ratings each have their own row.
+- Settings: the phone, address and Google link cards are all kept.
+- globals.css: 2.10's block and `--ease-in-out` are added at the end; 2.8 and 2.12 motion is unchanged.
+
+## Fixes (uncommitted, for review.r1's re-check)
+2.10's migration (`20261114000000_ratings.sql`) started from 2.9's base, so it ran into the same problem as RW2B-01:
+- **get_order_status:** 2.10's version runs before the composed one (`20261116100000`), so after the merge the rating fields were simply gone. The rating card would never have shown.
+- **todays_menu:** 2.10's view dropped 2.7's rule that a dish is sold out when every one of its choices is out.
+- **customer_menu:** the shop now reads 2.8's `customer_menu()`, not `todays_menu`, so 2.10's averages never reached the menu cards.
+
+`supabase/migrations/20261116100300_ratings_compose.sql`:
+1. `get_order_status`: the composed function plus `rating`, `rate_dishes`, `rate_until` and `google_review_url`, exactly as 2.10 defined them.
+   - Same signature, `security definer` and token-only filter; `create or replace` keeps the grant.
+   - The comment text and whether a rating is hidden are never returned.
+2. `todays_menu`: owner_screens' view, plus 2.10's `rating_avg` and `rating_count` at the end. `choices_all_out` is back in `sold_out`.
+3. `customer_menu()`: the same two columns at the end. Its return type changes, so the migration drops it, creates it again and re-grants execute to anon and authenticated.
+
+App:
+- `menu-model.ts`, `menu-server.ts` and `database.types.ts`: each menu dish carries `ratingAvg` and `ratingCount`. Specials take them from `customer_menu`; regulars use `dishAverage` on the dish's totals.
+- `dish-cards.tsx`: 2.10's `RatingMeta` sits next to the price on tiles and rows, wrapping under it when there is no room.
+
+Tests:
+- `tests/db/order-status-contract.test.ts`:
+  - KEYS now includes the four rating fields.
+  - Before completion: `rating` is null, `rate_dishes` lists the dishes, and `rate_until` and the Google link are null.
+  - A new test covers a completed, rated, replied-to and hidden order. 2.8's and 2.9's fields stay. `rating` keys are exactly `comment_sent, reply, sent_at, stars`, and the comment text appears nowhere in the payload.
+  - A new test covers the menus: `rating_avg` from the 3rd rating on both menus (4.3, then null at 2), and every choice out makes the dish sold out on both.
+- `tests/unit/menu-model.test.ts`: fixtures have the new fields, and a test checks that the averages reach specials and regulars.
+- `tests/db/ratings.test.ts`: the "pilau twice" test passed the fixtures' option as a choice, but in the merged fixtures (2.6) it is an extra. It now passes it as an extra, which keeps two lines of the same dish.
+
+## Checks (07:01 Nairobi, Sunday 15 Nov)
+- `$D reset` on slot 1 from this worktree: OK (29 migrations plus seed). Reset again after the screenshots.
+- `bun run typecheck`, `bun run lint` and `bun run build`: pass (build run with the dev server stopped).
+- Full suite on slot 1: **533 pass, 0 fail, 0 skip.**
+- Evidence: `docs/review/launch/evidence-wave-2-integration/step3-contact-sheet.png`.
+  - Menu at 375, 320 and 1280, with ratings on tiles and rows.
+  - Dish page at 375.
+  - A completed, rated order with Mama's reply, at 375 and 1280.
+  - More at 375; Ratings and Settings at 1280.
+  - The "N" badge is Next's dev overlay.
+- Not verified: Realtime.
+
+## Open (not in this step)
+- 2.12's Reports says ratings reports wait for 2.10 to be merged. No ratings report RPC exists yet, so Reports still shows its empty state for ratings.
+- 2.11 merges last and builds on these composed versions of `get_order_status`, `customer_menu` and `todays_menu`.
+
+## break-ui: menu cards with stars (07:10 Nairobi)
+Worst-case data on slot 1, put in through the database the way real data arrives (no component edits):
+- **Long names:**
+  - a today's special and a regular, 95 characters each, both with "★ 5.0 (12,345)" (12,345 ratings);
+  - a week dish, 98 characters, with "★ 4.6 (38)".
+- **No rating:** a 94-character regular with 0 ratings, and a short-named special with none.
+
+Checked at 320, 375, 375 with 200% root text, and 1280. Evidence: `evidence-wave-2-integration/step3-breakui-sheet.png`.
+
+| # | Severity | Field | Worst case | What happens | Fix |
+|---|---|---|---|---|---|
+| 1 | Ugly (2.8, not the stars) | special tile name | "Coastal Coconut Fish Curry…" at 200% text, 375 | The text column beside the 150 px plate is about 150 px wide, so `overflow-wrap:anywhere` splits single words: "Coconu / t Fish", "Mukim / o &". | At large text, put the plate above the text, or shrink it, so the column is wide enough for a whole word. This is a 2.8 layout decision, so it's reported, not fixed here. `dish-cards.tsx` DishTile. |
+| 2 | Fragile | dish name | 95 characters | The dish editor caps names at 80 (`dish-editor.tsx:183`), but the database has no limit (`init.sql:45` only checks for an empty name). Seed, SQL or a future import can save longer names. | A matching `check (length(name) <= 80)` in a migration. Nothing breaks today, since cards clamp to 3 lines. |
+
+What held up:
+- **"★ 5.0 (12,345)":** never wraps inside itself (`whitespace-nowrap`, tabular figures).
+  - On a 320 tile it drops under the price.
+  - On 375 tiles and phone rows it sits beside the price.
+  - At 1280 it sits under the description. The price and + stay on the right.
+- **No rating:** nothing renders, with no empty gap, no "0" and no orphaned star (tiles and rows at every width).
+- **95-character names:** clamped to 3 lines with an ellipsis on tiles and rows. The full name is on the dish page.
+  - The + button and "Sold out" never get pushed off (`flex-none`).
+  - Plates keep their size.
+- **Counts:** a count of 1 or 2 never shows, because the average needs 3 ratings. The screen-reader label still says "rating" or "ratings" correctly.
+
+No break-ui fixes in code: #1 is a 2.8 layout decision and #2 is a schema rule, both open for orch.lead.
