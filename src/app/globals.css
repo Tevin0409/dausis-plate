@@ -46,6 +46,7 @@
   --dur-sheet: 280ms;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
 body {
@@ -408,6 +409,74 @@ html:has(.board) {
   }
   @starting-style {
     .dish-in {
+      transform: none;
+    }
+  }
+}
+
+/* Ratings (spec-2.10 Motion). Star press: .94, since 3 % can't be seen on a 52 px button. The fill
+   changes at once. Touch: no tap flash, no double-tap delay, no text selection on a long press. */
+.star-btn {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-press) var(--ease-out);
+}
+.star-btn:active {
+  transform: scale(0.94);
+}
+@media (hover: hover) and (pointer: fine) {
+  .star-btn:hover {
+    background: var(--color-cream);
+  }
+}
+/* Rating card → thanks card: a crossfade in one place. The form fades out; the thanks card fades
+   in from 6 px below. Only after a send in this tab (.rate-in), never on page load. */
+.rate-out {
+  transition: opacity var(--dur-exit) var(--ease-out);
+}
+.rate-out[data-leaving] {
+  opacity: 0;
+  pointer-events: none;
+}
+.rate-in {
+  transition:
+    opacity var(--dur-small) var(--ease-out),
+    transform var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .rate-in {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+/* Owner's Ratings screen: a hidden card's content steps back to 60 %, and back again. */
+.rating-dim {
+  transition: opacity var(--dur-small) var(--ease-in-out);
+}
+[data-hidden] .rating-dim {
+  opacity: 0.6;
+}
+/* A reply just sent, and the cards "Show 30 more" brings: opacity only, no stagger. Only on elements
+   that are new in this visit (the class is added by the client), never on page load. */
+.fade-in {
+  transition: opacity var(--dur-small) var(--ease-out);
+}
+@starting-style {
+  .fade-in {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .star-btn:active {
+    transform: none;
+  }
+  .rate-in {
+    transition: opacity var(--dur-small) var(--ease-out);
+  }
+  @starting-style {
+    .rate-in {
       transform: none;
     }
   }

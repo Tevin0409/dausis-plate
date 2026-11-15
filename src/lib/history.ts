@@ -7,7 +7,7 @@ import { REASON_LABEL, TITLES } from "@/lib/board";
 import type { Grant } from "@/lib/permissions";
 import { daysLabel } from "@/lib/planner";
 
-export const AREAS = ["menu", "orders", "tables", "team", "settings"] as const;
+export const AREAS = ["menu", "orders", "tables", "team", "settings", "ratings"] as const;
 export type Area = (typeof AREAS)[number];
 
 export type ChangeRow = {
@@ -233,6 +233,23 @@ function rest(row: ChangeRow): Piece[] {
       if (!now) return [t(`removed the till number${was ? ` ${was}` : ""}.`)];
       return [t(was ? `changed the till number from ${was} to ${now}.` : `set the till number to ${now}.`)];
     }
+    case "settings.google_review":
+      return [t("changed the Google review link.")]; // the spec's one line for saving or clearing
+
+    // ── ratings (spec-2.10). The reply text is never copied here.
+    case "ratings.hide": {
+      const n = num(a.stars);
+      return [t("hid the rating for "), code, t(n ? ` (${n} ★).` : ".")];
+    }
+    case "ratings.show":
+      return [t("showed the rating for "), code, t(" again.")];
+    case "ratings.reply":
+      return [t("replied to "), code, t("’s rating.")];
+    case "ratings.reply_change":
+      return [t("changed the reply to "), code, t(".")];
+    case "ratings.reply_remove":
+      return [t("removed the reply to "), code, t(".")];
+
     case "kitchen.close_early":
       return [t(`closed the kitchen early${str(a.at) ? ` at ${timeLabel(str(a.at)!)}` : ""}.`)];
     case "kitchen.reopen":

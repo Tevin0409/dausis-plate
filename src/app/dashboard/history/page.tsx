@@ -10,7 +10,7 @@ import { WhoSelect } from "./who-select";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "History" };
 
-const LABEL: Record<Area | "all", string> = { all: "All", menu: "Menu", orders: "Orders", tables: "Tables", team: "Team", settings: "Settings" };
+const LABEL: Record<Area | "all", string> = { all: "All", menu: "Menu", orders: "Orders", tables: "Tables", team: "Team", settings: "Settings", ratings: "Ratings" };
 // 44 px chips that wrap onto a second line at 375 rather than scroll (spec-2.3 "Phone layout").
 const CHIP =
   "press inline-flex min-h-11 items-center rounded-full px-4 text-[15px] font-semibold touch-manipulation select-none [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-deep";
@@ -57,7 +57,7 @@ export default async function HistoryPage({ searchParams }: Props) {
     <div className="mx-auto flex max-w-[760px] flex-col gap-4 pb-6">
       <header>
         <h1 className="font-display text-[34px] leading-tight">History</h1>
-        <p className="mt-1 text-[15px] text-ink-soft">Every change to the menu, prices, tables, team, settings and orders, newest first.</p>
+        <p className="mt-1 text-[15px] text-ink-soft">Every change to the menu, prices, tables, team, settings, orders and ratings, newest first.</p>
       </header>
 
       <div className="flex flex-col gap-2">

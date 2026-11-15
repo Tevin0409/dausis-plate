@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 import { CheckIcon, PhoneIcon } from "@/components/icons";
 import { AutoRefresh } from "@/components/shop/auto-refresh";
+import { GoogleReviewCard, RatingCard } from "@/components/shop/rating-card";
 import { TableRequestButtons } from "@/components/shop/table-request-buttons";
 import { TillLine } from "@/components/shop/till-line";
 import { Narrow } from "@/components/shop/ui";
@@ -12,6 +13,7 @@ import { formatKes, timeLabel } from "@/lib/format";
 import { closingTime } from "@/lib/kitchen";
 import { createClient } from "@/lib/supabase/server";
 import { must } from "@/lib/supabase/result";
+import { customerRating } from "@/lib/ratings";
 import { customerRequests } from "@/lib/table-requests";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +43,11 @@ const status = z.object({
   // spec-2.9: table requests work only on the order's own day, at its table.
   placed_today: z.boolean().optional(),
   requests: customerRequests.optional(),
+  // spec-2.10: the customer's own rating (never its comment), and what the rating card needs.
+  rating: customerRating.optional(),
+  rate_dishes: z.array(z.string()).optional(),
+  rate_until: z.string().nullable().optional(),
+  google_review_url: z.string().nullable().optional(),
   items: z.array(z.object({ name: z.string(), option_label: z.string().nullable(), quantity: z.number(), unit_price_kes: z.number() })),
 });
 
@@ -95,6 +102,9 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
 
   const requests = o.mode === "dine_in" && !cancelled && o.placed_today && o.requests ? o.requests : null;
   const requestOpen = !!requests && [requests.waiter, requests.bill].some((r) => r && !r.answered_at);
+  // spec-2.10: the window is the server's (rate_until from get_order_status), checked at render.
+  const completed = o.status === "completed";
+  const rateOpen = !!o.rate_until && Date.parse(o.rate_until) > Date.now();
 
   return (
     <Narrow>
@@ -156,6 +166,13 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ to
           );
         })}
       </ol>
+
+      {completed && (
+        <>
+          <RatingCard token={token} dishes={o.rate_dishes ?? []} rating={o.rating ?? null} open={rateOpen} />
+          {o.google_review_url && <GoogleReviewCard url={o.google_review_url} />}
+        </>
+      )}
 
       <section aria-label="Order summary" className="mx-5 mt-5 flex flex-col gap-2 rounded-[18px] border border-sand bg-white px-4 py-3.5 text-sm">
         {o.items.map((it, i) => (

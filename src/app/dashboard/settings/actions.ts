@@ -2,6 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { nairobiToday } from "@/lib/format";
+import { googleLinkProblem } from "@/lib/ratings";
 import { createClient, getStaff } from "@/lib/supabase/server";
 import { refusal } from "@/lib/supabase/refusal";
 
@@ -163,4 +164,28 @@ export async function saveTill(till: string): Promise<SettingsResult> {
   if (error) return fail("saveTill", error, error.code === "P0001" ? error.message : message);
   refreshEverywhere();
   return { ok: true };
+}
+
+// ───────── Google review link (spec-2.10) ─────────
+
+export type GoogleLinkResult = { ok: true; url: string | null } | { ok: false; error: string };
+
+/** Empty clears it, and customers then see no Google button. The database checks https, no spaces and 500. */
+export async function saveGoogleReviewUrl(url: string): Promise<GoogleLinkResult> {
+  const message = "Couldn’t save. The link hasn’t changed. Try again.";
+  const value = url.trim();
+  const problem = googleLinkProblem(value);
+  if (problem) return { ok: false, error: problem };
+  const db = await ownerClient();
+  if (!db) {
+    fail("saveGoogleReviewUrl", null, message);
+    return { ok: false, error: message };
+  }
+  const { data, error } = await db.rpc("set_google_review_url", { p_url: value });
+  if (error) {
+    const r = fail("saveGoogleReviewUrl", error, error.code === "P0001" ? error.message : message);
+    return { ok: false, error: r && !r.ok ? r.error : message };
+  }
+  refreshEverywhere();
+  return { ok: true, url: data ?? null };
 }

@@ -1,4 +1,6 @@
 import Image from "next/image";
+import { RatingMeta } from "@/components/shop/rating-meta";
+import { dishAverage } from "@/lib/ratings";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { AddButton } from "@/components/shop/add-button";
@@ -31,7 +33,7 @@ export default async function MenuPage() {
     supabase.from("todays_menu").select("*").order("sort_order").returns<TodaysMenuRow[]>(),
     supabase
       .from("dishes")
-      .select("id, name, description, price_kes, photo_thumb_url, category, unavailable_on")
+      .select("id, name, description, price_kes, photo_thumb_url, category, unavailable_on, rating_count, rating_total")
       .eq("is_regular", true)
       .eq("archived", false)
       .order("category")
@@ -141,7 +143,10 @@ export default async function MenuPage() {
                           <Link href={`/dish/${d.id}`} className="flex min-w-0 flex-1 flex-col gap-0.5">
                             <span className="text-base font-semibold">{d.name}</span>
                             <span className="line-clamp-2 text-[13px] text-ink-soft">{d.onSale ? d.description : soldOutLine}</span>
-                            <span className="text-[15px] font-bold">{formatKes(d.price_kes)}</span>
+                            <span className="flex flex-wrap items-center gap-x-2.5">
+                              <span className="text-[15px] font-bold">{formatKes(d.price_kes)}</span>
+                              <RatingMeta avg={dishAverage(d.rating_count, d.rating_total)} count={d.rating_count} />
+                            </span>
                           </Link>
                           {d.onSale &&
                             (hasOptions.has(d.id) ? (
@@ -206,7 +211,10 @@ function RotatingCard({ dish, hasOptions }: { dish: TodaysMenuRow; hasOptions: b
         {dish.description && <p className="hidden text-sm text-ink-soft md:line-clamp-2">{dish.description}</p>}
         <span className={`text-[13px] font-semibold ${dish.kind === "week" ? "text-ink-soft" : "text-coral-ink"}`}>{status}</span>
         <div className="mt-auto flex items-center justify-between pt-0.5">
-          <span className="text-base font-bold">{formatKes(dish.price_kes)}</span>
+          <span className="flex flex-wrap items-center gap-x-2.5">
+            <span className="text-base font-bold">{formatKes(dish.price_kes)}</span>
+            <RatingMeta avg={dish.rating_avg} count={dish.rating_count} />
+          </span>
           {orderable &&
             (hasOptions ? (
               <Link href={href} aria-label={`Choose options for ${dish.name}`} className="flex size-11 items-center justify-center rounded-full bg-teal-deep text-white">

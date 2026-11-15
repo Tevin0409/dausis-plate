@@ -1,4 +1,6 @@
 import Image from "next/image";
+import { RatingMeta } from "@/components/shop/rating-meta";
+import { dishAverage } from "@/lib/ratings";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BackIcon } from "@/components/icons";
@@ -22,7 +24,7 @@ export default async function DishPage({ params, searchParams }: Props) {
   const supabase = await createClient();
 
   const [dishResult, optionsResult, todaysResult, kitchen] = await Promise.all([
-    supabase.from("dishes").select("id, name, description, price_kes, photo_url, is_regular, unavailable_on").eq("id", id).maybeSingle(),
+    supabase.from("dishes").select("id, name, description, price_kes, photo_url, is_regular, unavailable_on, rating_count, rating_total").eq("id", id).maybeSingle(),
     supabase.from("dish_options").select("id, label, price_delta_kes, is_default").eq("dish_id", id).order("sort_order"),
     entryId ? supabase.from("todays_menu").select("*").eq("entry_id", entryId).returns<TodaysMenuRow[]>().maybeSingle() : Promise.resolve({ data: null, error: null }),
     getKitchen(),
@@ -68,6 +70,7 @@ export default async function DishPage({ params, searchParams }: Props) {
             </div>
           )}
           <h1 className="font-display text-[30px] leading-[1.08] md:text-[40px]">{dish.name}</h1>
+          <RatingMeta avg={dishAverage(dish.rating_count, dish.rating_total)} count={dish.rating_count} />
           {dish.description && <p className="text-[15px] leading-normal text-ink-soft">{dish.description}</p>}
           {rotating && (
             <span className="font-script text-xl text-coral-text">
