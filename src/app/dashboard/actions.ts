@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { Enums, Json } from "@/lib/database.types";
 import { NOTE_MAX, NOTE_MIN, nextStatus } from "@/lib/board";
 import { addDays, weekdayName, weekStart } from "@/lib/format";
-import { clashMessage, dow, REFUSAL_FIELD } from "@/lib/planner";
+import { clashMessage, dow, newDishPlanProblem, REFUSAL_FIELD } from "@/lib/planner";
 import { deletePhotoSet, PHOTO_KEY, photoExists, publicPhotoUrl } from "@/lib/r2";
 import { optionProblem, OPTION_MESSAGES, type OptionInput } from "@/lib/dish-options";
 import { refusal } from "@/lib/supabase/refusal";
@@ -111,6 +111,17 @@ async function saveOptions(supabase: Db, dishId: string, rows: OptionInput[]): P
   return failed("saveDish options", error, "Couldn’t save the dish. Nothing has changed. Try again.");
 }
 
+type DishRow = {
+  name: string;
+  description: string;
+  price_kes: number;
+  category: Enums<"dish_category">;
+  is_regular?: boolean;
+  photo_key?: string;
+  photo_url?: string;
+  photo_thumb_url?: string;
+};
+
 export async function saveDish(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
   const parsed = dishForm.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
@@ -124,16 +135,7 @@ export async function saveDish(_prev: ActionResult, formData: FormData): Promise
   if ("error" in options) return { error: options.error };
   const [supabase, denied] = await staffClient();
   if (!supabase) return denied;
-  const row: {
-    name: string;
-    description: string;
-    price_kes: number;
-    category: Enums<"dish_category">;
-    is_regular?: boolean;
-    photo_key?: string;
-    photo_url?: string;
-    photo_thumb_url?: string;
-  } = {
+  const row: DishRow = {
     name: v.name,
     description: v.description,
     price_kes: v.price_kes,
@@ -153,8 +155,18 @@ export async function saveDish(_prev: ActionResult, formData: FormData): Promise
     row.photo_thumb_url = publicPhotoUrl(v.photo_thumb_key);
   }
 
+  // "Save and add to menu" (a new dish opened from the planner): the dish, its options and its menu
+  // entry are one database call, so a refusal saves nothing and no retry can make a second dish
+  // (Tevin 2026-11-15; RQAPN-01). What the form can get wrong is answered under its field first.
+  if (!v.id && v.add_day && v.add_kind) {
+    const plan = { day: v.add_day, kind: v.add_kind, plates: v.plates_per_day ? v.plates_per_day : null, from: v.show_from ?? "11:00", until: v.show_until ?? "20:00" };
+    const problem = newDishPlanProblem({ everyday: row.is_regular === true, from: plan.from, until: plan.until });
+    if (problem) return problem;
+    if (!v.new_id) return { error: "Reload the page and try again." };
+    return createPlannedDish(supabase, v.new_id, row, options.rows ?? [], plan);
+  }
+
   let dishId: string;
-  let created = false;
   if (v.id) {
     dishId = v.id;
     // Options first: they are the likelier refusal (stale ids), and then nothing has changed.
@@ -179,24 +191,12 @@ export async function saveDish(_prev: ActionResult, formData: FormData): Promise
       const { error: again } = await supabase.from("dishes").update(words).eq("id", dishId);
       if (again) return failed("saveDish retry", again, "Couldn’t save the dish. Try again.");
     } else if (error) return failed("saveDish insert", error, "Couldn’t save the dish. Try again.");
-    // The retry still adds it to the planned day: the try before stopped before that step.
-    created = true;
     if (options.rows && options.rows.length > 0) {
       const refused = await saveOptions(supabase, dishId, options.rows);
       if (refused) return refused;
     }
   }
 
-  if (v.add_day && v.add_kind && (created || v.id)) {
-    const added = await addNewDishToMenu(supabase, dishId, v.name, v.add_day, v.add_kind, {
-      plates: v.plates_per_day ? v.plates_per_day : null,
-      from: v.show_from ?? "11:00",
-      until: v.show_until ?? "20:00",
-    });
-    revalidatePath("/dashboard/menu");
-    if (added) return added;
-    redirect(`/dashboard/menu?day=${v.add_day}`);
-  }
   revalidatePath("/dashboard/manage");
   revalidatePath(`/dashboard/dishes/${dishId}`);
   revalidatePath("/");
@@ -387,36 +387,67 @@ export async function setEntrySoldOut(input: { entryId: string; dishName: string
   return { ok: true };
 }
 
-/** A new dish's "add to the menu" (dish form): the day, or that day to Sunday on its open days. */
-async function addNewDishToMenu(
+/** The days a new dish from the planner goes on: that day, or that day to Sunday on its open days. */
+async function plannedDays(supabase: Db, day: string, kind: Enums<"entry_kind">): Promise<string[] | NonNullable<ActionResult>> {
+  if (kind === "day") return [day];
+  const { data: hours, error } = await supabase.from("opening_hours").select("weekday, is_open");
+  if (error) return failed("plannedDays hours", error, "Couldn’t save the dish. Nothing has changed. Try again.")!;
+  const closed = new Set(hours.filter((h) => !h.is_open).map((h) => h.weekday));
+  const sunday = addDays(weekStart(day), 6);
+  const days: string[] = [];
+  for (let d = day; d <= sunday; d = addDays(d, 1)) if (!closed.has(dow(d))) days.push(d);
+  return days;
+}
+
+/**
+ * "Save and add to menu": create_planned_dish saves the dish, its options and its menu entry in
+ * one transaction, so any refusal leaves nothing saved and Save again starts clean.
+ */
+async function createPlannedDish(
   supabase: Db,
-  dishId: string,
-  dishName: string,
-  day: string,
-  kind: Enums<"entry_kind">,
-  opts: { plates: number | null; from: string; until: string },
+  id: string,
+  row: DishRow,
+  options: OptionInput[],
+  plan: { day: string; kind: Enums<"entry_kind">; plates: number | null; from: string; until: string },
 ): Promise<ActionResult> {
-  let days = [day];
-  if (kind === "week") {
-    const { data: hours, error } = await supabase.from("opening_hours").select("weekday, is_open");
-    if (error) return failed("addNewDishToMenu hours", error, "Saved the dish, but couldn’t add it to the menu. Add it from the planner.");
-    const closed = new Set(hours.filter((h) => !h.is_open).map((h) => h.weekday));
-    const sunday = addDays(weekStart(day), 6);
-    days = [];
-    for (let d = day; d <= sunday; d = addDays(d, 1)) if (!closed.has(dow(d))) days.push(d);
-  }
-  const { error } = await supabase.rpc("add_menu_entry", {
-    p_dish: dishId,
-    p_kind: kind,
+  const days = await plannedDays(supabase, plan.day, plan.kind);
+  if (!Array.isArray(days)) return days;
+  const { data, error } = await supabase.rpc("create_planned_dish", {
+    p_id: id,
+    p_name: row.name,
+    p_description: row.description,
+    p_price_kes: row.price_kes,
+    p_category: row.category,
+    p_photo_key: row.photo_key ?? null,
+    p_photo_url: row.photo_url ?? null,
+    p_photo_thumb_url: row.photo_thumb_url ?? null,
+    p_options: options as unknown as Json,
+    p_kind: plan.kind,
     p_days: days,
-    p_from: opts.from,
-    p_until: opts.until,
-    p_plates: opts.plates,
-    p_price: null,
+    p_from: plan.from,
+    p_until: plan.until,
+    p_plates: plan.plates,
   });
-  if (!error) return null;
-  const r = plannerFailed("addNewDishToMenu", error, { name: dishName, day, mine: kind }, "Saved the dish, but couldn’t add it to the menu. Add it from the planner.");
-  return r.ok ? null : { error: r.error, stale: r.stale };
+  // The database decides whether a form sent twice is its own earlier save (RPN-01): then it returns
+  // that entry, otherwise it refuses. Success always means an entry.
+  if (error) {
+    // The options' refusals are written for the person saving; the planner's go through plannerFailed.
+    if (error.code === "P0001" && !REFUSAL_FIELD[error.details ?? ""]) {
+      console.error("[action] create_planned_dish refused:", error.details ?? "", error.message);
+      return { error: error.message };
+    }
+    const r = plannerFailed("createPlannedDish", error, { name: row.name, day: plan.day, mine: plan.kind }, "Couldn’t save the dish. Nothing has changed. Try again.");
+    if (r.ok) return null;
+    return { error: r.error, stale: r.stale, field: r.field === "hours" ? "show_until" : undefined };
+  }
+  if (!data) {
+    console.error("[action] create_planned_dish returned no entry");
+    return { error: "Couldn’t save the dish. Nothing has changed. Try again." };
+  }
+  revalidatePath("/dashboard/menu");
+  revalidatePath("/dashboard/manage");
+  revalidatePath("/");
+  redirect(`/dashboard/menu?day=${plan.day}`);
 }
 
 // ───────── regular menu ─────────

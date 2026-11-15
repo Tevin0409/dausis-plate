@@ -191,3 +191,16 @@ export function closedLine(kind: "day" | "week", closed: string[]): string {
     ? `Closed on ${names}. Customers won\u2019t see it on those days.`
     : `Closed on ${names}. Customers won\u2019t see it while it\u2019s closed.`;
 }
+
+/**
+ * A new dish's "Save and add to menu" (the planner's "+ New dish"): what the menu step would refuse,
+ * checked before the dish is saved so a refusal saves nothing (Tevin 2026-11-15). The planner never
+ * takes an everyday dish (spec-2.5); that form doesn't offer the switch (Tevin's A), so only a
+ * hand-made request gets that line. Serving must end after it starts (planner_values). The database
+ * still checks both. `field` is the form field the line goes under.
+ */
+export function newDishPlanProblem(v: { everyday: boolean; from: string; until: string }): { field: "is_regular" | "show_until"; error: string } | null {
+  if (v.everyday) return { field: "is_regular", error: "An everyday dish can’t also be planned. Put it on the everyday menu from Dishes." };
+  if (v.until <= v.from) return { field: "show_until", error: "Serving must end after it starts." };
+  return null;
+}
