@@ -4,7 +4,7 @@ import { ExportButton, PeriodControl, TabStrip } from "@/components/reports/cont
 import { OrderSheet } from "@/components/reports/order-sheet";
 import { formatKes, nairobiToday } from "@/lib/format";
 import { changeText, compareLabel, compareWord, parseReportPeriod, periodLabel, periodQuery, type Period } from "@/lib/reports/period";
-import type { DeliveryReport, DishesReport, OrderSheetData, RatingsReport, SalesReport, TimesReport } from "@/lib/reports/types";
+import type { DeliveryReport, DishesReport, OrderSheetData, PromosReport, RatingsReport, SalesReport, TimesReport } from "@/lib/reports/types";
 import { createClient, getStaff } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -52,6 +52,7 @@ export default async function ReportsPage({ searchParams }: Props) {
       : period.tab === "times" ? call<TimesReport>(() => supabase.rpc("report_times", range))
       : period.tab === "delivery" ? call<DeliveryReport>(() => supabase.rpc("report_delivery", range))
       : period.tab === "ratings" ? call<RatingsReport>(() => supabase.rpc("report_ratings", range))
+      : period.tab === "promos" ? call<PromosReport>(() => supabase.rpc("report_promos_ads", { ...range, p_ads_whole_run: sp.ads === "run" }))
       : Promise.resolve(null),
     orderParam ? call<OrderSheetData>(() => supabase.rpc("report_order", { p_code: orderParam })) : Promise.resolve(null),
   ]);
@@ -89,7 +90,7 @@ export default async function ReportsPage({ searchParams }: Props) {
         {period.tab === "times" && tab && "data" in tab && <TimesSection d={tab.data as TimesReport} period={period} today={today} />}
         {period.tab === "delivery" && tab && "data" in tab && <DeliverySection d={tab.data as DeliveryReport} period={period} today={today} />}
         {period.tab === "ratings" && tab && "data" in tab && <RatingsSection d={tab.data as RatingsReport} period={period} today={today} />}
-        {period.tab === "promos" && <PromosSection />}
+        {period.tab === "promos" && tab && "data" in tab && <PromosSection d={tab.data as PromosReport} period={period} today={today} />}
       </div>
 
       {orderParam && order && (

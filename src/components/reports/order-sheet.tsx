@@ -162,6 +162,22 @@ export function OrderSheet({ order, error, code, closeHref }: { order: OrderShee
                   <strong className="tabular-nums">{it.quantity}×</strong> {it.name}{it.option ? ` (${it.option})` : ""}
                 </li>
               ))}
+              {/* 2.11: a combo, then its dishes indented, as on the board's ticket. */}
+              {(order.combos ?? []).map((c, i) => (
+                <li key={`c${i}`} className="text-[15px] leading-snug [overflow-wrap:anywhere]">
+                  <strong className="tabular-nums">{c.quantity}×</strong> {c.name}
+                  <ul className="mt-0.5 border-l-2 border-sand-deep pl-3 text-[14px] text-ink-soft">
+                    {c.dishes.map((d, j) => (
+                      <li key={j}>{d.quantity > 1 ? `${d.quantity}\u00a0× ` : ""}{d.name}{d.option ? ` (${d.option})` : ""}</li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+              {order.discount > 0 && (
+                <li className="mt-1.5 flex justify-between gap-3 text-[14px] text-ink-soft tabular-nums">
+                  <span>Discount{order.discount_code ? ` (${order.discount_code})` : ""}</span><span>−{formatKes(order.discount)}</span>
+                </li>
+              )}
               <li className="mt-1.5 flex justify-between text-[15px] font-bold tabular-nums"><span>Total</span><span>{formatKes(order.total)}</span></li>
             </ul>
             <p className="text-[14px] font-semibold tabular-nums">

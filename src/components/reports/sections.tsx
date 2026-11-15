@@ -10,12 +10,13 @@ import { StarRow } from "@/components/shop/rating-card";
 import { dishLine, ratingsHref, sentLabel, starsWord } from "@/lib/ratings";
 import { creditNoteAmount, drawerLine, netOf, plainSigned } from "@/lib/reports/money";
 import { bucketLabel, daysIn, grainFor, periodLabel, shortDay, type Period } from "@/lib/reports/period";
+import { runLabel, tapRate } from "@/lib/reports/promos";
 import {
   CANCEL_LABEL, MODE_LABEL, PAY_CHOICE_LABEL, WEEKDAY_LONG, WEEKDAY_SHORT, hourLabel, minutesLabel,
-  type DeliveryReport, type DishesReport, type DishRow, type RatingsReport, type SalesReport, type TimesReport,
+  type DeliveryReport, type DishesReport, type DishRow, type PromosReport, type RatingsReport, type SalesReport, type TimesReport,
 } from "@/lib/reports/types";
 import { BarChart, ChartCard, ChartTable, HBarChart, HeatGrid, LineChart, Meter, type Col } from "./charts";
-import { DownloadLink } from "./controls";
+import { AdsRunChoice, DownloadLink } from "./controls";
 
 const nb = (n: number) => new Intl.NumberFormat("en-KE", { maximumFractionDigits: 0 }).format(n);
 const plural = (n: number, one: string, many = `${one}s`) => `${nb(n)} ${n === 1 ? one : many}`;
@@ -79,6 +80,7 @@ export function SalesSection({ d, period, today }: { d: SalesReport; period: Per
     { key: "d", head: grain === "day" ? "Day" : grain === "week" ? "Week" : "Month", cell: (r) => bucketLabel(grain, r.bucket), sticky: true, sort: (r) => r.bucket },
     { key: "o", head: "Orders", cell: (r) => nb(r.orders), num: true, sort: (r) => r.orders },
     { key: "f", head: "Food", cell: (r) => nb(r.food), num: true, sort: (r) => r.food },
+    { key: "di", head: "Discounts", cell: (r) => (r.discounts ? `−${nb(r.discounts)}` : "0"), num: true, sort: (r) => r.discounts },
     { key: "fe", head: "Delivery fees", cell: (r) => nb(r.fees), num: true, sort: (r) => r.fees },
     { key: "s", head: "Sales", cell: (r) => nb(r.sales), num: true, sort: (r) => r.sales },
   ];
@@ -364,14 +366,14 @@ export function TimesSection({ d, period, today }: { d: TimesReport; period: Per
 
 // ───────────────────────── Delivery & tables ─────────────────────────
 export function DeliverySection({ d, period, today }: { d: DeliveryReport; period: Period; today: string }) {
-  const zones = d.zones.map((z) => ({ key: z.zone, label: z.zone, value: z.orders, end: `${plural(z.orders, "order")} · fees ${formatKes(z.fees)}`, tip: `${z.zone} · ${plural(z.orders, "order")} · fees ${formatKes(z.fees)} · food ${formatKes(z.food)}` }));
+  const zones = d.zones.map((z) => ({ key: z.zone, label: z.zone, value: z.orders, end: `${plural(z.orders, "order")} · fees ${formatKes(z.fees)}`, tip: `${z.zone} · ${plural(z.orders, "order")} · fees ${formatKes(z.fees)} · food ${formatKes(z.food)}${z.discounts ? ` · discounts −${formatKes(z.discounts)}` : ""}` }));
   return (
     <div className="grid grid-cols-1 gap-3.5 min-[1024px]:grid-cols-2">
       <ChartCard
         id="delivery"
         title="Delivery by area"
         chart={zones.length === 0 ? <Empty>No delivery orders {period.from === period.to ? `on ${periodLabel(period, today)}` : "in this period"}.</Empty> : <HBarChart data={zones} title="Delivery by area" />}
-        table={<ChartTable caption="Delivery by area" rows={d.zones} rowKey={(r) => r.zone} cols={[{ key: "z", head: "Area", cell: (r) => r.zone, sticky: true }, { key: "o", head: "Orders", cell: (r) => nb(r.orders), num: true }, { key: "f", head: "Fees", cell: (r) => nb(r.fees), num: true }, { key: "fo", head: "Food", cell: (r) => nb(r.food), num: true }]} />}
+        table={<ChartTable caption="Delivery by area" rows={d.zones} rowKey={(r) => r.zone} cols={[{ key: "z", head: "Area", cell: (r) => r.zone, sticky: true }, { key: "o", head: "Orders", cell: (r) => nb(r.orders), num: true }, { key: "f", head: "Fees", cell: (r) => nb(r.fees), num: true }, { key: "fo", head: "Food", cell: (r) => nb(r.food), num: true }, { key: "di", head: "Discounts", cell: (r) => (r.discounts ? `−${nb(r.discounts)}` : "0"), num: true }]} />}
       />
       <Card title="Table requests"><Empty>No table requests in this period.</Empty></Card>
     </div>
@@ -496,13 +498,59 @@ export function RatingsSection({ d, period, today }: { d: RatingsReport; period:
   );
 }
 
-// ───────────────────────── Promos & ads (2.11 merges later) ─────────────────────────
-export function PromosSection() {
+// ───────────────────────── Promos & ads (2.11) ─────────────────────────
+const SPACE_LABEL: Record<string, string> = { menu: "Menu", order: "Order page" };
+/** Taps ÷ views, one decimal place; not shown under 50 views (spec-2.12). */
+export function PromosSection({ d, period, today }: { d: PromosReport; period: Period; today: string }) {
+  const inPeriod = period.from === period.to ? `on ${periodLabel(period, today)}` : "in this period";
+  const codeCols: Col<PromosReport["codes"][number]>[] = [
+    {
+      key: "c", head: "Code", sticky: true, sort: (r) => r.code,
+      cell: (r) => (
+        <span className="inline-flex items-center gap-2 font-semibold">
+          {r.code}
+          {!r.active && <span className="inline-flex min-h-5 items-center rounded-full bg-sand px-2 text-[12px] font-bold text-ink-soft">Off</span>}
+        </span>
+      ),
+    },
+    { key: "u", head: "Uses", cell: (r) => nb(r.uses), num: true, sort: (r) => r.uses },
+    { key: "d", head: "Discount given", cell: (r) => nb(r.discount), num: true, sort: (r) => r.discount },
+    { key: "s", head: "Sales with the code", cell: (r) => nb(r.sales), num: true, sort: (r) => r.sales },
+  ];
+  const comboCols: Col<PromosReport["combos"][number]>[] = [
+    { key: "c", head: "Combo", cell: (r) => <span className="[overflow-wrap:anywhere]">{r.combo}</span>, sticky: true, sort: (r) => r.combo },
+    { key: "s", head: "Sold", cell: (r) => nb(r.sold), num: true, sort: (r) => r.sold },
+    { key: "r", head: "Revenue", cell: (r) => nb(r.revenue), num: true, sort: (r) => r.revenue },
+  ];
+  const adCols: Col<PromosReport["ads"][number]>[] = [
+    { key: "a", head: "Advertiser", cell: (r) => <span className="font-semibold [overflow-wrap:anywhere]">{r.advertiser}</span>, sticky: true, sort: (r) => r.advertiser },
+    { key: "sp", head: "Space", cell: (r) => <span className="whitespace-nowrap">{SPACE_LABEL[r.space] ?? r.space}</span>, sort: (r) => r.space },
+    { key: "r", head: "Runs", cell: (r) => <span className="whitespace-nowrap">{runLabel(r.starts_on, r.ends_on, today)}</span>, sort: (r) => r.starts_on },
+    { key: "v", head: "Views", cell: (r) => nb(r.views), num: true, sort: (r) => r.views },
+    { key: "t", head: "Taps", cell: (r) => nb(r.taps), num: true, sort: (r) => r.taps },
+    { key: "tr", head: "Tap rate", cell: (r) => tapRate(r.taps, r.views), num: true, sort: (r) => (r.views < 50 ? -1 : r.taps / r.views) },
+  ];
   return (
     <div className="grid grid-cols-1 gap-3.5 min-[1024px]:grid-cols-2">
-      <Card title="Codes"><Empty>No codes used in this period.</Empty></Card>
-      <Card title="Combos"><Empty>No combos sold in this period.</Empty></Card>
-      <Card title="Ads, for invoicing" wide><Empty>No ad views in this period.</Empty></Card>
+      <Card title="Codes" note="Orders that weren’t cancelled.">
+        {d.codes.length === 0 ? <Empty>No codes yet.</Empty> : (
+          <ChartTable caption="Codes" cols={codeCols} rows={d.codes} rowKey={(r) => r.code} defaultSort={{ key: "u", dir: "desc" }} dim={(r) => r.uses === 0} />
+        )}
+      </Card>
+      <Card title="Combos" note="Revenue is the combo price with its choices and extras.">
+        {d.combos.length === 0 ? <Empty>No combos sold {inPeriod}.</Empty> : (
+          <ChartTable caption="Combos" cols={comboCols} rows={d.combos} rowKey={(r) => r.combo} defaultSort={{ key: "s", dir: "desc" }} />
+        )}
+      </Card>
+      <Card title="Ads, for invoicing" wide note="Counts are a fair guide, not an audit.">
+        <AdsRunChoice period={period} wholeRun={d.ads_whole_run} />
+        {d.ads_whole_run && <p className="text-[13px] font-semibold text-ink-soft">Ignoring the period above</p>}
+        {d.ads.length === 0 ? (
+          <Empty>{d.ads_whole_run ? "No ad has had views yet. Ads with no views aren’t listed." : `No ad views ${inPeriod}. Ads with no views aren’t listed.`}</Empty>
+        ) : (
+          <ChartTable caption="Ads, for invoicing" cols={adCols} rows={d.ads} rowKey={(r) => r.id} defaultSort={{ key: "v", dir: "desc" }} />
+        )}
+      </Card>
     </div>
   );
 }

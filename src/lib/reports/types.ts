@@ -39,7 +39,8 @@ export type SalesReport = {
   first_order_day: string | null;
   tiles: Tiles;
   compare: Tiles | null;
-  by_bucket: { bucket: string; sales: number; orders: number; food: number; fees: number }[];
+  /** food is at menu value; food − discounts + fees = sales (2.11, Tevin's Food A). */
+  by_bucket: { bucket: string; sales: number; orders: number; food: number; discounts: number; fees: number }[];
   by_hour: { hour: number; sales: number; orders: number }[];
   by_payment_method: { method: string; orders: number; paid: number; not_paid: number }[];
   by_mode: { mode: string; orders: number; sales: number }[];
@@ -92,7 +93,15 @@ export type RatingsReport = {
   recent: { code: string; stars: number; comment: string; sent_at: string; hidden: boolean; reply: string | null; replied_at: string | null; dishes: string[] }[];
 };
 
-export type DeliveryReport = { zones: { zone: string; orders: number; fees: number; food: number }[] };
+export type DeliveryReport = { zones: { zone: string; orders: number; fees: number; food: number; discounts: number }[] };
+
+/** report_promos_ads (2.11): orders that aren't cancelled, in the period; ads in the period or over each ad's whole run. */
+export type PromosReport = {
+  codes: { code: string; active: boolean; uses: number; discount: number; sales: number }[];
+  combos: { combo: string; sold: number; revenue: number }[];
+  ads_whole_run: boolean;
+  ads: { id: string; advertiser: string; space: "menu" | "order"; starts_on: string; ends_on: string; views: number; taps: number }[];
+};
 
 export type OrderSheetData = {
   id: string;
@@ -107,6 +116,9 @@ export type OrderSheetData = {
   total: number;
   subtotal: number;
   fee: number;
+  /** 2.11: the code's discount (0 without one) and the code as placed. */
+  discount: number;
+  discount_code: string | null;
   payment_method: string;
   payment_status: string;
   paid_with: "cash" | "mpesa" | "card" | null;
@@ -114,6 +126,8 @@ export type OrderSheetData = {
   table: string | null;
   zone: string | null;
   items: { name: string; option: string | null; quantity: number; unit: number }[];
+  /** 2.11: each combo at its price with its choices and extras; quantity per dish is per combo. */
+  combos: { name: string; quantity: number; unit: number; dishes: { name: string; option: string | null; quantity: number }[] }[];
   credit_notes: {
     id: string;
     code: string;

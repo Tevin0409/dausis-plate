@@ -41,10 +41,10 @@ export async function GET(req: NextRequest) {
       if (error) throw error;
       const rows = (data ?? []) as unknown as Record<string, Cell>[];
       return csv(fileName("orders", p.from, p.to), [
-        "Order", "Date", "Time", "Type", "Table or area", "Items", "Subtotal (KSh)", "Delivery fee (KSh)", "Total (KSh)", "Customer chose", "Payment status",
+        "Order", "Date", "Time", "Type", "Table or area", "Items", "Subtotal (KSh)", "Delivery fee (KSh)", "Discount (KSh)", "Code", "Total (KSh)", "Customer chose", "Payment status",
         "Paid with", "Paid on", "Paid at", "Status", "Cancel reason", "Cancel note", "Customer name", "Credit note", "Credit note amount (KSh)",
       ], rows.map((r) => [
-        r.code, r.day, r.at_time, MODE_LABEL[String(r.mode)] ?? r.mode, r.place, r.items, r.subtotal_kes, r.fee_kes, r.total_kes,
+        r.code, r.day, r.at_time, MODE_LABEL[String(r.mode)] ?? r.mode, r.place, r.items, r.subtotal_kes, r.fee_kes, r.discount_kes, r.discount_code, r.total_kes,
         PAY_CHOICE_LABEL[String(r.payment_method)] ?? r.payment_method, r.payment_status === "paid" ? "Paid" : "Not paid", WITH[String(r.paid_with)] ?? r.paid_with,
         r.paid_day, r.paid_time, STATUS[String(r.status)] ?? r.status, r.cancel_reason ? (CANCEL_LABEL[String(r.cancel_reason)] ?? r.cancel_reason) : "", r.cancel_note, r.customer_name,
         r.credit_note, r.credit_note_kes,
@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
       if (error) throw error;
       const r = data as unknown as SalesReport;
       const grain = r.grain === "day" ? "Day" : r.grain === "week" ? "Week starting" : "Month starting";
-      const sales = toCsv([grain, "Orders", "Food (KSh)", "Delivery fees (KSh)", "Sales (KSh)"], r.by_bucket.map((b) => [b.bucket, b.orders, b.food, b.fees, b.sales]));
+      const sales = toCsv([grain, "Orders", "Food (KSh)", "Discounts (KSh)", "Delivery fees (KSh)", "Sales (KSh)"], r.by_bucket.map((b) => [b.bucket, b.orders, b.food, b.discounts, b.fees, b.sales]));
       const money = toCsv(
         [grain, "Cash (KSh)", "M-Pesa (KSh)", "M-Pesa online (KSh)", "Card (KSh)", "Not recorded (KSh)", "Credit notes (KSh)", "Credit notes voided (KSh)", "Net money in (KSh)"],
         r.money_in.map((m) => [m.bucket, m.cash, m.mpesa, m.mpesa_online, m.card, m.not_recorded, -m.credit_notes, m.credit_notes_voided, netOf(m)]),
@@ -96,7 +96,7 @@ export async function GET(req: NextRequest) {
       const { data, error } = await supabase.rpc("report_delivery", range);
       if (error) throw error;
       const r = data as unknown as DeliveryReport;
-      return csv(fileName("delivery", p.from, p.to), ["Area", "Orders", "Delivery fees (KSh)", "Food (KSh)"], r.zones.map((z) => [z.zone, z.orders, z.fees, z.food]));
+      return csv(fileName("delivery", p.from, p.to), ["Area", "Orders", "Delivery fees (KSh)", "Food (KSh)", "Discounts (KSh)"], r.zones.map((z) => [z.zone, z.orders, z.fees, z.food, z.discounts]));
     }
   } catch (e) {
     const err = e as { code?: string; message?: string };

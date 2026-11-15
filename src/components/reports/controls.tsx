@@ -13,6 +13,21 @@ const href = (p: Pick<Period, "range" | "from" | "to" | "tab">, extra?: Record<s
 const SEG =
   "press flex min-h-11 flex-auto items-center justify-center whitespace-nowrap px-2 text-[14px] font-semibold touch-manipulation select-none [-webkit-touch-callout:none] [-webkit-tap-highlight-color:transparent] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-teal-deep";
 
+/**
+ * Above "Ads, for invoicing" (spec-2.12): "This period" · "Each ad's whole run". The URL carries it
+ * (&ads=run), so the server reads the right figures and Back undoes it; it changes only that table.
+ */
+export function AdsRunChoice({ period, wholeRun }: { period: Period; wholeRun: boolean }) {
+  // At 320 px the long label wraps inside its 44 px height so the pair stays in the card.
+  const cls = (on: boolean, wrap = false) => `${SEG} px-4 max-[359px]:px-3 ${wrap ? "max-[359px]:whitespace-normal max-[359px]:text-center max-[359px]:leading-tight" : "flex-none"} ${on ? "bg-teal-deep text-white" : "bg-paper text-ink"}`;
+  return (
+    <div role="group" aria-label="Ad figures for" className="flex self-start overflow-hidden rounded-full ring-[1.5px] ring-sand-deep ring-inset max-[599px]:w-full">
+      <Link href={href(period)} replace scroll={false} aria-current={!wholeRun ? "true" : undefined} className={cls(!wholeRun)}>This period</Link>
+      <Link href={href(period, { ads: "run" })} replace scroll={false} aria-current={wholeRun ? "true" : undefined} className={cls(wholeRun, true)}>Each ad’s whole run</Link>
+    </div>
+  );
+}
+
 /** Today · This week · This month · Pick dates. Today is the default. The change is instant: no sliding indicator. */
 export function PeriodControl({ period, today, firstOrderDay }: { period: Period; today: string; firstOrderDay: string | null }) {
   const router = useRouter();
