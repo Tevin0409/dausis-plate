@@ -19,9 +19,10 @@ export type OrderRefusal = {
 /**
  * What a dashboard form action returns: null on success, or a message for the person who tapped.
  * `stale` marks a refusal for a job the person no longer holds (slice 2.3): the form shows the line,
- * then refreshes the page so the control goes.
+ * then refreshes the page so the control goes. `field` names the form field the error belongs to,
+ * when it's one field's (the dish editor shows it there as well as in the save bar).
  */
-export type ActionResult = { error: string; refused?: OrderRefusal; stale?: boolean } | null;
+export type ActionResult = { error: string; refused?: OrderRefusal; stale?: boolean; field?: string } | null;
 
 /**
  * A board action's result: as ActionResult, or on success the order's version after it (null when

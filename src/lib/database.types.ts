@@ -642,6 +642,25 @@ export type Database = {
       unmark_order_paid: { Args: { p_order: string; p_version: number }; Returns: undefined };
       copy_menu_day: { Args: { p_from: string; p_to: string }; Returns: Json };
       copy_menu_week_preview: { Args: { p_week_start: string }; Returns: Json };
+      create_planned_dish: {
+        Args: {
+          p_id: string;
+          p_name: string;
+          p_description: string;
+          p_price_kes: number;
+          p_category: Database["public"]["Enums"]["dish_category"];
+          p_photo_key: string | null;
+          p_photo_url: string | null;
+          p_photo_thumb_url: string | null;
+          p_options: Json;
+          p_kind: Database["public"]["Enums"]["entry_kind"];
+          p_days: string[];
+          p_from: string;
+          p_until: string;
+          p_plates: number | null;
+        };
+        Returns: string;
+      };
       add_menu_entry: {
         Args: {
           p_dish: string;

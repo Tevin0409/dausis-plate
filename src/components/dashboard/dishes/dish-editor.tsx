@@ -6,6 +6,7 @@ import { PhotoUpload } from "@/components/dashboard/photo-upload";
 import { Switch } from "@/components/dashboard/switch";
 import { useReportRefusal } from "@/components/dashboard/refusal-note";
 import { dayLabel } from "@/lib/format";
+import { newDishPlanProblem } from "@/lib/planner";
 import { OptionsEditor, type OptionsEditorHandle } from "./options-editor";
 import type { SavedOption } from "./option-out";
 
@@ -89,6 +90,10 @@ export function DishEditor(props: {
 }) {
   const [epoch, setEpoch] = useState(0);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  // The page makes a new id on every render, and a save that fails after the dish part (the menu
+  // step) refreshes the page. Keep the first one, so Save again finds that dish instead of
+  // creating a second copy (Tevin 2026-11-15).
+  const [newId] = useState(props.newId);
   // After a save the form is rebuilt from the page's props, which are the saved dish (new options
   // now have ids). The refreshed props can land a render after the action returns, so the key also
   // carries what was saved: when they arrive the form rebuilds again. Out today and the everyday
@@ -102,6 +107,7 @@ export function DishEditor(props: {
     <EditorForm
       key={`${epoch}:${saved}`}
       {...props}
+      newId={newId}
       savedAt={savedAt}
       onSaved={() => {
         setSavedAt(clock());
@@ -126,13 +132,24 @@ function EditorForm({
 }: Parameters<typeof DishEditor>[0] & { savedAt: string | null; onSaved: () => void; onCancel: () => void }) {
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The field a refused save's line belongs to ("show_until"), shown there too.
+  const [errorField, setErrorField] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const opts = useRef<OptionsEditorHandle>(null);
   const reportRefusal = useReportRefusal();
   const changed = () => {
     setDirty(true);
     setError(null);
+    setErrorField(null);
   };
+  function fieldError(form: HTMLFormElement, field: string | undefined, text: string) {
+    setError(text);
+    setErrorField(field ?? null);
+    if (field !== "show_until") return;
+    form.querySelector<HTMLElement>('[name="show_until"]')?.focus();
+    // The line under the field renders next frame; bring it above the save bar too (html.savebar-pad).
+    requestAnimationFrame(() => document.getElementById("hours-error")?.scrollIntoView({ block: "nearest" }));
+  }
 
   // While the bar shows, focus and scrollIntoView stop above it (globals.css html.savebar-pad).
   useEffect(() => {
@@ -148,12 +165,22 @@ function EditorForm({
       setError("Check the choices and extras, then save again.");
       return;
     }
-    const data = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    const data = new FormData(form);
+    if (isNew && planDay) {
+      const problem = newDishPlanProblem({
+        everyday: data.get("is_regular") === "on",
+        from: String(data.get("show_from") ?? ""),
+        until: String(data.get("show_until") ?? ""),
+      });
+      if (problem) return fieldError(form, problem.field, problem.error);
+    }
     setError(null);
+    setErrorField(null);
     startTransition(async () => {
       const r = await saveDish(null, data);
       if (r?.error) {
-        setError(r.error);
+        fieldError(form, r.field, r.error);
         if (r.stale) setTimeout(() => reportRefusal(r.error), 3000);
         return;
       }
@@ -210,8 +237,10 @@ function EditorForm({
 
         {(everyday || planDay) && (
           <section aria-label="Where it's sold" className={`${card} min-[1280px]:col-start-1 min-[1280px]:row-start-2`}>
-            {everyday && <EverydaySwitch dishId={dish?.id ?? null} initial={dish?.is_regular ?? regularDefault} onFormChange={changed} />}
-            {planDay && <PlanDayFields day={planDay} />}
+            {/* A new dish from the planner is for planned days; the everyday menu is set from Dishes
+                (Tevin 2026-11-15, A), so the switch isn't offered there. */}
+            {everyday && !planDay && <EverydaySwitch dishId={dish?.id ?? null} initial={dish?.is_regular ?? regularDefault} onFormChange={changed} />}
+            {planDay && <PlanDayFields day={planDay} hoursError={errorField === "show_until" ? error : null} />}
           </section>
         )}
       </div>
@@ -245,7 +274,7 @@ function EditorForm({
   );
 }
 
-function PlanDayFields({ day }: { day: string }) {
+function PlanDayFields({ day, hoursError }: { day: string; hoursError: string | null }) {
   return (
     <fieldset className="flex flex-col gap-3.5">
       <legend className="mb-2 text-sm font-semibold">Add to {dayLabel(day, "long")}</legend>
@@ -273,9 +302,22 @@ function PlanDayFields({ day }: { day: string }) {
         </label>
         <label className={label}>
           Until
-          <input name="show_until" type="time" defaultValue="20:00" className={field} />
+          <input
+            name="show_until"
+            type="time"
+            defaultValue="20:00"
+            aria-invalid={hoursError ? true : undefined}
+            aria-describedby={hoursError ? "hours-error" : undefined}
+            className={field}
+          />
         </label>
       </div>
+      {hoursError && (
+        // No role="alert": the save bar (role="status") announces it, and focus lands on Until, which reads it.
+        <p id="hours-error" className="note-in text-[13px] font-semibold text-coral-ink">
+          {hoursError}
+        </p>
+      )}
     </fieldset>
   );
 }
